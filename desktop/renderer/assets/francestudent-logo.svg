@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="FranceStudent">
+  <!-- Logo de remplacement : remplacer ce fichier par le logo officiel FranceStudent (même nom). -->
+  <defs>
+    <clipPath id="r"><rect width="64" height="64" rx="14"/></clipPath>
+  </defs>
+  <g clip-path="url(#r)">
+    <rect width="22" height="64" fill="#002395"/>
+    <rect x="21" width="22" height="64" fill="#ffffff"/>
+    <rect x="42" width="22" height="64" fill="#ed2939"/>
+  </g>
+  <text x="32" y="42" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="26" font-weight="800" fill="#0b1b4d">FS</text>
+</svg>

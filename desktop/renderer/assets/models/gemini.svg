@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Gemini">
+  <!-- Pictogramme simplifié (remplaçable par le logo officiel, même nom de fichier). -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4285f4"/>
+      <stop offset="1" stop-color="#9b72cb"/>
+    </linearGradient>
+  </defs>
+  <rect width="24" height="24" rx="5" fill="#1f1f1f"/>
+  <path d="M12 3c.6 4.6 3.4 7.4 9 9-5.6 1.6-8.4 4.4-9 9-.6-4.6-3.4-7.4-9-9 5.6-1.6 8.4-4.4 9-9z" fill="url(#g)"/>
+</svg>

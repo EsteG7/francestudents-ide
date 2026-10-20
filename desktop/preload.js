@@ -1,0 +1,76 @@
+"use strict";
+
+/**
+ * Pont sécurisé entre la fenêtre (renderer, sans Node) et le processus principal.
+ * Seules les actions listées ici sont exposées, sous window.frst.
+ */
+
+const { contextBridge, ipcRenderer } = require("electron");
+
+function call(name, ...args) {
+    return ipcRenderer.invoke(`frst:${name}`, ...args).then((res) => {
+        if (!res || !res.ok) throw new Error(res && res.error ? res.error : "Erreur inconnue.");
+        return res.value;
+    });
+}
+
+contextBridge.exposeInMainWorld("frst", {
+    bootstrap: () => call("bootstrap"),
+    submit: (text, attachments) => call("submit", String(text ?? ""), Array.isArray(attachments) ? attachments : []),
+    resolvePrompt: (id, value) => call("resolvePrompt", id, value),
+    interrupt: () => call("interrupt"),
+    status: () => call("status"),
+    models: () => call("models"),
+    setModel: (id) => call("setModel", id),
+    setEditorContext: (files, active) => call("setEditorContext", files, active),
+    openProject: (dir) => call("openProject", dir ?? null),
+    listDir: (rel) => call("listDir", rel ?? "."),
+    readFile: (rel) => call("readFile", rel),
+    writeFile: (rel, content) => call("writeFile", rel, content),
+    revealInExplorer: (rel) => call("revealInExplorer", rel),
+    openExternal: (url) => call("openExternal", url),
+    listAllFiles: () => call("listAllFiles"),
+    searchText: (query, options) => call("searchText", String(query ?? ""), options ?? {}),
+    createEntry: (rel, kind) => call("createEntry", rel, kind === "directory" ? "directory" : "file"),
+    renameEntry: (from, to) => call("renameEntry", from, to),
+    trashEntry: (rel) => call("trashEntry", rel),
+    runTerminal: (line, cwd) => call("runTerminal", String(line ?? ""), String(cwd ?? ".")),
+    terminalCd: (cwd, target) => call("terminalCd", String(cwd ?? "."), String(target ?? "")),
+    killTerminal: (id) => call("killTerminal", id),
+    ptyAvailable: () => call("ptyAvailable"),
+    ptyCreate: (cwd, cols, rows) => call("ptyCreate", String(cwd ?? "."), Number(cols) || 80, Number(rows) || 24),
+    ptyWrite: (id, data) => call("ptyWrite", Number(id), String(data ?? "")),
+    ptyResize: (id, cols, rows) => call("ptyResize", Number(id), Number(cols) || 80, Number(rows) || 24),
+    ptyKill: (id) => call("ptyKill", Number(id)),
+    usage: () => call("usage"),
+    setAutoApprove: (mode) => call("autoApprove", String(mode ?? "")),
+    mcpList: (action) => call("mcpList", String(action ?? "")),
+    mcpOpenConfig: () => call("mcpOpenConfig"),
+    skillsList: () => call("skillsList"),
+    skillsOpenDir: (scope) => call("skillsOpenDir", String(scope ?? "")),
+    skillsCreate: (name, scope) => call("skillsCreate", String(name ?? ""), String(scope ?? "")),
+    gitStatus: () => call("gitStatus"),
+    gitDiff: (rel, staged) => call("gitDiff", String(rel ?? ""), staged === true),
+    gitShowHead: (rel) => call("gitShowHead", String(rel ?? "")),
+    gitLog: (limit) => call("gitLog", Number(limit) || 50),
+    gitCommit: (message) => call("gitCommit", String(message || "")),
+    githubStatus: () => call("githubStatus"),
+    githubLoginToken: (token) => call("githubLoginToken", String(token || "")),
+    githubLogout: () => call("githubLogout"),
+    githubSetRemote: (spec) => call("githubSetRemote", String(spec || "")),
+    githubCreateRepo: (name, isPublic) => call("githubCreateRepo", String(name || ""), Boolean(isPublic)),
+    githubPush: () => call("githubPush"),
+    githubPull: () => call("githubPull"),
+    githubFetch: () => call("githubFetch"),
+    undoList: () => call("undoList"),
+    undoEntry: (index, at) => call("undoEntry", Number(index), at ? String(at) : null),
+    undoDiff: (index, at) => call("undoDiff", Number(index), at ? String(at) : null),
+    conversationsRecent: (limit) => call("conversationsRecent", Number(limit) || 30),
+    conversationsRename: (id, title) => call("conversationsRename", String(id ?? ""), String(title ?? "")),
+    conversationsRemove: (id) => call("conversationsRemove", String(id ?? "")),
+    onEvent(handler) {
+        const listener = (_event, message) => handler(message.channel, message.data);
+        ipcRenderer.on("frst:event", listener);
+        return () => ipcRenderer.removeListener("frst:event", listener);
+    }
+});
