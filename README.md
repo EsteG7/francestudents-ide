@@ -2,9 +2,5 @@
 
 ## Installation
 
-```bash
-git clone <url-du-depot>
-cd francestudents-ide
-npm run dist:win
-```
+Télécharger le release correspondant à votre os
 
