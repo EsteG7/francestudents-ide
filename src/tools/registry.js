@@ -59,7 +59,8 @@ const MODULES = [
     jobOutputTool,
     jobStopTool,
     require("../mcp/tool"),
-    require("../skills/tool")
+    require("../skills/tool"),
+    require("./web-fetch")
 ];
 
 const TOOLS = {};

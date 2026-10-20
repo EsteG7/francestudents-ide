@@ -127,6 +127,15 @@ test("manager : démarrage, catalogue, appel, arrêt", async () => {
         const catalog = manager.catalog();
         assert.match(catalog, /server "fake", tool "echo"/);
         assert.doesNotMatch(catalog, /"off"/);
+        // Catalogue compact : une ligne par outil, sans schéma JSON.
+        assert.doesNotMatch(catalog, /arguments :/);
+        assert.equal(catalog.split("\n").length, 2);
+
+        // Schéma à la demande.
+        const described = manager.describeTool("fake", "echo");
+        assert.ok(Array.isArray(described.arguments));
+        assert.equal(typeof described.schema, "string");
+        assert.throws(() => manager.describeTool("fake", "nope"), /Outil MCP inconnu/);
 
         const result = await manager.call("fake", "echo", { text: "x" });
         assert.equal(result.text, "echo: x");
@@ -159,6 +168,8 @@ test("manager : sans mcp.json, aucun serveur", async () => {
 test("validateToolCall : mcp_call", () => {
     validateToolCall({ name: "mcp_call", args: { server: "a", tool: "b" } });
     validateToolCall({ name: "mcp_call", args: { server: "a", tool: "b", arguments: { x: 1 } } });
+    validateToolCall({ name: "mcp_call", args: { server: "a", tool: "b", describe: true } });
+    assert.throws(() => validateToolCall({ name: "mcp_call", args: { server: "a", tool: "b", describe: "oui" } }), /booléen/);
     assert.throws(() => validateToolCall({ name: "mcp_call", args: { tool: "b" } }));
     assert.throws(() => validateToolCall({ name: "mcp_call", args: { server: "a" } }));
     assert.throws(() => validateToolCall({ name: "mcp_call", args: { server: "a", tool: "b", arguments: [] } }), /objet/);

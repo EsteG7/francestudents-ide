@@ -471,6 +471,20 @@ async function runAgent(task, options = {}) {
         ui.warn(`Skills indisponibles : ${error.message}`);
     }
 
+    // Réglage extensionsMode : "auto" = l'agent décide seul d'utiliser un skillou un MCP ;
+    // "manual" = seuls les skills / serveurs / outils MCP nommés dans la demande restent proposés.
+    try {
+        const mode = require("../settings").extensionsMode();
+        ({ mcpCatalog, skillsCatalog } = require("./extensions").selectExtensions({
+            mode,
+            task,
+            mcpCatalog,
+            skillsCatalog
+        }));
+    } catch (error) {
+        ui.warn(`Réglage skills/MCP illisible : ${error.message}`);
+    }
+
     let planShown = false;
     let stuck = 0;
 

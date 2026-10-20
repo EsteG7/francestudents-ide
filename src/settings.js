@@ -61,6 +61,22 @@ function setAutoApproveCommandsAlways(value) {
     return save({ autoApproveCommandsAlways: value === true });
 }
 
+// Skills et MCP : "auto" = l'agent décide seul s'il en a besoin ;
+// "manual" = seuls les skills / serveurs MCP nommés par l'utilisateur dans sa demande sont proposés.
+const EXTENSIONS_MODES = ["auto", "manual"];
+
+function extensionsMode() {
+    const mode = load().extensionsMode;
+    return EXTENSIONS_MODES.includes(mode) ? mode : "auto";
+}
+
+function setExtensionsMode(value) {
+    if (!EXTENSIONS_MODES.includes(value)) {
+        throw new Error(`Mode invalide : ${value} (auto ou manual).`);
+    }
+    return save({ extensionsMode: value });
+}
+
 module.exports = {
     FILE_NAME,
     DEFAULTS,
@@ -70,5 +86,8 @@ module.exports = {
     autoApproveAlways,
     setAutoApproveAlways,
     autoApproveCommandsAlways,
-    setAutoApproveCommandsAlways
+    setAutoApproveCommandsAlways,
+    EXTENSIONS_MODES,
+    extensionsMode,
+    setExtensionsMode
 };

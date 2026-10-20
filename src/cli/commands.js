@@ -38,7 +38,7 @@ function showHelp() {
     ["/jobs [stop <id>|stop-all]", "Commandes en arrière-plan (liste / arrêt)"],
     ["/mcp [tools [serveur]|restart|stop]", "Serveurs MCP (mcp.json) : liste, outils détaillés, redémarrage, arrêt"],
     ["/skills [show <nom>|new <nom> [projet]|enable <nom>|disable <nom>]", "Skills (SKILL.md) : liste, contenu, création, activation"],
-    ["/auto on|off|always|never", "Autoriser sans confirmation (session ou toujours)"],
+    ["/auto on|off|always|never", "Autoriser sans confirmation (session ou toujours)"], ["/extensions auto|manual", "Skills et MCP : l'agent décide seul, ou seulement ceux nommés dans la demande"],
     ["/auto commands on|off|always|never", "Lancer toutes les commandes sans confirmation (interdites toujours bloquées)"],
     ["/mode auto|agent|chat", "Quand utiliser les outils fichiers"],
     ["/new", "Nouvelle conversation"],
@@ -730,6 +730,27 @@ ui.info(
 
       ui.print(c.bold("Consommation"));
       lines.forEach((line) => ui.print(`  ${line}`));
+      break;
+    }
+
+    case "/extensions": {
+      const settings = require("../settings");
+
+      if (!["auto", "manual"].includes(value)) {
+        ui.info(`Skills et MCP : ${settings.extensionsMode()} (usage : /extensions auto|manual)`);
+        break;
+      }
+
+      try {
+        settings.setExtensionsMode(value);
+        ui.info(
+          value === "auto"
+            ? "Skills et MCP : l'agent décide seul s'il en a besoin (réglage permanent)."
+            : "Skills et MCP : seuls ceux que tu nommes dans ta demande sont proposés à l'agent (réglage permanent).",
+        );
+      } catch (error) {
+        ui.error(`Réglage non enregistré : ${error.message}`);
+      }
       break;
     }
 

@@ -21,6 +21,19 @@ async function run(args) {
     const manager = getManager();
     await manager.ensureStarted();
 
+    // Mode description : lecture seule, sans confirmation. Renvoie le schéma d'arguments
+    // d'un outil, que le catalogue du prompt n'inclut plus (économie de tokens).
+    if (args.describe === true) {
+        const details = manager.describeTool(args.server, args.tool);
+        return {
+            server: args.server,
+            tool: args.tool,
+            ...details,
+            changed: false,
+            message: `${args.server}/${args.tool} : schéma des arguments`
+        };
+    }
+
     const toolArgs = args.arguments ?? {};
     manager.findTool(args.server, args.tool);
 
@@ -59,6 +72,9 @@ function check(args) {
         (args.arguments === null || typeof args.arguments !== "object" || Array.isArray(args.arguments))
     ) {
         throw new Error("arguments doit être un objet.");
+    }
+    if (args.describe !== undefined && typeof args.describe !== "boolean") {
+        throw new Error("describe doit être un booléen.");
     }
 }
 

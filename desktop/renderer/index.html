@@ -175,6 +175,17 @@
                     <label class="settings-row"><input type="checkbox" id="set-auto-commands-always"> Toujours, y compris aux prochains démarrages</label>
                     <div class="settings-note">Les commandes interdites (rm, shells, sudo, git push…) restent toujours bloquées.</div>
                 </div>
+                <div class="ext-section">
+                    <div class="ext-section-head"><span>Accès web</span></div>
+                    <label class="settings-row"><input type="checkbox" id="set-web-search"> Recherche web (cette session)</label>
+                    <div class="settings-note">Le modèle peut chercher sur Internet pour répondre (équivalent de /web on dans le CLI).</div>
+                </div>
+                <div class="ext-section">
+                    <div class="ext-section-head"><span>Skills et MCP</span></div>
+                    <label class="settings-row"><input type="radio" name="set-extensions-mode" id="set-extensions-auto" value="auto"> L'agent détecte seul s'il en a besoin</label>
+                    <label class="settings-row"><input type="radio" name="set-extensions-mode" id="set-extensions-manual" value="manual"> Je choisis : seuls ceux nommés dans ma demande</label>
+                    <div class="settings-note">En mode manuel, cite le skill ou le serveur MCP dans ta demande (ex. « utilise le skill pdf », « @rea »). Équivalent de /extensions auto|manual dans le CLI.</div>
+                </div>
                 <div id="settings-message" class="settings-note"></div>
             </div>
             <div class="sidebar-header explorer-only">

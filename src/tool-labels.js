@@ -11,7 +11,8 @@ const TOOL_LABELS = {
     copy_path: "Copier",
     delete_path: "Supprimer",
     remember: "Mémoriser",
-    run_command: "Commande"
+    run_command: "Commande",
+    web_fetch: "Web"
 };
 
 function toolLabel(name) {

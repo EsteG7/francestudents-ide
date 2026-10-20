@@ -16,6 +16,7 @@ const CONFIG_NAME = "mcp.json";
 const NAME_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
 const MAX_RESULT_CHARS = 20_000;
 const MAX_SCHEMA_CHARS = 1_500;
+const MAX_CATALOG_DESCRIPTION = 90; // caractères par outil dans le catalogue du prompt
 
 function defaultConfigFile() {
     return process.env.FS_MCP_CONFIG || path.join(CONFIG.dataDir, CONFIG_NAME);
@@ -242,21 +243,44 @@ function createManager({ configFile = defaultConfigFile, clientFactory = createC
         return [...servers.values()].filter(entry => entry.status === "running");
     }
 
-    /** Catalogue texte des outils MCP pour le prompt de l'agent ("" si aucun). */
+    /** Première phrase d'une description, limitée à MAX_CATALOG_DESCRIPTION caractères. */
+    function shortDescription(raw) {
+        const text = String(raw || "").replace(/\s+/g, " ").trim();
+        const sentence = text.split(/(?<=[.!?])\s/)[0] || text;
+        return sentence.length > MAX_CATALOG_DESCRIPTION
+            ? `${sentence.slice(0, MAX_CATALOG_DESCRIPTION)}…`
+            : sentence;
+    }
+
+    /**
+     * Catalogue texte compact des outils MCP pour le prompt de l'agent ("" si aucun).
+     * Une ligne courte par outil, sans schéma : le schéma s'obtient à la demande
+     * via mcp_call avec "describe": true (voir describeTool).
+     */
     function catalog() {
         const lines = [];
 
         for (const entry of running()) {
             for (const tool of entry.tools) {
-                const description = String(tool.description || "").replace(/\s+/g, " ").slice(0, 300);
+                const description = shortDescription(tool.description);
                 lines.push(
-                    `- server "${entry.def.name}", tool "${tool.name}" : ${description}\n` +
-                    `  arguments : ${compactSchema(tool.inputSchema)}`
+                    `- server "${entry.def.name}", tool "${tool.name}"${description ? ` : ${description}` : ""}`
                 );
             }
         }
 
         return lines.join("\n");
+    }
+
+    /** Description et arguments d'un outil, renvoyés à la demande (mcp_call avec describe). */
+    function describeTool(serverName, toolName) {
+        const { tool } = findTool(serverName, toolName);
+
+        return {
+            description: String(tool.description || "").replace(/\s+/g, " ").trim().slice(0, 1_000),
+            arguments: describeArguments(tool.inputSchema),
+            schema: compactSchema(tool.inputSchema)
+        };
     }
 
     function findTool(serverName, toolName) {
@@ -345,6 +369,7 @@ function createManager({ configFile = defaultConfigFile, clientFactory = createC
         list,
         catalog,
         findTool,
+        describeTool,
         call,
         toolDetails,
         reloadCount

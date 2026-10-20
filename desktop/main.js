@@ -540,6 +540,12 @@ function setAutoApprove(mode) {
         } else if (sub === "on" || sub === "off") {
             state.autoApproveCommands = sub === "on";
         }
+    } else if (value === "web-on" || value === "web-off") {
+        // Recherche web côté serveur (même drapeau que la commande CLI /web on|off).
+        state.webSearch = value === "web-on";
+    } else if (value === "extensions-auto" || value === "extensions-manual") {
+        // Skills et MCP : détection automatique par l'agent ou choix de l'utilisateur (/extensions).
+        settings.setExtensionsMode(value.slice("extensions-".length));
     } else if (value === "always" || value === "never") {
         settings.setAutoApproveAlways(value === "always");
         state.autoApprove = value === "always";
@@ -551,7 +557,9 @@ function setAutoApprove(mode) {
         autoApprove: state.autoApprove,
         always: settings.autoApproveAlways(),
         autoApproveCommands: Boolean(state.autoApproveCommands),
-        commandsAlways: settings.autoApproveCommandsAlways()
+        commandsAlways: settings.autoApproveCommandsAlways(),
+        webSearch: Boolean(state.webSearch),
+        extensionsMode: settings.extensionsMode()
     };
 }
 

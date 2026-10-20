@@ -4,6 +4,7 @@ const { CONFIG } = require("../config");
 const { state } = require("../state");
 const { ui } = require("../ui-bridge");
 const { auth, getAccessToken } = require("./auth");
+const { extractPdfText, isPdf } = require("./pdf-text");
 
 const fmt = n => Number(n).toLocaleString("fr-FR");
 const MAX_REQUEST_FAILURES = 2;
@@ -179,18 +180,73 @@ async function uploadFile(file) {
  */
 async function resolvePendingFiles() {
     const list = Array.isArray(state.pendingFiles) ? state.pendingFiles : [];
-    if (!list.length) return;
+    if (!list.length) return "";
     const ids = [];
+    const blocks = [];
     for (const item of list) {
-        ids.push(typeof item === "string" ? item : await uploadFile(item));
+        if (typeof item === "string") { ids.push(item); continue; }
+        try {
+            ids.push(await uploadFile(item));
+        } catch (error) {
+            // Fichier refusé par le serveur (ex. Files v2 non activé : HTTP 403) :
+            // pour un PDF, le texte est extrait localement et ajouté au message.
+            const block = pdfTextFallback(item, error);
+            if (!block) throw error;
+            blocks.push(block);
+        }
     }
     state.pendingFiles = ids;
+    return blocks.join("\n\n");
+}
+
+/**
+ * Secours quand /filesv2 refuse un fichier : si c'est un PDF, extrait son texte
+ * localement et renvoie un bloc « Fichier joint » à ajouter au message.
+ * Renvoie null si ce n'est pas un PDF (l'erreur d'origine est alors conservée).
+ */
+function pdfTextFallback(item, uploadError) {
+    const name = String(item?.name || "document.pdf").replace(/[\r\n]/g, " ").slice(0, 200);
+    const match = /^data:([^;,]*)(?:;[^,]*)?;base64,([\s\S]*)$/i.exec(String(item?.dataUrl ?? ""));
+    if (!match) return null;
+    const bytes = Buffer.from(match[2], "base64");
+    if (!isPdf(bytes)) return null;
+    let result;
+    try {
+        result = extractPdfText(bytes);
+    } catch (readError) {
+        const error = new Error(
+            `${uploadError.message}\nLecture locale du PDF ${name} impossible : ${readError.message}. ` +
+            "Copiez le texte du document dans le message."
+        );
+        error.status = uploadError.status;
+        throw error;
+    }
+    const status = uploadError.status ? ` (HTTP ${uploadError.status})` : "";
+    ui.warn(
+        `${name} : envoi du fichier refusé par le serveur${status}. ` +
+        `Texte extrait localement${result.pages ? ` (${result.pages} page(s))` : ""} et ajouté au message.`
+    );
+    return `--- Fichier joint : ${name} (texte extrait du PDF) ---\n${result.text}\n--- Fin de ${name} ---`;
+}
+
+const FILE_TEXT_HEADER = "\n\nCONTENU DES FICHIERS JOINTS (texte extrait localement) :\n";
+
+/** Ajoute au message le texte extrait des fichiers, tronqué pour respecter maxMessageChars. */
+function appendFileText(message, fileText) {
+    if (!fileText) return message;
+    const marker = "\n[… tronqué : limite de taille du message]";
+    const room = CONFIG.maxMessageChars - message.length - FILE_TEXT_HEADER.length - marker.length;
+    if (room < 1000) {
+        throw new Error("Message trop long pour y ajouter le texte du PDF joint : raccourcissez le message.");
+    }
+    const text = fileText.length > room ? `${fileText.slice(0, room)}${marker}` : fileText;
+    return `${message}${FILE_TEXT_HEADER}${text}`;
 }
 
 async function requestModel(message, options = {}) {
     if (!options.fresh) {
         await resolvePendingImages();
-        await resolvePendingFiles();
+        message = appendFileText(message, await resolvePendingFiles());
     }
 
     if (message.length > CONFIG.maxMessageChars) {

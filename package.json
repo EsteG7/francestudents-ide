@@ -37,8 +37,8 @@
     "desktop": "electron desktop/main.js",
     "predist:win": "npm run build:renderer",
     "predist:mac": "npm run build:renderer",
-    "dist:win": "electron-builder --win portable nsis",
-    "dist:mac": "electron-builder --mac dmg zip --x64"
+    "dist:win": "electron-builder --win portable nsis --publish never",
+    "dist:mac": "electron-builder --mac dmg zip --x64 --publish never"
   },
   "keywords": [
     "cli",

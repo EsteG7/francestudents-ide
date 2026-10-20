@@ -58,6 +58,11 @@ function applySettings(s) {
     $("set-auto-writes-always").checked = Boolean(s.always);
     $("set-auto-commands").checked = Boolean(s.autoApproveCommands);
     $("set-auto-commands-always").checked = Boolean(s.commandsAlways);
+    if (s.webSearch !== undefined) $("set-web-search").checked = Boolean(s.webSearch);
+    if (s.extensionsMode !== undefined) {
+        $("set-extensions-auto").checked = s.extensionsMode !== "manual";
+        $("set-extensions-manual").checked = s.extensionsMode === "manual";
+    }
     $("st-auto").textContent = s.autoApprove ? "auto-approbation" : "";
 }
 
@@ -85,6 +90,9 @@ $("set-auto-writes").onchange = (e) => changeSetting(e.target.checked ? "on" : "
 $("set-auto-writes-always").onchange = (e) => changeSetting(e.target.checked ? "always" : "never");
 $("set-auto-commands").onchange = (e) => changeSetting(e.target.checked ? "commands-on" : "commands-off");
 $("set-auto-commands-always").onchange = (e) => changeSetting(e.target.checked ? "commands-always" : "commands-never");
+$("set-web-search").onchange = (e) => changeSetting(e.target.checked ? "web-on" : "web-off");
+$("set-extensions-auto").onchange = (e) => { if (e.target.checked) changeSetting("extensions-auto"); };
+$("set-extensions-manual").onchange = (e) => { if (e.target.checked) changeSetting("extensions-manual"); };
 
 /* ---------- Vue Extensions : serveurs MCP et skills (modules réels du CLI) ---------- */
 
