@@ -153,8 +153,16 @@ async function uploadFile(file) {
     });
     const text = await response.text();
     if (!response.ok) {
-        const error = new Error(`Envoi du fichier ${name} impossible : HTTP ${response.status}: ${text.slice(0, 500)}`);
+        const toggle = /unleash toggle\. Expected one of: ([\w.,\s-]+)/i.exec(text)?.[1]?.trim();
+        const error = response.status === 403 && toggle
+            ? new Error(
+                `Envoi du fichier ${name} impossible : l'envoi de fichiers (Files v2) n'est pas activé pour ce compte ` +
+                `(fonctionnalité serveur « ${toggle} » manquante). Contactez le support FranceStudent pour l'activer, ` +
+                `ou collez le texte du document dans le message. (HTTP 403)`
+            )
+            : new Error(`Envoi du fichier ${name} impossible : HTTP ${response.status}: ${text.slice(0, 500)}`);
         error.status = response.status;
+        if (toggle) error.featureToggle = toggle;
         throw error;
     }
     let data = null;

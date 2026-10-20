@@ -82,6 +82,27 @@ test("uploadFile refuse une data URL invalide sans appel réseau", { concurrency
     assert.equal(calls, 0);
 });
 
+test("uploadFile explique le 403 du feature flag Files v2", { concurrency: false }, async () => {
+    prepareAuth();
+    const body = JSON.stringify({
+        status: 403,
+        error: "Forbidden",
+        message: "Missing required unleash toggle. Expected one of: 2026_06_storage",
+        errorCode: "UNAUTHORIZED_ACCESS",
+        path: "/filesv2"
+    });
+    global.fetch = async () => new Response(body, { status: 403 });
+
+    await assert.rejects(
+        uploadFile({ name: "cv.pdf", dataUrl: PDF_DATA_URL }),
+        (error) => error.status === 403 &&
+            error.featureToggle === "2026_06_storage" &&
+            /cv\.pdf/.test(error.message) &&
+            /pas activé pour ce compte/.test(error.message) &&
+            /2026_06_storage/.test(error.message)
+    );
+});
+
 test("resolvePendingFiles garde les ID déjà envoyés", { concurrency: false }, async () => {
     prepareAuth();
     let calls = 0;
