@@ -1,6 +1,4 @@
-# FranceStudent CLI
-
-Interface en ligne de commande pour utiliser ia.francestudent depuis un terminal. Sans projet sélectionné, le CLI fonctionne en chat normal.
+# FranceStudent IDE 
 
 ## Fonctionnalités
 
