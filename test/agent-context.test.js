@@ -12,7 +12,7 @@ process.env.FS_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "fscli-data-"));
 const { CONFIG } = require("../src/config");
 const { state, resetConversation } = require("../src/state");
 const api = require("../src/api/api");
-const { runAgent, fitPrompt, compactObservations } = require("../src/agent/agent");
+const { runAgent, fitPrompt, compactObservations, keepWithinBudget } = require("../src/agent/agent");
 
 const baseContext = {
     workspace: "/tmp/projet",
@@ -71,6 +71,34 @@ test("fitPrompt sans observation ancienne : pas d'historique compacté", () => {
 
     assert.ok(!prompt.includes("historique_compacté"));
     assert.ok(prompt.includes("contenu-1-fin"));
+});
+
+function bigObservation(i, size = 20_000) {
+    return {
+        tool: "read_file",
+        args: { path: `big${i}.js` },
+        ok: true,
+        result: { path: `big${i}.js`, content: `debut-${i}-` + "x".repeat(size) }
+    };
+}
+
+test("keepWithinBudget : limite par taille cumulée, garde toujours la plus récente", () => {
+    const small = Array.from({ length: 20 }, (_, i) => readObservation(i));
+    assert.equal(keepWithinBudget(small, 16), 16);
+
+    const big = Array.from({ length: 10 }, (_, i) => bigObservation(i));
+    assert.equal(keepWithinBudget(big, 16, 30_000), 2);
+    assert.equal(keepWithinBudget([bigObservation(0, 500_000)], 16, 1_000), 1);
+    assert.equal(keepWithinBudget([], 16), 0);
+});
+
+test("fitPrompt compacte les gros résultats anciens même sous le nombre maximal", () => {
+    const observations = Array.from({ length: 8 }, (_, i) => bigObservation(i));
+    const prompt = asText(fitPrompt({ ...baseContext, observations }));
+
+    assert.match(prompt, /historique_compacté/);
+    assert.ok(!prompt.includes("debut-0-"));
+    assert.ok(prompt.includes("debut-7-"));
 });
 
 test("runAgent : un lot répété 3 fois est bloqué par le garde-fou", { concurrency: false }, async () => {

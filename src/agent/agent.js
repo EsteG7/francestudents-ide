@@ -291,13 +291,33 @@ function compactObservations(list, maxEntries = 60) {
     };
 }
 
+const OBSERVATION_BUDGET_CHARS = 60_000;
+
+/**
+ * Nombre d'observations récentes gardées en entier : au plus maxKeep, et tant
+ * que leur taille cumulée reste sous le budget (la plus récente est toujours gardée).
+ */
+function keepWithinBudget(list, maxKeep, budget = OBSERVATION_BUDGET_CHARS) {
+    let total = 0;
+    let keep = 0;
+
+    for (let i = list.length - 1; i >= 0 && keep < maxKeep; i--) {
+        const size = Math.min(JSON.stringify(list[i] ?? null).length, CONFIG.maxObservationChars);
+        if (keep > 0 && total + size > budget) break;
+        total += size;
+        keep++;
+    }
+
+    return keep;
+}
+
 /**
  * Construit le prompt : les observations récentes en entier, les plus anciennes
  * résumées par compactObservations au lieu d'être perdues.
  */
 function fitPrompt(context) {
     const all = context.observations;
-    let keep = Math.min(all.length, CONFIG.maxObservationsInPrompt);
+    let keep = keepWithinBudget(all, Math.min(all.length, CONFIG.maxObservationsInPrompt));
 
     const build = () => {
         const dropped = all.slice(0, all.length - keep);
@@ -748,5 +768,6 @@ module.exports = {
     fitPrompt,
     compactObservations,
     loadAgentContext,
-    clearAgentContextCache
+    clearAgentContextCache,
+    keepWithinBudget
 };
