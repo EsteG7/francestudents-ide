@@ -1,28 +1,71 @@
-name: Build Windows (x64)
+name: Publier les exécutables Windows
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
+    inputs:
+      tag:
+        description: Tag de la release existante (ex. v1.1.2)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
-  build-win-x64:
+  windows:
     runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
-      - run: npm test
-      - name: Construire le .exe portable et l'installeur NSIS pour Windows (x64)
-        run: npm run dist:win
+      - name: Vérifier le tag et les fichiers déjà publiés
+        id: release
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($env:RELEASE_TAG -ne "v$version") { throw "Le tag doit correspondre à package.json : v$version" }
+          $release = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json assets,isPrerelease,isDraft | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw "Release introuvable" }
+          $names = @($release.assets | ForEach-Object { $_.name })
+          $required = @("FranceStudentCode-$version-setup.exe", "FranceStudentCode-$version-portable.exe", "FranceStudentCode-$version-setup.exe.blockmap", "latest.yml", "SHA256SUMS.txt")
+          $missing = @($required | Where-Object { $_ -notin $names })
+          "ready=$($missing.Count -eq 0)".ToLower() >> $env:GITHUB_OUTPUT
+      - name: Installer et vérifier
+        if: steps.release.outputs.ready != 'true'
+        run: |
+          npm install
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run lint
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build:renderer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Construire sans publier de fichiers intermédiaires
+        if: steps.release.outputs.ready != 'true'
+        run: npx electron-builder --win portable nsis --publish never --config.npmRebuild=false
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: FranceStudentCode-win-x64
-          path: |
-            release/*.exe
-          if-no-files-found: error
+      - name: Empreintes et publication des exécutables
+        if: steps.release.outputs.ready != 'true'
+        shell: pwsh
+        run: |
+          $hashes = Get-ChildItem release/*.exe | Sort-Object Name | ForEach-Object {
+            "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          }
+          $hashes | Set-Content release/SHA256SUMS.txt -Encoding utf8NoBOM
+          $assets = @(Get-ChildItem release/*.exe,release/*.blockmap,release/latest.yml,release/SHA256SUMS.txt | ForEach-Object { $_.FullName })
+          gh release upload $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY @assets --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
