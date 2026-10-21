@@ -50,7 +50,7 @@ contextBridge.exposeInMainWorld("frst", {
     inspectFile: file=>call("inspectFile",String(file||"")),
     openFileInApp: file=>call("openFileInApp",String(file||"")),
     revealInExplorer: (rel) => call("revealInExplorer", rel),
-    openExternal: (url) => call("openExternal", url),
+    openExternal: (url, forceSystem=false) => call("openExternal", url, forceSystem===true),
     listAllFiles: () => call("listAllFiles"),
     searchText: (query, options) => call("searchText", String(query ?? ""), options ?? {}),
     createEntry: (rel, kind) => call("createEntry", rel, kind === "directory" ? "directory" : "file"),

@@ -2,6 +2,38 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
+## [1.1.3] — 22 octobre 2026 · Navigateur local, images et pièces jointes
+
+### Navigateur et interface
+
+- Serveurs localhost ouverts dans un onglet Chromium indépendant, avec une barre inspirée du Simple Browser de VS Code : adresse, précédent/suivant, actualiser et ouverture externe.
+- Ouverture depuis les liens du chat, du terminal et le champ d’adresse de l’ancien aperçu.
+- Stockage local, appels API et WebSockets fonctionnels, même pour les pages refusant l’affichage en iframe.
+- Message d’erreur et bouton Réessayer quand le serveur est indisponible ; retour aux onglets de code sans perdre leur contenu.
+- Écran de démarrage du chat réorganisé : cartes alignées, icônes homogènes et actions de contexte lisibles.
+- Enregistrement automatique du modèle par défaut à la sélection, avec confirmation dans les paramètres et conservation après redémarrage.
+
+### Images et captures de l’agent
+
+- Préparation commune des images avant téléversement, y compris les captures ouvertes par `view_image` : copie limitée à 6000 pixels par côté et 5 Mo, original conservé.
+- Correction du refus Claude pour les captures dépassant 8000 pixels ; reprise textuelle possible si une ancienne image hors limites reste dans l’historique serveur.
+- Dimensions et avertissement de lisibilité renvoyés à l’agent après réduction d’une capture.
+- Avertissement pour les pièces jointes du chat fortement réduites ou compressées ; confirmation avant envoi avec conservation du brouillon en cas d’annulation.
+- Arrêt des relances répétées pour les erreurs de requête définitives du fournisseur.
+
+### File d’attente
+
+- Prompts accompagnés de fichiers et d’images, modification des pièces jointes et affichage de leurs noms dans la file.
+- Conservation locale des pièces jointes avec leur tâche après redémarrage, stockage séparé et borné.
+- **Orienter** transmet aussi les fichiers à la prochaine étape de l’agent ; une consigne non transmise reste en attente si la tâche s’arrête.
+- Nettoyage des fichiers liés lors du retrait d’une demande ou de l’effacement des tâches terminées.
+
+### Distribution
+
+- Validation : 562 tests unitaires réussis, 3 ignorés et 12 parcours Electron réussis. Démarrage et redimensionnement d’une grande capture vérifiés dans le paquet Windows.
+- Installateur Windows x64, `.blockmap`, `latest.yml` et empreinte SHA-256 sur GitHub. Les versions portables restent exclusivement locales.
+- Projet original de **EsteG7** ; cette version est une amélioration du fork maintenu par extraopaa.
+
 ## [1.1.2] — 22 octobre 2026 · Images et démarrage
 
 - Correction du prompt d’agent qui excluait à tort les capacités d’image.
@@ -73,3 +105,4 @@ L’historique du [projet de EsteG7](https://github.com/EsteG7/francestudents-id
 
 [1.1.1]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.1
 [1.1.2]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.2
+[1.1.3]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.3

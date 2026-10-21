@@ -120,3 +120,22 @@ html[data-studio-theme="midnight"] {--bg:#11151c;--bg-side:#141a23;--bg-panel:#1
 @media (max-width:1200px){.studio-quick-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.studio-stats{grid-template-columns:repeat(2,minmax(0,1fr));}.studio-header h1{font-size:20px;}}
 @media (max-width:1000px){#app.view-project #project-studio{width:calc(100vw - 48px);padding:0 20px 30px;}.studio-shortcuts{grid-template-columns:1fr;}}
 @media (max-width:650px){.studio-two-columns,.studio-quick-grid{grid-template-columns:1fr;}.studio-stack{display:none;}.studio-header{align-items:flex-start;}.studio-run{flex-wrap:wrap;}.studio-editor-toolbar button{font-size:0;}.studio-editor-toolbar button svg{width:15px;height:15px;}}
+.local-browser-panel{position:absolute;inset:0;z-index:8;background:var(--bg-editor,#1f1f1f);display:flex;flex-direction:column;}
+.local-browser-toolbar{display:flex;align-items:center;gap:5px;padding:7px 9px;background:var(--bg-panel);border-bottom:1px solid var(--border);}
+.local-browser-toolbar button,#local-browser-retry{border:1px solid var(--border-strong);border-radius:5px;background:var(--bg-input);color:var(--fg);padding:5px 9px;cursor:pointer;}
+.local-browser-toolbar button:disabled{opacity:.35;cursor:default;}
+.local-browser-toolbar>button{border:0;background:transparent;min-width:24px;padding:4px;}
+.local-browser-toolbar>button:hover{background:var(--bg-hover);}
+#local-browser-form>button{display:none;}
+#app.local-browser-active #studio-editor-toolbar{display:none;}
+#local-browser-form{display:flex;gap:5px;flex:1;min-width:0;}
+#local-browser-address{flex:1;min-width:0;background:var(--bg-input);color:var(--fg);border:1px solid var(--border-strong);border-radius:5px;padding:6px 9px;font:12px var(--sans);}
+#local-browser-status{font-size:10px;color:var(--fg-dim);padding:5px 10px;border-bottom:1px solid var(--border);}
+#local-browser-status:empty{display:none;}
+#local-browser-host{position:relative;flex:1;min-height:0;background:white;}
+#local-browser-error{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;text-align:center;background:var(--bg-panel);color:var(--fg);}
+#local-browser-error h2{font-size:20px;font-weight:500;}
+#local-browser-error p{max-width:470px;line-height:1.7;color:var(--fg-dim);}
+#local-browser-tab{max-width:260px;}
+#local-browser-tab>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#local-browser-tab .close{border:0;background:transparent;color:inherit;cursor:pointer;}

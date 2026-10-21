@@ -21,6 +21,13 @@ function createLocalBrowser({getWindow,onState=()=>{}}) {
         if(!isolated.frstDownloadGuard){isolated.on("will-download",(_event,item)=>item.cancel());isolated.frstDownloadGuard=true;}
         view=new WebContentsView({webPreferences:{session:isolated,nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}});
         const wc=view.webContents;
+        wc.on("before-input-event",(event,input)=>{
+            if(input.type!=="keyDown")return;
+            const command=input.control||input.meta,key=input.key.toLowerCase();
+            if(command&&key==="l"){event.preventDefault();onState({command:"focus-address"});}
+            if(command&&key==="w"){event.preventDefault();onState({command:"close"});}
+            if((command&&key==="r")||key==="f5"){event.preventDefault();wc.reload();}
+        });
         wc.on("did-start-loading",()=>publish({loading:true,error:""}));
         wc.on("did-stop-loading",()=>publish({loading:false}));
         wc.on("page-title-updated",(_event,title)=>publish({title}));

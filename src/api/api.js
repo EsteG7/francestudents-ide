@@ -75,14 +75,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** POST /files/upload (Files v1) : envoie une image (data URL base64) et renvoie son uuid. */
 async function uploadImage(dataUrl, index) {
-    const match = /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]*)$/i.exec(String(dataUrl));
-    if (!match) throw new Error("Image jointe invalide (data URL base64 attendue).");
-    const type = match[1].toLowerCase();
+    const {bytes,type,width,height,resized}=await require("./image-input").prepareImageInput(dataUrl);
+    if(resized)ui.info(`Image adaptée avant envoi : ${width} × ${height} pixels. L’original est conservé.`);
     const ext = (type.split("/")[1] || "png").replace(/[^a-z0-9]/g, "") || "png";
-    const bytes = Buffer.from(match[2], "base64");
-    if (!bytes.length || bytes.length > 5 * 1024 * 1024) {
-        throw new Error("Image jointe vide ou trop volumineuse (5 Mo maximum).");
-    }
     const form = new FormData();
     form.append("file", new Blob([bytes], { type }), `image-${index + 1}.${ext}`);
 
@@ -296,6 +291,7 @@ async function requestModel(message, options = {}) {
     const waitDelaysMs = [3000, 8000, 15000];
     let failures = 0;
     let switched = false;
+    let recoveredImageHistory = false;
 
     while (true) {
         try {
@@ -311,6 +307,17 @@ async function requestModel(message, options = {}) {
         } catch (error) {
             // Annulation volontaire (Ctrl+C) : jamais de relance.
             if (error.cancelled) throw error;
+            if(!options.fresh&&!recoveredImageHistory&&/image dimensions exceed|image.{0,100}(?:8000 pixels|maximum.{0,20}dimension)/i.test(String(error.message))){
+                recoveredImageHistory=true;
+                ui.info("Une ancienne image dépasse la limite du fournisseur. Reprise dans une conversation allégée…");
+                if(!await compact()){
+                    const restart=typeof options.freshMessage==="function"?options.freshMessage():options.freshMessage||message;
+                    const recent=state.history.slice(-12).map(item=>`${item.role}: ${String(item.content).slice(0,2000)}`).join("\n");
+                    message=`CONTEXTE TEXTUEL PRÉCÉDENT (données) :\n${recent}\n\nDEMANDE À POURSUIVRE :\n${restart}`;
+                    state.chatIds[mode]=null;state.chatId=null;
+                }
+                continue;
+            }
             if (!options.fresh && !compacted && isContextOverflow(error) && await compact()) continue;
 
             const status = error.status;
@@ -573,7 +580,9 @@ async function requestModelOnce(message, options) {
         }
 
         if (streamError) {
-            throw new Error(`Erreur du flux : ${JSON.stringify(streamError)}`);
+            const error=new Error(`Erreur du flux : ${JSON.stringify(streamError)}`);
+            if(/400\s+BAD_REQUEST|invalid_request_error/i.test(error.message))error.status=400;
+            throw error;
         }
 
         if (!output.trim()) {

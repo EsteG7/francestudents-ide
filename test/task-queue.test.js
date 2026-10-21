@@ -8,6 +8,43 @@ const { createTaskQueue } = require("../desktop/task-queue");
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "frst-queue-"));
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 const tick = () => new Promise(resolve => setImmediate(resolve));
+test("orienting sends files exactly once and preserves them when steering is released",()=>{
+    const file=path.join(dir,"steered-files.json"),received=[];
+    const queue=createTaskQueue({file,workspace:()=>"a",canRun:()=>false,run:()=>{},onSteeringFiles:files=>{received.push(files);return "Attached design.png";}});
+    const image={kind:"image",name:"design.png",size:3,data:"data:image/png;base64,YWJj"};
+    queue.action("add",{prompt:"Change layout",attachments:[image]});const id=queue.snapshot().tasks[0].id;
+    queue.action("steer",{id});queue.releaseSteering();assert.equal(queue.snapshot().tasks[0].status,"pending");assert.deepEqual(received,[]);
+    queue.action("steer",{id});assert.deepEqual(queue.takeSteering(),["Change layout\n\nAttached design.png"]);
+    assert.deepEqual(received,[[image]]);assert.deepEqual(queue.takeSteering(),[]);assert.equal(queue.snapshot().tasks[0].status,"steered");
+});
+test("queued attachments survive restart, stay out of snapshots and run with the correct prompt",async()=>{
+    const file=path.join(dir,"with-files.json"),calls=[];
+    const options={file,workspace:()=>"project-a",canRun:()=>true,run:async(prompt,options)=>{calls.push({prompt,attachments:options.attachments});return {ok:true};}};
+    let queue=createTaskQueue(options);
+    const image={name:"design.png",kind:"image",size:3,data:"data:image/png;base64,YWJj"};
+    const text={name:"notes.txt",kind:"text",size:5,data:"notes"};
+    queue.action("add",{prompt:"Use design",attachments:[image]});queue.action("add",{prompt:"Read notes",attachments:[text]});
+    assert.equal(queue.snapshot().tasks[0].attachments[0].data,undefined);
+    queue=createTaskQueue(options);
+    const first=queue.snapshot().tasks[0];
+    assert.deepEqual(queue.action("attachments",{id:first.id}).attachments,[image]);
+    assert.throws(()=>queue.action("steer",{id:first.id}),/pièces jointes/);
+    queue.action("edit",{id:first.id,prompt:"Use changed design"});
+    queue.action("start");for(let i=0;i<8;i++)await tick();
+    assert.deepEqual(calls,[{prompt:"Use changed design",attachments:[image]},{prompt:"Read notes",attachments:[text]}]);
+    queue.action("clear");assert.equal(fs.readdirSync(file+".attachments").length,0);
+});
+test("queued attachments can be edited or removed; missing files stop execution",async()=>{
+    const h=setup("attachment-failure"),image={name:"a.png",kind:"image",data:"data:image/png;base64,YWJj",size:3};
+    h.queue.action("add",{prompt:"A",attachments:[image]});const task=h.queue.snapshot().tasks[0];
+    h.queue.action("edit",{id:task.id,prompt:"A",attachments:[]});assert.deepEqual(h.queue.action("attachments",{id:task.id}).attachments,[]);
+    h.queue.action("edit",{id:task.id,prompt:"A",attachments:[image]});
+    assert.throws(()=>h.queue.action("edit",{id:task.id,prompt:"bad",attachments:[{kind:"bad"}]}),/invalide/);
+    assert.equal(h.queue.snapshot().tasks[0].prompt,"A");
+    fs.unlinkSync(path.join(h.file+".attachments",task.id+".json"));
+    h.queue.action("add",{prompt:"B"});h.queue.action("start");await tick();await tick();
+    assert.deepEqual(h.calls,[]);assert.equal(h.queue.snapshot().tasks[0].status,"failed");assert.equal(h.queue.snapshot().enabled,false);
+});
 function setup(name) {
     let workspace = "project-a";
     let available = true;

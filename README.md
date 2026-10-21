@@ -23,11 +23,11 @@ Fork amélioré · Interface en français · Windows x64
 
 ## Télécharger et démarrer
 
-Version **1.1.2 pour Windows x64**. Aucun Node.js ni npm n’est nécessaire pour utiliser l’installateur.
+Version **1.1.3 pour Windows x64**. Aucun Node.js ni npm n’est nécessaire pour utiliser l’installateur.
 
 | Version | Usage | Téléchargement |
 | --- | --- | --- |
-| **Installateur** | Installation classique et prise en charge des futures mises à jour | [Setup Windows](https://github.com/extraopaa/francestudents-ide/releases/download/v1.1.2/FranceStudentCode-1.1.2-setup.exe) |
+| **Installateur** | Installation classique et prise en charge des futures mises à jour | [Setup Windows](https://github.com/extraopaa/francestudents-ide/releases/download/v1.1.3/FranceStudentCode-1.1.3-setup.exe) |
 
 Les versions portables restent uniquement locales et ne sont plus publiées sur GitHub.
 

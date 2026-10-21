@@ -1787,6 +1787,7 @@ async function openFile(rel) {
 }
 
 function activate(rel) {
+    window.frstBrowserHide?.();
     const previous = currentTab();
     if (previous) {
         previous.scroll = code.scrollTop;
@@ -1944,6 +1945,7 @@ function renderTabs() {
         el.append(fileIcon(t.path, "file"), label, close);
         bar.appendChild(el);
     }
+    window.frstBrowserTab?.();
 }
 
 function closeTab(rel) {
@@ -2147,6 +2149,7 @@ function renderAttachments() {
         label.className = "attachment-name";
         label.textContent = item.name;
         chip.appendChild(label);
+        if(item.readabilityWarning){const warning=document.createElement("span");warning.className="attachment-readability-warning";warning.textContent="⚠ Lisibilité réduite";warning.title=item.readabilityWarning;chip.append(warning);chip.title+=" · "+item.readabilityWarning;}
         const remove = document.createElement("button");
         remove.type = "button";
         remove.className = "attachment-remove";
@@ -2176,9 +2179,8 @@ function formatBytes(n) {
  * format peu pris en charge sont décodées, redimensionnées (2048 px max) puis
  * réencodées (PNG si possible, sinon JPEG) au lieu d'être refusées.
  */
-async function prepareImage(file) {
+async function prepareImage(file,details={}) {
     const direct = DIRECT_IMAGE_TYPES.has(file.type);
-    if (direct && file.size <= MAX_IMAGE_BYTES) return readAsDataUrl(file);
 
     let bitmap;
     try {
@@ -2186,6 +2188,11 @@ async function prepareImage(file) {
     } catch {
         throw new Error(`format d'image illisible (${file.type || "inconnu"}) : utiliser PNG, JPEG, WebP ou GIF`);
     }
+    const projectedScale=Math.min(1,MAX_IMAGE_SIDE/Math.max(bitmap.width,bitmap.height));
+    details.originalWidth=bitmap.width;details.originalHeight=bitmap.height;
+    details.sentWidth=Math.max(1,Math.round(bitmap.width*projectedScale));details.sentHeight=Math.max(1,Math.round(bitmap.height*projectedScale));
+    if(projectedScale<.75||file.size>MAX_IMAGE_BYTES){details.readabilityWarning=`${bitmap.width} × ${bitmap.height} → ${details.sentWidth} × ${details.sentHeight} pixels. La réduction ou compression peut rendre les petits textes et détails difficiles à lire.`;}
+    if(direct&&file.size<=MAX_IMAGE_BYTES&&bitmap.width<=MAX_IMAGE_SIDE&&bitmap.height<=MAX_IMAGE_SIDE){bitmap.close?.();return readAsDataUrl(file);}
     const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
@@ -2229,7 +2236,9 @@ async function addAttachments(fileList) {
             if (file.size === 0) throw new Error("fichier vide");
             if (file.type.startsWith("image/")) {
                 try {
-                    pendingAttachments.push({ name, kind: "image", size: file.size, data: await prepareImage(file) });
+                    const details={};
+                    const data=await prepareImage(file,details);
+                    pendingAttachments.push({ name, kind: "image", size: file.size, data, ...details });
                     continue;
                 } catch (err) {
                     // Image non décodable (HEIC, PSD…) : envoyée telle quelle comme fichier.
@@ -2254,12 +2263,33 @@ async function addAttachments(fileList) {
     renderAttachments();
 }
 
+const imageReadabilityDialog=document.createElement("dialog");
+imageReadabilityDialog.id="image-readability-dialog";imageReadabilityDialog.className="center-dialog image-readability-dialog";
+imageReadabilityDialog.setAttribute("aria-labelledby","image-readability-title");
+imageReadabilityDialog.innerHTML=`<h2 id="image-readability-title">Cette image risque d’être difficile à lire</h2><p class="settings-help">Pour respecter les limites du modèle, les images ci-dessous seront réduites ou compressées. Les petits textes et détails peuvent devenir illisibles.</p><ul id="image-readability-list"></ul><p class="settings-help">Pour une meilleure lecture, recadre la zone utile ou envoie plusieurs captures plus courtes. L’original reste intact.</p><form method="dialog" class="center-dialog-actions"><button value="cancel" autofocus>Revenir aux images</button><button value="send" class="primary">Envoyer quand même</button></form>`;
+document.body.append(imageReadabilityDialog);
+let imageReadabilityPending=false;
+async function confirmImageReadability(attachments){
+    const risky=attachments.filter(item=>item.readabilityWarning);
+    if(!risky.length)return true;
+    if(imageReadabilityPending)return false;
+    imageReadabilityPending=true;
+    const list=$("image-readability-list");list.replaceChildren();
+    for(const item of risky){const row=document.createElement("li"),name=document.createElement("b"),detail=document.createElement("small");name.textContent=item.name;detail.textContent=item.readabilityWarning;row.append(name,detail);list.append(row);}
+    imageReadabilityDialog.returnValue="cancel";
+    return new Promise(resolve=>{
+        imageReadabilityDialog.addEventListener("close",()=>{imageReadabilityPending=false;resolve(imageReadabilityDialog.returnValue==="send");},{once:true});
+        imageReadabilityDialog.showModal();
+    });
+}
+
 async function send(text) {
     const value = text ?? input.value;
     const withFiles = text === undefined && pendingAttachments.length > 0;
     if (!value.trim() && !withFiles) return;
     if (!ui.status.booted && !value.trim().startsWith("/")) { openConnectionGuide(1); return; }
-    const attachments = withFiles ? pendingAttachments : [];
+    const attachments = withFiles ? [...pendingAttachments] : [];
+    if(withFiles&&!await confirmImageReadability(attachments))return;
     if (text === undefined) {
         if (value.trim()) {
             ui.history.push(value);
@@ -2275,7 +2305,7 @@ async function send(text) {
     hideSlash();
     try {
         if (inlineEditingId) {
-            await api.taskQueue("edit", { id: inlineEditingId, prompt: value });
+            await api.taskQueue("edit", { id: inlineEditingId, prompt: value.trim()||"Analyse les pièces jointes.", attachments });
             inlineEditingId = null;
             studioFeedback("Prompt en attente mis à jour.");
             return;
@@ -2366,7 +2396,7 @@ input.addEventListener("keydown", (ev) => {
     }
     if (ev.key === "Escape") {
         ev.preventDefault();
-        if (inlineEditingId) { inlineEditingId = null; input.value = ""; saveStudioDraft(); studioFeedback("Modification annulée."); return; }
+        if (inlineEditingId) { inlineEditingId = null; input.value = ""; pendingAttachments=[];renderAttachments();saveStudioDraft(); studioFeedback("Modification annulée."); return; }
         if (menuOpen) hideSlash();
         else if (ui.status.busy) api.interrupt().catch(() => {});
         else input.value = "";
@@ -3844,6 +3874,14 @@ function createXtermTerminal(focus) {
     terms.push(term);
     selectTerminal(term.key, false);
     xterm.open(el);
+    xterm.registerLinkProvider({provideLinks(line,callback){
+        const text=xterm.buffer.active.getLine(line-1)?.translateToString(true)||"";
+        const links=[];
+        for(const match of text.matchAll(/https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/[^\s<>"']*)?/gi)){
+            links.push({text:match[0],range:{start:{x:match.index+1,y:line},end:{x:match.index+match[0].length,y:line}},activate:()=>openLocalBrowser(match[0])});
+        }
+        callback(links);
+    }});
     // Laisse passer les raccourcis globaux de l'application (Ctrl+², Ctrl+J, Ctrl+P…).
     xterm.attachCustomKeyEventHandler((ev) => {
         if (ev.type !== "keydown" || !(ev.ctrlKey || ev.metaKey)) return true;
@@ -4313,6 +4351,14 @@ $("terminal").addEventListener("mouseup", (ev) => {
 /* Pending prompts live directly above the composer. */
 let queueSnapshot = { tasks: [], enabled: false };
 let inlineEditingId = null;
+async function editQueuedPrompt(task,attach=false){
+    try{
+        const result=await api.taskQueue("attachments",{id:task.id});
+        inlineEditingId=task.id;input.value=task.prompt;pendingAttachments=result.attachments||[];renderAttachments();autosizeInput();saveStudioDraft();input.focus();
+        studioFeedback("Modifie le prompt ou ses fichiers · Entrée pour enregistrer · Échap pour annuler");
+        if(attach)$("attach-input").click();
+    }catch(error){studioFeedback(error.message);}
+}
 function renderTaskQueue(snapshot) {
     if (!snapshot) return;
     queueSnapshot = snapshot;
@@ -4348,9 +4394,11 @@ function renderInlinePending(snapshot) {
         const row = document.createElement("div"); row.className = "pending-prompt";
         const icon = document.createElement("span"); icon.className = "pending-icon"; icon.textContent = "↳";
         const text = document.createElement("span"); text.className = "pending-text"; text.textContent = task.prompt; text.title = task.prompt;
+        if(task.attachments?.length){const files=document.createElement("small");files.className="pending-attachments";files.textContent="📎 "+task.attachments.map(file=>file.name).join(", ");files.title=files.textContent;text.append(files);}
         const steer = document.createElement("button"); steer.type = "button"; steer.className = "pending-steer"; steer.textContent = task.status === "steering" ? "Transmise…" : "Orienter";
         steer.title = "Transmettre cette consigne à l’agent en cours dès sa prochaine étape";
         steer.disabled = !ui.status.canSteer || task.status !== "pending" || task.mode === "plan";
+        if(task.attachments?.length)steer.title="Transmettre cette consigne et ses fichiers à la prochaine étape de l’agent.";
         steer.onclick = () => queueAction("steer", { id: task.id });
         const remove = document.createElement("button"); remove.type = "button"; remove.className = "pending-remove"; remove.title = "Supprimer ce prompt en attente"; remove.setAttribute("aria-label", `Supprimer : ${task.prompt.slice(0, 50)}`);
         remove.innerHTML = '<svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M6 7l1 13h10l1-13M9 7V4h6v3M10 10v7M14 10v7"/></svg>';
@@ -4360,7 +4408,8 @@ function renderInlinePending(snapshot) {
         const actions = document.createElement("div"); actions.className = "pending-menu-items";
         const action = (label, callback) => { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.onclick = () => { menu.open = false; callback(); }; actions.appendChild(button); };
         if (task.status === "pending") {
-            action("Modifier", () => { inlineEditingId = task.id; input.value = task.prompt; autosizeInput(); saveStudioDraft(); input.focus(); studioFeedback("Modifier le prompt en attente · Entrée pour enregistrer · Échap pour annuler"); });
+            action("Modifier", () => editQueuedPrompt(task));
+            action("Joindre un fichier", () => editQueuedPrompt(task,true));
             action("Monter", () => queueAction("move", { id: task.id, direction: "up" }));
             action("Descendre", () => queueAction("move", { id: task.id, direction: "down" }));
         }
@@ -6875,13 +6924,7 @@ async function updateDocumentPreview() {
 $("studio-preview-close").onclick=closeDocumentPreview;
 $("studio-preview-expand").onclick=()=>$("editor-area").classList.toggle("studio-preview-wide");
 $("studio-preview-refresh").onclick=()=>{if(studioPreviewMode==="document")updateDocumentPreview();else if(studioPreviewUrl)$("studio-web-preview").src=studioPreviewUrl;};
-$("studio-preview-go").onclick=async()=>{
-    try {
-        const result=await api.localPreview("url",{url:$("studio-preview-url").value});studioPreviewMode="server";studioPreviewSequence++;studioPreviewUrl=result.url;
-        $("studio-web-preview").src=result.url;$("studio-web-preview").classList.remove("hidden");$("studio-markdown-preview").classList.add("hidden");
-        $("studio-preview-message").textContent="Aperçu du serveur local. Les fonctions nécessitant un accès au navigateur peuvent être limitées par l’isolation.";
-    }catch(error){$("studio-preview-message").textContent=error.message;}
-};
+$("studio-preview-go").onclick=()=>openLocalBrowser($("studio-preview-url").value);
 $("studio-preview-url").onkeydown=event=>{if(event.key==="Enter"){event.preventDefault();$("studio-preview-go").click();}};
 $("studio-markdown-preview").onclick=async event=>{
     const link=event.target.closest("a");if(!link)return;event.preventDefault();
@@ -7036,9 +7079,27 @@ for(const action of ["check","download","install"])$("studio-update-"+action).on
 api.onEvent((channel,data)=>{if(channel==="appUpdate")renderStudioUpdates(data);});
 
 /* Actions explicites pour gérer le contexte de l’agent. */
-const contextActions=centerNode("div","studio-actions");
-contextActions.append(studioAction("Voir le contexte","BookOpen",()=>{input.value="/resume";input.focus();}),studioAction("Compacter la conversation","Command",()=>{input.value="/compact";input.focus();}));
+const contextActions=centerNode("section","starter-context");
+contextActions.setAttribute("aria-label","Gérer la conversation");
+contextActions.append(centerNode("h3","","Conversation"));
+const contextButtons=centerNode("div","starter-context-actions");
+for(const [label,description,icon,command] of [
+    ["Voir le contexte","Consulter le résumé du projet","BookOpen","/resume"],
+    ["Compacter","Alléger la conversation","Command","/compact"]
+]){
+    const button=studioAction("",icon,()=>{input.value=command;autosizeInput();input.focus();});
+    button.setAttribute("aria-label",label);
+    button.title=description;
+    const text=centerNode("span","starter-context-text");
+    text.append(centerNode("b","",label),centerNode("small","",description));
+    button.append(text);contextButtons.append(button);
+}
+contextActions.append(contextButtons);
 $("agent-starter")?.append(contextActions);
+for(const [index,button] of [...document.querySelectorAll(".starter-prompts button")].entries()){
+    const slot=button.querySelector("span"),icon=studioIcon(["Search","GitCompareArrows","Check"][index]);
+    if(slot&&icon)slot.replaceChildren(icon);
+}
 
 /* A bounded startup check; downloads continue without blocking the editor. */
 async function runStartupUpdateCheck() {
@@ -7064,6 +7125,76 @@ async function runStartupUpdateCheck() {
     }
 }
 runStartupUpdateCheck().catch(()=>{$("startup-loading").hidden=true;$("app").inert=false;});
+/* Real local browser, presented as an editor tab. */
+let localBrowserState=null,localBrowserActive=false,localBrowserBoundsFrame=0;
+const localBrowserPanel=document.createElement("section");
+localBrowserPanel.id="local-browser-panel";localBrowserPanel.className="local-browser-panel hidden";
+localBrowserPanel.innerHTML=`<div class="local-browser-toolbar"><button id="local-browser-back" title="Page précédente" aria-label="Page précédente">←</button><button id="local-browser-forward" title="Page suivante" aria-label="Page suivante">→</button><button id="local-browser-reload" title="Actualiser" aria-label="Actualiser">↻</button><form id="local-browser-form"><input id="local-browser-address" aria-label="Adresse du navigateur local" placeholder="http://localhost:5173" spellcheck="false"><button type="submit">Ouvrir</button></form><button id="local-browser-external" title="Ouvrir dans le navigateur système" aria-label="Ouvrir dans le navigateur système">↗</button><button id="local-browser-devtools" title="Outils de développement" aria-label="Outils de développement">⋯</button></div><div id="local-browser-status" role="status"></div><div id="local-browser-host"><div id="local-browser-error" class="hidden"><h2>Le site n’est pas accessible</h2><p></p><button id="local-browser-retry">Réessayer</button></div></div>`;
+$("editor-area").append(localBrowserPanel);
+function syncLocalBrowserBounds(){
+    cancelAnimationFrame(localBrowserBoundsFrame);
+    localBrowserBoundsFrame=requestAnimationFrame(()=>{
+        const host=$("local-browser-host"),rect=host.getBoundingClientRect();
+        const modal=Boolean(document.querySelector("dialog[open]"))||["connection-guide","palette","context-menu","model-menu"].some(id=>{const el=$(id);return el&&!el.classList.contains("hidden")&&el.checkVisibility();});
+        const visible=localBrowserActive&&!localBrowserPanel.classList.contains("hidden")&&host.checkVisibility()&&!modal&&!$("app").inert&&!document.querySelector('#startup-loading:not([hidden])');
+        api.localBrowser("bounds",{x:rect.x,y:rect.y,width:rect.width,height:rect.height,visible}).catch(()=>{});
+    });
+}
+function renderLocalBrowserState(data){
+    const changedUrl=localBrowserState?.url!==data.url;
+    localBrowserState=data;
+    if(changedUrl||document.activeElement!==$("local-browser-address"))$("local-browser-address").value=data.url;
+    $("local-browser-back").disabled=!data.canGoBack;$("local-browser-forward").disabled=!data.canGoForward;
+    $("local-browser-status").textContent=data.error?"Connexion impossible":data.loading?"Chargement du site…":"";
+    $("local-browser-error").classList.toggle("hidden",!data.error);$("local-browser-error").querySelector("p").textContent=data.error||"";
+    renderLocalBrowserTab();syncLocalBrowserBounds();
+}
+function renderLocalBrowserTab(){
+    $("local-browser-tab")?.remove();if(!localBrowserState)return;
+    const tab=document.createElement("div");tab.id="local-browser-tab";tab.className="tab"+(localBrowserActive?" active":"");tab.title=localBrowserState.url;tab.setAttribute("role","tab");tab.setAttribute("aria-selected",String(localBrowserActive));
+    const title=document.createElement("span");title.textContent="◎ "+(localBrowserState.title||"Navigateur local");
+    const close=document.createElement("button");close.className="close";close.textContent="×";close.title="Fermer le navigateur local";
+    close.onclick=event=>{event.stopPropagation();closeLocalBrowser();};tab.onclick=showLocalBrowser;
+    tab.append(title,close);$("tabs").append(tab);
+    if(localBrowserActive)for(const fileTab of $("tabs").querySelectorAll(".tab:not(#local-browser-tab)"))fileTab.classList.remove("active");
+}
+function showLocalBrowser(){
+    if(["project","settings","extensions"].includes(ui.sideView))showSideView("explorer");
+    closeDocumentPreview();localBrowserActive=true;$("app").classList.add("local-browser-active");localBrowserPanel.classList.remove("hidden");api.localBrowser("show").catch(()=>{});renderLocalBrowserTab();syncLocalBrowserBounds();
+}
+function hideLocalBrowser(){localBrowserActive=false;$("app").classList.remove("local-browser-active");localBrowserPanel.classList.add("hidden");api.localBrowser("hide").catch(()=>{});renderLocalBrowserTab();}
+function closeLocalBrowser(){hideLocalBrowser();localBrowserState=null;$("local-browser-tab")?.remove();api.localBrowser("close").catch(()=>{});renderTabs();}
+async function openLocalBrowser(url){
+    try{const checked=await api.localPreview("url",{url});showLocalBrowser();renderLocalBrowserState(await api.localBrowser("open",{url:checked.url}));}
+    catch(error){studioFeedback(error.message);}
+}
+window.frstBrowserTab=renderLocalBrowserTab;window.frstBrowserHide=hideLocalBrowser;
+$("local-browser-form").onsubmit=event=>{event.preventDefault();openLocalBrowser($("local-browser-address").value);};
+for(const action of ["back","forward","reload","devtools"])$("local-browser-"+action).onclick=()=>api.localBrowser(action).catch(error=>studioFeedback(error.message));
+$("local-browser-retry").onclick=()=>api.localBrowser("reload").catch(()=>{});
+$("local-browser-external").onclick=()=>api.openExternal(localBrowserState?.url,true).catch(error=>studioFeedback(error.message));
+api.onEvent((channel,data)=>{
+    if(channel==="localBrowser"){
+        if(data.command==="focus-address"){$("local-browser-address").focus();$("local-browser-address").select();return;}
+        if(data.command==="close"){closeLocalBrowser();return;}
+        if(localBrowserActive||localBrowserState)renderLocalBrowserState(data);
+    }
+    if(channel==="localBrowserOpen")openLocalBrowser(data.url);
+});
+new ResizeObserver(syncLocalBrowserBounds).observe($("editor-area"));
+new MutationObserver(syncLocalBrowserBounds).observe($("app"),{attributes:true,attributeFilter:["class","inert"]});
+new MutationObserver(syncLocalBrowserBounds).observe(document.body,{subtree:true,attributes:true,attributeFilter:["open"]});
+for(const id of ["connection-guide","palette","context-menu","model-menu"]){const el=$(id);if(el)new MutationObserver(syncLocalBrowserBounds).observe(el,{attributes:true,attributeFilter:["class"]});}
+window.addEventListener("resize",syncLocalBrowserBounds);
+document.addEventListener("keydown",event=>{
+    if(!localBrowserActive||!(event.ctrlKey||event.metaKey))return;
+    if(event.key.toLowerCase()==="l"){event.preventDefault();event.stopImmediatePropagation();$("local-browser-address").focus();$("local-browser-address").select();}
+    if(event.key.toLowerCase()==="w"){event.preventDefault();event.stopImmediatePropagation();closeLocalBrowser();}
+},true);
+document.addEventListener("click",event=>{
+    const link=event.target.closest("a[href]");if(!link)return;
+    try{const url=new URL(link.href);if(["http:","https:"].includes(url.protocol)&&["localhost","127.0.0.1"].includes(url.hostname)){event.preventDefault();event.stopImmediatePropagation();openLocalBrowser(url.href);}}catch{/* not a URL */}
+},true);
 /* ---------- Démarrage ---------- */
 
 (async () => {

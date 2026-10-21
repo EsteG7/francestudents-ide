@@ -78,6 +78,27 @@ function prepareAuth() {
     state.model = -1002;
 }
 
+test("oversized image in server history recovers once without repeating the poisoned conversation",async()=>{
+    prepareAuth();
+    requestModel.compactor=new (require("../src/agent/auto-compact").AutoCompact)();
+    const bodies=[];
+    global.fetch=async(_url,init)=>{
+        bodies.push(JSON.parse(init.body));
+        if(bodies.length===1)return new Response('event: error\ndata: {"message":"400 BAD_REQUEST image dimensions exceed max allowed size: 8000 pixels (got 1280x10993)"}\n\n',{headers:{"content-type":"text/event-stream"}});
+        return successfulResponse();
+    };
+    assert.equal(await requestModel("Continue inspecting capture"),"ok");
+    assert.equal(bodies.length,2);assert.equal(bodies[0].chatId,"chat-1");assert.equal(bodies[1].chatId,null);
+    assert.match(bodies[1].initialContent,/Continue inspecting capture/);
+});
+
+test("permanent provider 400 in an SSE error is not retried repeatedly",async()=>{
+    prepareAuth();let calls=0;
+    global.fetch=async()=>{calls++;return new Response('event: error\ndata: {"message":"400 BAD_REQUEST invalid_request_error"}\n\n',{headers:{"content-type":"text/event-stream"}});};
+    await assert.rejects(requestModel("Request"),error=>error.status===400);
+    assert.equal(calls,1);
+});
+
 test("automatic compaction opens a fresh conversation and resumes the agent task", { concurrency: false }, async () => {
     prepareAuth();
     const { AutoCompact } = require("../src/agent/auto-compact");

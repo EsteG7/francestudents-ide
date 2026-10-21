@@ -114,6 +114,7 @@ function renderAttachments() {
         label.className = "attachment-name";
         label.textContent = item.name;
         chip.appendChild(label);
+        if(item.readabilityWarning){const warning=document.createElement("span");warning.className="attachment-readability-warning";warning.textContent="⚠ Lisibilité réduite";warning.title=item.readabilityWarning;chip.append(warning);chip.title+=" · "+item.readabilityWarning;}
         const remove = document.createElement("button");
         remove.type = "button";
         remove.className = "attachment-remove";
@@ -143,9 +144,8 @@ function formatBytes(n) {
  * format peu pris en charge sont décodées, redimensionnées (2048 px max) puis
  * réencodées (PNG si possible, sinon JPEG) au lieu d'être refusées.
  */
-async function prepareImage(file) {
+async function prepareImage(file,details={}) {
     const direct = DIRECT_IMAGE_TYPES.has(file.type);
-    if (direct && file.size <= MAX_IMAGE_BYTES) return readAsDataUrl(file);
 
     let bitmap;
     try {
@@ -153,6 +153,11 @@ async function prepareImage(file) {
     } catch {
         throw new Error(`format d'image illisible (${file.type || "inconnu"}) : utiliser PNG, JPEG, WebP ou GIF`);
     }
+    const projectedScale=Math.min(1,MAX_IMAGE_SIDE/Math.max(bitmap.width,bitmap.height));
+    details.originalWidth=bitmap.width;details.originalHeight=bitmap.height;
+    details.sentWidth=Math.max(1,Math.round(bitmap.width*projectedScale));details.sentHeight=Math.max(1,Math.round(bitmap.height*projectedScale));
+    if(projectedScale<.75||file.size>MAX_IMAGE_BYTES){details.readabilityWarning=`${bitmap.width} × ${bitmap.height} → ${details.sentWidth} × ${details.sentHeight} pixels. La réduction ou compression peut rendre les petits textes et détails difficiles à lire.`;}
+    if(direct&&file.size<=MAX_IMAGE_BYTES&&bitmap.width<=MAX_IMAGE_SIDE&&bitmap.height<=MAX_IMAGE_SIDE){bitmap.close?.();return readAsDataUrl(file);}
     const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
@@ -196,7 +201,9 @@ async function addAttachments(fileList) {
             if (file.size === 0) throw new Error("fichier vide");
             if (file.type.startsWith("image/")) {
                 try {
-                    pendingAttachments.push({ name, kind: "image", size: file.size, data: await prepareImage(file) });
+                    const details={};
+                    const data=await prepareImage(file,details);
+                    pendingAttachments.push({ name, kind: "image", size: file.size, data, ...details });
                     continue;
                 } catch (err) {
                     // Image non décodable (HEIC, PSD…) : envoyée telle quelle comme fichier.
@@ -221,12 +228,33 @@ async function addAttachments(fileList) {
     renderAttachments();
 }
 
+const imageReadabilityDialog=document.createElement("dialog");
+imageReadabilityDialog.id="image-readability-dialog";imageReadabilityDialog.className="center-dialog image-readability-dialog";
+imageReadabilityDialog.setAttribute("aria-labelledby","image-readability-title");
+imageReadabilityDialog.innerHTML=`<h2 id="image-readability-title">Cette image risque d’être difficile à lire</h2><p class="settings-help">Pour respecter les limites du modèle, les images ci-dessous seront réduites ou compressées. Les petits textes et détails peuvent devenir illisibles.</p><ul id="image-readability-list"></ul><p class="settings-help">Pour une meilleure lecture, recadre la zone utile ou envoie plusieurs captures plus courtes. L’original reste intact.</p><form method="dialog" class="center-dialog-actions"><button value="cancel" autofocus>Revenir aux images</button><button value="send" class="primary">Envoyer quand même</button></form>`;
+document.body.append(imageReadabilityDialog);
+let imageReadabilityPending=false;
+async function confirmImageReadability(attachments){
+    const risky=attachments.filter(item=>item.readabilityWarning);
+    if(!risky.length)return true;
+    if(imageReadabilityPending)return false;
+    imageReadabilityPending=true;
+    const list=$("image-readability-list");list.replaceChildren();
+    for(const item of risky){const row=document.createElement("li"),name=document.createElement("b"),detail=document.createElement("small");name.textContent=item.name;detail.textContent=item.readabilityWarning;row.append(name,detail);list.append(row);}
+    imageReadabilityDialog.returnValue="cancel";
+    return new Promise(resolve=>{
+        imageReadabilityDialog.addEventListener("close",()=>{imageReadabilityPending=false;resolve(imageReadabilityDialog.returnValue==="send");},{once:true});
+        imageReadabilityDialog.showModal();
+    });
+}
+
 async function send(text) {
     const value = text ?? input.value;
     const withFiles = text === undefined && pendingAttachments.length > 0;
     if (!value.trim() && !withFiles) return;
     if (!ui.status.booted && !value.trim().startsWith("/")) { openConnectionGuide(1); return; }
-    const attachments = withFiles ? pendingAttachments : [];
+    const attachments = withFiles ? [...pendingAttachments] : [];
+    if(withFiles&&!await confirmImageReadability(attachments))return;
     if (text === undefined) {
         if (value.trim()) {
             ui.history.push(value);
@@ -242,7 +270,7 @@ async function send(text) {
     hideSlash();
     try {
         if (inlineEditingId) {
-            await api.taskQueue("edit", { id: inlineEditingId, prompt: value });
+            await api.taskQueue("edit", { id: inlineEditingId, prompt: value.trim()||"Analyse les pièces jointes.", attachments });
             inlineEditingId = null;
             studioFeedback("Prompt en attente mis à jour.");
             return;
@@ -333,7 +361,7 @@ input.addEventListener("keydown", (ev) => {
     }
     if (ev.key === "Escape") {
         ev.preventDefault();
-        if (inlineEditingId) { inlineEditingId = null; input.value = ""; saveStudioDraft(); studioFeedback("Modification annulée."); return; }
+        if (inlineEditingId) { inlineEditingId = null; input.value = ""; pendingAttachments=[];renderAttachments();saveStudioDraft(); studioFeedback("Modification annulée."); return; }
         if (menuOpen) hideSlash();
         else if (ui.status.busy) api.interrupt().catch(() => {});
         else input.value = "";

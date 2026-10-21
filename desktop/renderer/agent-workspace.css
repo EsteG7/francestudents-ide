@@ -10,16 +10,27 @@
 #agent-project-name { text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
 #agent-access { font-size: 10px; border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px; background: transparent; color: var(--fg-dim); white-space: nowrap; }
 #agent-access.full-access { color: var(--link); border-color: var(--accent); background: var(--accent-soft); }
-.agent-starter { padding: 20px 14px; flex: 1; overflow: auto; min-height: 100px; }
+.agent-starter { padding: 26px 18px; flex: 1; overflow: auto; min-height: 100px; box-sizing: border-box; }
 .starter-eyebrow { font-size: 9px; letter-spacing: .08em; color: var(--fg-dim); font-weight: 600; }
 .agent-starter h2 { color: var(--fg-strong); font-size: 16px; font-weight: 600; margin: 8px 0; }
 .agent-starter > p { color: var(--fg-dim); line-height: 1.5; font-size: 12px; }
-.starter-prompts { display: grid; gap: 6px; margin-top: 20px; }
-.starter-prompts button { display: grid; grid-template-columns: 22px 1fr; column-gap: 8px; text-align: left; border: 1px solid var(--border); background: transparent; border-radius: 4px; padding: 10px; }
+.starter-prompts { display: grid; gap: 8px; margin-top: 22px; }
+.starter-prompts button { display: grid; grid-template-columns: 20px minmax(0,1fr); column-gap: 10px; text-align: left; border: 1px solid var(--border); background: transparent; border-radius: 6px; padding: 12px; min-height: 58px; cursor: pointer; }
 .starter-prompts button:hover { background: var(--bg-hover); border-color: var(--border-strong); }
 .starter-prompts button > span { grid-row: span 2; color: var(--link); font-size: 16px; align-self: center; }
 .starter-prompts b { font-size: 11px; color: var(--fg); font-weight: 500; }
 .starter-prompts small { font-size: 10px; color: var(--fg-faint); margin-top: 4px; }
+.starter-prompts button > span svg { display:block; width:16px; height:16px; }
+.starter-prompts button:focus-visible,.starter-context-actions button:focus-visible { outline:1px solid var(--accent); outline-offset:2px; }
+.starter-context { border-top:1px solid var(--border); margin-top:24px; padding-top:18px; }
+.starter-context h3 { color:var(--fg-dim); font-size:10px; font-weight:500; margin:0 0 10px; letter-spacing:.04em; }
+.starter-context-actions { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(145px,100%),1fr)); gap:8px; }
+.starter-context-actions button { display:flex; align-items:flex-start; gap:9px; min-width:0; padding:10px; border:1px solid var(--border); border-radius:6px; background:transparent; color:var(--fg); text-align:left; font-family:var(--sans); cursor:pointer; }
+.starter-context-actions button:hover { background:var(--bg-hover); border-color:var(--border-strong); }
+.starter-context-actions button>svg { width:15px; height:15px; flex:0 0 15px; margin-top:1px; color:var(--fg-dim); }
+.starter-context-text { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.starter-context-text b { font-size:11px; line-height:1.4; font-weight:500; }
+.starter-context-text small { font-size:10px; line-height:1.5; color:var(--fg-faint); }
 #agent:not([data-tab="conversation"]) #transcript, #agent:not([data-tab="conversation"]) #agent-starter { display: none; }
 #agent:not([data-tab="activity"]) #agent-activity { display: none; }
 #agent[data-tab="conversation"] #transcript:empty { flex: 0; padding: 0; }
@@ -103,3 +114,11 @@
 #startup-continue:hover { background: #343434; border-color: #007acc; }
 @keyframes startup-progress { from { transform: translateX(-50%); } to { transform: translateX(240%); } }
 @media (prefers-reduced-motion: reduce) { .startup-track span { animation: none; width: 100%; opacity: .7; } }
+.attachment-readability-warning { color:var(--warning,#d7ba7d);font-size:10px;white-space:nowrap;margin-left:5px; }
+.image-readability-dialog { max-width:490px; }
+.image-readability-dialog h2 { font-size:18px;line-height:1.5;margin:0 0 14px; }
+.image-readability-dialog ul { list-style:none;padding:0;margin:16px 0;max-height:210px;overflow:auto; }
+.image-readability-dialog li { padding:10px 0;border-bottom:1px solid var(--border); }
+.image-readability-dialog li b { display:block;font-size:12px;overflow-wrap:anywhere; }
+.image-readability-dialog li small { display:block;font-size:11px;line-height:1.6;color:var(--fg-dim);margin-top:4px; }
+.pending-attachments { display:block;margin-top:4px;font-size:10px;color:var(--fg-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }

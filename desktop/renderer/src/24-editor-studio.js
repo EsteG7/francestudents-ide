@@ -91,13 +91,7 @@ async function updateDocumentPreview() {
 $("studio-preview-close").onclick=closeDocumentPreview;
 $("studio-preview-expand").onclick=()=>$("editor-area").classList.toggle("studio-preview-wide");
 $("studio-preview-refresh").onclick=()=>{if(studioPreviewMode==="document")updateDocumentPreview();else if(studioPreviewUrl)$("studio-web-preview").src=studioPreviewUrl;};
-$("studio-preview-go").onclick=async()=>{
-    try {
-        const result=await api.localPreview("url",{url:$("studio-preview-url").value});studioPreviewMode="server";studioPreviewSequence++;studioPreviewUrl=result.url;
-        $("studio-web-preview").src=result.url;$("studio-web-preview").classList.remove("hidden");$("studio-markdown-preview").classList.add("hidden");
-        $("studio-preview-message").textContent="Aperçu du serveur local. Les fonctions nécessitant un accès au navigateur peuvent être limitées par l’isolation.";
-    }catch(error){$("studio-preview-message").textContent=error.message;}
-};
+$("studio-preview-go").onclick=()=>openLocalBrowser($("studio-preview-url").value);
 $("studio-preview-url").onkeydown=event=>{if(event.key==="Enter"){event.preventDefault();$("studio-preview-go").click();}};
 $("studio-markdown-preview").onclick=async event=>{
     const link=event.target.closest("a");if(!link)return;event.preventDefault();

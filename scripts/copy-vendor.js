@@ -76,7 +76,7 @@ function buildStudio() {
 }
 
 function copyLicenses() {
-  const packages = [...new Set(["prettier","electron-updater","node-pty","typescript","typescript-language-server","@xterm/xterm","@xterm/addon-fit",...bundledPackages])].sort();
+  const packages = [...new Set(["prettier","sharp","electron-updater","node-pty","typescript","typescript-language-server","@xterm/xterm","@xterm/addon-fit",...bundledPackages])].sort();
   const notices = [];
   for (const name of packages) {
     const dir = packageDir(name);

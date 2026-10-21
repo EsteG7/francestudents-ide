@@ -28,7 +28,11 @@ Le texte UTF-8, UTF-8 avec BOM et UTF-16 LE/BE avec BOM est reconnu. Le BOM, l�
 
 Un fichier HTML enregistré peut être servi localement par l’application. L’aperçu s’ouvre dans une iframe isolée, sans accès au pont natif de l’IDE. Le serveur est limité à la boucle locale, utilise une adresse avec jeton, refuse les secrets et liens symboliques et ne sert pas les dossiers cachés. Les ressources relatives sont prises en charge. Les chemins absolus depuis la racine du site et les fonctions nécessitant cookies ou stockage peuvent demander le vrai serveur de développement.
 
-Pour Vite ou un autre serveur, lance d’abord son script puis entre son adresse `http://localhost:PORT` dans l’aperçu. Seules les adresses locales sont acceptées. L’aperçu du navigateur ne constitue pas un contrôle automatique de tout le site.
+Pour Vite ou un autre serveur, lance d’abord son script puis clique sur son lien `http://localhost:PORT` dans le chat ou le terminal. Tu peux aussi saisir l’adresse dans l’aperçu existant. Le site s’ouvre dans un onglet de navigateur local, avec une barre compacte inspirée du Simple Browser de VS Code : précédent, suivant, actualiser, adresse, ouverture dans le navigateur système et outils de développement.
+
+Cet onglet utilise une vue Chromium indépendante de l’iframe documentaire. Le stockage local, les cookies, les appels API et les WebSockets suivent les règles normales du navigateur ; les en-têtes interdisant l’intégration dans une iframe ne bloquent plus cette vue. La page n’a pas accès au pont natif de l’IDE ni à Node.js. Les permissions sensibles, téléchargements et navigations hors de localhost ou 127.0.0.1 sont bloqués dans cet onglet. Pour une connexion qui redirige vers un fournisseur externe, utilise le navigateur système. Un serveur arrêté produit un message et un bouton Réessayer.
+
+`Ctrl+L` cible l’adresse quand cet onglet est actif ; `Ctrl+W` le ferme. Les onglets de fichiers restent accessibles et conservent leur contenu. L’aperçu du navigateur ne constitue pas un contrôle automatique de tout le site.
 
 ## Internet, captures et modèle
 
@@ -37,6 +41,10 @@ La vue **Internet** lance des recherches en arrière-plan. L’agent dispose du 
 `browse` utilise Chrome, Edge ou Chromium déjà installé, sans fenêtre visible. Il enregistre un PNG dans `.frst/screenshots` et relève le texte et les erreurs de console. `FS_BROWSER_PATH` peut désigner un navigateur compatible. **Paramètres → Captures et navigateur de l’agent** permet de demander l’accord, autoriser ou désactiver les captures. Full accès retire les confirmations ordinaires mais ne réactive pas une capture explicitement désactivée.
 
 `view_image` permet de joindre une image du projet à la prochaine requête du modèle, après l’accord prévu par les permissions. La vision dépend du modèle et de l’API FranceStudent : le logiciel ne prétend pas avoir examiné visuellement un rendu si l’image n’a pas été analysée. Les images et pages restent des données non fiables, distinctes des instructions du projet.
+
+Les images sont préparées avant leur téléversement : PNG, JPEG, WebP ou GIF, au maximum 25 Mo et 100 millions de pixels à l’entrée du moteur. La copie envoyée est redimensionnée sans recadrage à 6000 pixels maximum par côté et compressée si nécessaire pour rester sous 5 Mo. L’original reste intact. Une capture très longue peut perdre en lisibilité après réduction. Les images animées nécessitant une transformation sont envoyées sous forme d’une image fixe. Les erreurs de requête définitives ne sont pas relancées en boucle ; une ancienne image hors limites dans l’historique déclenche une tentative de reprise avec le contexte textuel dans une nouvelle conversation.
+
+Pour les pièces jointes du chat, une forte réduction ou compression affiche un indicateur de lisibilité et les dimensions avant/après. Avant l’envoi, une confirmation propose de revenir aux images pour les recadrer ou d’envoyer quand même. Annuler conserve le brouillon et les pièces jointes. Les images normales ne demandent pas cette confirmation. Cette détection signale un risque ; elle ne garantit pas que chaque petit texte sera lisible.
 
 Le suivi du travail passe par `update_plan`, visible dans Activité. Le contexte du projet, les onglets ouverts, les instructions de dépôt et `/compact` sont déjà disponibles. Les actions **Voir le contexte** et **Compacter la conversation** préparent les commandes correspondantes dans la saisie.
 

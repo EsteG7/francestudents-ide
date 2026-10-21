@@ -66,7 +66,13 @@ const taskQueue = require("./task-queue").createTaskQueue({
     file: path.join(require("../src/config").CONFIG.dataDir, "task-queue.json"),
     workspace: () => require("../src/state").state.workspace,
     canRun: () => booted && !busy && !loginBusy,
-    run: (prompt, options) => submit(options.mode === "plan" ? `/plan ${prompt}` : prompt, [], { queued: true }),
+    onSteeringFiles: attachments => {
+        const files=normalizeAttachments(attachments),{state}=require("../src/state");
+        if(state.pendingImages.length+files.images.length>MAX_ATTACHMENTS||state.pendingFiles.length+files.files.length>MAX_ATTACHMENTS)return null;
+        state.pendingImages.push(...files.images);state.pendingFiles.push(...files.files);
+        return [files.textBlock?`FICHIERS JOINTS À LA CONSIGNE :\n${files.textBlock}`:"",files.names.length?`Pièces jointes à examiner avec cette consigne : ${files.names.join(", ")}`:""].filter(Boolean).join("\n\n");
+    },
+    run: (prompt, options) => submit(options.mode === "plan" ? `/plan ${prompt}` : prompt, options.attachments||[], { queued: true }),
     onChange: snapshot => send("taskQueue", snapshot)
 });
 
@@ -199,17 +205,17 @@ async function submit(raw, attachments, { queued = false } = {}) {
     if (!booted && !text.trim().startsWith("/")) throw new Error("Connecte-toi avant d’envoyer une demande.");
     if (busy) {
         if (queued) return { exit: false, ok: false, error: "Une demande est déjà en cours." };
-        if (hasFiles) throw new Error("Les pièces jointes ne peuvent pas être mises en attente. Garde-les pour un envoi après la tâche en cours.");
+        if(hasFiles&&!text.trim())text=files.images.length&&!files.files.length&&!files.textBlock?"Analyse les images jointes.":"Analyse les fichiers joints.";
         const planning = /^\/plan\s+/i.test(text.trim());
         if (text.trim().startsWith("/") && !planning) throw new Error("Cette commande doit attendre la fin de la tâche en cours.");
-        taskQueue.action("add", { prompt: planning ? text.trim().replace(/^\/plan\s+/i, "") : text, mode: planning ? "plan" : "agent" });
+        taskQueue.action("add", { prompt: planning ? text.trim().replace(/^\/plan\s+/i, "") : text, mode: planning ? "plan" : "agent", attachments:hasFiles?attachments:[] });
         taskQueue.action("start");
         return { exit: false, ok: true, queued: true };
     }
     if (!queued) taskQueue.pause();
 
     let display = text;
-    if (hasFiles && !text.trim().startsWith("/")) {
+    if (hasFiles && (!text.trim().startsWith("/") || /^\/plan\s/i.test(text.trim()))) {
         if (!text.trim()) {
             text = files.images.length && !files.files.length && !files.textBlock
                 ? "Analyse les images jointes."
@@ -1093,8 +1099,9 @@ function registerIpc() {
         if (!removed) throw new Error("Conversation introuvable.");
         return true;
     });
-    handle("openExternal", (url) => {
+    handle("openExternal", (url,forceSystem=false) => {
         if (!/^https?:\/\//i.test(String(url))) throw new Error("URL refusée.");
+        if(!forceSystem){try{const local=require("./preview-server").localPreviewUrl(url);send("localBrowserOpen",{url:local});return;}catch{/* external site */}}
         return shell.openExternal(String(url));
     });
 }
@@ -1125,6 +1132,7 @@ function createWindow() {
 
     win.once("ready-to-show", () => win.show());
     win.webContents.setWindowOpenHandler(({ url }) => {
+        try{const local=require("./preview-server").localPreviewUrl(url);send("localBrowserOpen",{url:local});return {action:"deny"};}catch{/* external site */}
         if (/^https?:\/\//i.test(url)) shell.openExternal(url);
         return { action: "deny" };
     });

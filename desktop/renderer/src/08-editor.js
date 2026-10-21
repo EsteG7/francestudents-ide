@@ -33,6 +33,7 @@ async function openFile(rel) {
 }
 
 function activate(rel) {
+    window.frstBrowserHide?.();
     const previous = currentTab();
     if (previous) {
         previous.scroll = code.scrollTop;
@@ -190,6 +191,7 @@ function renderTabs() {
         el.append(fileIcon(t.path, "file"), label, close);
         bar.appendChild(el);
     }
+    window.frstBrowserTab?.();
 }
 
 function closeTab(rel) {

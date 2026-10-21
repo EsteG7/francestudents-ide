@@ -66,9 +66,27 @@ for(const action of ["check","download","install"])$("studio-update-"+action).on
 api.onEvent((channel,data)=>{if(channel==="appUpdate")renderStudioUpdates(data);});
 
 /* Actions explicites pour gérer le contexte de l’agent. */
-const contextActions=centerNode("div","studio-actions");
-contextActions.append(studioAction("Voir le contexte","BookOpen",()=>{input.value="/resume";input.focus();}),studioAction("Compacter la conversation","Command",()=>{input.value="/compact";input.focus();}));
+const contextActions=centerNode("section","starter-context");
+contextActions.setAttribute("aria-label","Gérer la conversation");
+contextActions.append(centerNode("h3","","Conversation"));
+const contextButtons=centerNode("div","starter-context-actions");
+for(const [label,description,icon,command] of [
+    ["Voir le contexte","Consulter le résumé du projet","BookOpen","/resume"],
+    ["Compacter","Alléger la conversation","Command","/compact"]
+]){
+    const button=studioAction("",icon,()=>{input.value=command;autosizeInput();input.focus();});
+    button.setAttribute("aria-label",label);
+    button.title=description;
+    const text=centerNode("span","starter-context-text");
+    text.append(centerNode("b","",label),centerNode("small","",description));
+    button.append(text);contextButtons.append(button);
+}
+contextActions.append(contextButtons);
 $("agent-starter")?.append(contextActions);
+for(const [index,button] of [...document.querySelectorAll(".starter-prompts button")].entries()){
+    const slot=button.querySelector("span"),icon=studioIcon(["Search","GitCompareArrows","Check"][index]);
+    if(slot&&icon)slot.replaceChildren(icon);
+}
 
 /* A bounded startup check; downloads continue without blocking the editor. */
 async function runStartupUpdateCheck() {
