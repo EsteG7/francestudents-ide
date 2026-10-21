@@ -48,7 +48,7 @@ function renderInlinePending(snapshot) {
         const actions = document.createElement("div"); actions.className = "pending-menu-items";
         const action = (label, callback) => { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.onclick = () => { menu.open = false; callback(); }; actions.appendChild(button); };
         if (task.status === "pending") {
-            action("Modifier", () => { inlineEditingId = task.id; input.value = task.prompt; $("agent-workflow").value = task.mode || "agent"; autosizeInput(); saveStudioDraft(); input.focus(); studioFeedback("Modifier le prompt en attente · Entrée pour enregistrer · Échap pour annuler"); });
+            action("Modifier", () => { inlineEditingId = task.id; input.value = task.prompt; autosizeInput(); saveStudioDraft(); input.focus(); studioFeedback("Modifier le prompt en attente · Entrée pour enregistrer · Échap pour annuler"); });
             action("Monter", () => queueAction("move", { id: task.id, direction: "up" }));
             action("Descendre", () => queueAction("move", { id: task.id, direction: "down" }));
         }

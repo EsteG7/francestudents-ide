@@ -247,8 +247,7 @@ async function send(text) {
             studioFeedback("Prompt en attente mis à jour.");
             return;
         }
-        const request = $("agent-workflow").value === "plan" && !value.trim().startsWith("/") ? `/plan ${value}` : value;
-        const result = await api.submit(request, attachments);
+        const result = await api.submit(value, attachments);
         if (result?.error) throw new Error(result.error);
         if (result?.queued) studioFeedback("Prompt ajouté à la suite.");
     } catch (err) {

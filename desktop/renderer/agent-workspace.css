@@ -75,8 +75,7 @@
 .pending-menu > summary { list-style: none; cursor: pointer; padding: 3px 5px; font-size: 16px; color: var(--fg-dim); }
 .pending-menu-items { position: fixed; margin-left: -100px; min-width: 100px; background: var(--bg-side); border: 1px solid var(--border-strong); border-radius: 4px; box-shadow: var(--shadow); z-index: 45; padding: 4px; }
 .pending-menu-items button { display: block; width: 100%; text-align: left; padding: 6px 8px; }
-.composer-topline { display: flex; align-items: center; justify-content: space-between; padding: 6px 9px 0; }
-#agent-workflow { color: var(--fg-dim); background: transparent; border: 0; font-family: var(--sans); font-size: 10px; padding: 3px 0; }
+.composer-topline { display: flex; align-items: center; justify-content: flex-end; padding: 6px 9px 0; }
 .composer-utilities { display: flex; gap: 2px; }
 .composer-utilities button { background: transparent; border: 0; color: var(--fg-dim); border-radius: 3px; padding: 3px 5px; font-size: 13px; }
 .composer-feedback { font-size: 10px; color: var(--fg-dim); min-height: 2px; margin-top: 5px; overflow-wrap: anywhere; }
@@ -90,3 +89,17 @@
 #app.focus-agent #agent { display: flex !important; padding-left: max(0px, calc((100vw - 900px) / 2)); padding-right: max(0px, calc((100vw - 900px) / 2)); }
 @media (max-width: 1100px) { .composer-utilities button { padding-left: 3px; padding-right: 3px; } }
 .hidden { display: none !important; }
+.startup-loading { position: fixed; inset: 36px 0 0; z-index: 10000; display: grid; place-items: center; background: #1f1f1f; color: #ccc; }
+.startup-loading[hidden] { display: none; }
+.startup-card { width: min(440px, 80vw); text-align: center; }
+.startup-card img { margin-bottom: 12px; }
+.startup-brand { letter-spacing: 3px; color: #9d9d9d; font-size: 10px; }
+.startup-card h1 { font-size: 25px; font-weight: 500; margin: 18px 0 28px; color: #eee; }
+.startup-track { height: 3px; border-radius: 3px; overflow: hidden; background: #333; }
+.startup-track span { display: block; width: 35%; height: 100%; background: #007acc; animation: startup-progress 1.4s ease-in-out infinite alternate; }
+#startup-message { font-size: 13px; line-height: 1.6; margin-top: 22px; }
+.startup-hint { font-size: 11px; color: #9d9d9d; line-height: 1.7; }
+#startup-continue { margin-top: 18px; padding: 8px 14px; border: 1px solid #454545; background: #292929; border-radius: 5px; color: #ccc; cursor: pointer; }
+#startup-continue:hover { background: #343434; border-color: #007acc; }
+@keyframes startup-progress { from { transform: translateX(-50%); } to { transform: translateX(240%); } }
+@media (prefers-reduced-motion: reduce) { .startup-track span { animation: none; width: 100%; opacity: .7; } }

@@ -13,6 +13,17 @@
     <link rel="stylesheet" href="studio.css">
 </head>
 <body>
+    <section id="startup-loading" class="startup-loading" role="dialog" aria-modal="true" aria-labelledby="startup-heading" tabindex="-1">
+        <div class="startup-card">
+            <img src="assets/francestudent-logo.png" width="44" height="44" alt="">
+            <p class="startup-brand">FRANCESTUDENT CODE</p>
+            <h1 id="startup-heading">Préparation de ton espace.</h1>
+            <div class="startup-track" aria-hidden="true"><span></span></div>
+            <p id="startup-message" role="status" aria-live="polite">Recherche des mises à jour disponibles…</p>
+            <p class="startup-hint">Tes projets restent à leur place. On vérifie simplement la dernière version.</p>
+            <button type="button" id="startup-continue">Continuer sans attendre</button>
+        </div>
+    </section>
     <div id="app">
         <header id="titlebar">
             <div class="tb-left">
@@ -456,7 +467,7 @@
                 <section id="pending-prompts" class="pending-prompts hidden" aria-label="Prompts en attente" aria-live="polite"></section>
                 <div id="agent-favorites" class="agent-favorites hidden"><div class="workspace-section-head"><b>Prompts favoris</b><button type="button" id="favorite-close" aria-label="Fermer les favoris">×</button></div><div id="favorite-list"></div></div>
                 <div class="composer-box">
-                    <div class="composer-topline"><select id="agent-workflow" aria-label="Type de travail"><option value="agent">✳ Agent</option><option value="plan">◇ Plan · sans modifier</option></select><div class="composer-utilities"><button type="button" id="favorite-open" title="Prompts favoris" aria-label="Prompts favoris">☆</button><button type="button" id="draft-save-favorite" title="Enregistrer ce prompt en favori" aria-label="Enregistrer ce prompt en favori">＋☆</button><button type="button" id="conversation-export" title="Exporter la conversation en Markdown" aria-label="Exporter la conversation">↗</button></div></div>
+                    <div class="composer-topline"><div class="composer-utilities"><button type="button" id="favorite-open" title="Prompts favoris" aria-label="Prompts favoris">☆</button><button type="button" id="draft-save-favorite" title="Enregistrer ce prompt en favori" aria-label="Enregistrer ce prompt en favori">＋☆</button><button type="button" id="conversation-export" title="Exporter la conversation en Markdown" aria-label="Exporter la conversation">↗</button></div></div>
                     <div id="attachments" class="attachments hidden"></div>
                     <textarea id="input" rows="2" placeholder="Demande à l'agent… (/ pour les commandes)"></textarea>
                     <input type="file" id="attach-input" multiple hidden>

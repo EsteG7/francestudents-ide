@@ -32,10 +32,12 @@ Ouvre une pull request dans ce fork. Décris le problème, le comportement obten
 1. Mettre à jour la version et le changelog.
 2. Vérifier le code, construire les exécutables et contrôler leur démarrage.
 3. Créer une release sur un tag correspondant aux sources construites.
-4. Joindre l’installateur, le portable, `.blockmap`, `latest.yml` et les empreintes SHA-256.
+4. Joindre uniquement l’installateur, `.blockmap`, `latest.yml` et les empreintes SHA-256.
 
 Les exécutables vont dans GitHub Releases, jamais dans Git. Les notes de version rappellent que le projet est de EsteG7 et que ce dépôt est un fork d’amélioration.
 
-Le workflow **Publier les exécutables Windows** se déclenche à la publication d’une release. Le tag doit être exactement `v` suivi de la version du `package.json` de ce tag. Il vérifie le code, construit les deux exécutables, calcule les empreintes et joint les fichiers de mise à jour. Si tous les fichiers sont déjà joints, il les conserve. Il peut être relancé manuellement avec le tag d’une release existante. Les Actions GitHub doivent être activées dans ce fork.
+Le workflow **Publier les exécutables Windows** se déclenche à la publication d’une release. Le tag doit être exactement `v` suivi de la version du `package.json` de ce tag. Il vérifie le code, construit uniquement l’installateur, calcule les empreintes et joint les fichiers de mise à jour. Si tous les fichiers sont déjà joints, il les conserve. Il peut être relancé manuellement avec le tag d’une release existante. Les Actions GitHub doivent être activées dans ce fork.
 
-Exemple pour la prochaine version : passer le paquet à `1.1.2`, committer et pousser, puis publier une release stable `v1.1.2` sur ce commit. Attendre que le workflow réussisse et que les cinq fichiers soient présents. Un simple push du code, un brouillon ou un tag sans release publiée ne déclenche pas cette publication Windows.
+Exemple pour la prochaine version : passer le paquet à `1.1.2`, committer et pousser, puis publier une release stable `v1.1.2` sur ce commit. Attendre que le workflow réussisse et que les quatre fichiers soient présents. Un simple push du code, un brouillon ou un tag sans release publiée ne déclenche pas cette publication Windows.
+
+Les versions portables restent exclusivement locales et ne doivent jamais accompagner une nouvelle release GitHub.

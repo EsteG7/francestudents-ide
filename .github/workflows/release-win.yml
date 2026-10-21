@@ -39,7 +39,7 @@ jobs:
           $release = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json assets,isPrerelease,isDraft | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw "Release introuvable" }
           $names = @($release.assets | ForEach-Object { $_.name })
-          $required = @("FranceStudentCode-$version-setup.exe", "FranceStudentCode-$version-portable.exe", "FranceStudentCode-$version-setup.exe.blockmap", "latest.yml", "SHA256SUMS.txt")
+          $required = @("FranceStudentCode-$version-setup.exe", "FranceStudentCode-$version-setup.exe.blockmap", "latest.yml", "SHA256SUMS.txt")
           $missing = @($required | Where-Object { $_ -notin $names })
           "ready=$($missing.Count -eq 0)".ToLower() >> $env:GITHUB_OUTPUT
       - name: Installer et vérifier
@@ -55,17 +55,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Construire sans publier de fichiers intermédiaires
         if: steps.release.outputs.ready != 'true'
-        run: npx electron-builder --win portable nsis --publish never --config.npmRebuild=false
+        run: npx electron-builder --win nsis --publish never --config.npmRebuild=false
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - name: Empreintes et publication des exécutables
         if: steps.release.outputs.ready != 'true'
         shell: pwsh
         run: |
-          $hashes = Get-ChildItem release/*.exe | Sort-Object Name | ForEach-Object {
+          $hashes = Get-ChildItem release/*-setup.exe | Sort-Object Name | ForEach-Object {
             "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
           }
           $hashes | Set-Content release/SHA256SUMS.txt -Encoding utf8NoBOM
-          $assets = @(Get-ChildItem release/*.exe,release/*.blockmap,release/latest.yml,release/SHA256SUMS.txt | ForEach-Object { $_.FullName })
+          # Explicit allowlist: portable executables remain local.
+          $assets = @(Get-ChildItem release/*-setup.exe,release/*-setup.exe.blockmap,release/latest.yml,release/SHA256SUMS.txt | ForEach-Object { $_.FullName })
           gh release upload $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY @assets --clobber
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

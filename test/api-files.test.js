@@ -138,3 +138,64 @@ test("requestModel envoie les fichiers joints puis passe leurs ID dans files", {
     assert.deepEqual(streamBody.images, []);
     assert.deepEqual(state.pendingFiles, []);
 });
+
+const IMAGE_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==";
+const IMAGE_ID = "11111111-2222-3333-4444-555555555555";
+
+test("image uploaded as multipart then attached to agent request, reused on retry", async () => {
+    prepareAuth();
+    state.pendingImages = [IMAGE_DATA_URL];
+    let uploads = 0, streams = 0;
+    global.fetch = async (url, init) => {
+        if (String(url).endsWith("/files/upload")) {
+            uploads++;
+            const file = init.body.get("file");
+            assert.equal(file.type, "image/png");
+            assert.ok(file.size > 0);
+            assert.equal(init.headers["Content-Type"], undefined);
+            return Response.json({ uuid: IMAGE_ID });
+        }
+        streams++;
+        const body = JSON.parse(init.body);
+        assert.deepEqual(body.images, [IMAGE_ID]);
+        assert.match(body.initialContent, /PIÈCES JOINTES VISUELLES/);
+        if (streams === 1) return new Response("temporary", { status: 500 });
+        return successfulResponse();
+    };
+    assert.equal(await requestModel("Examine cette capture", { conversationMode: "agent" }), "ok");
+    assert.equal(uploads, 1);
+    assert.equal(streams, 2);
+    assert.deepEqual(state.pendingImages, []);
+});
+
+test("fresh background requests do not consume or upload pending images", async () => {
+    prepareAuth();
+    state.pendingImages = [IMAGE_DATA_URL];
+    global.fetch = async (url, init) => {
+        assert.ok(String(url).endsWith("/chats/stream"));
+        assert.deepEqual(JSON.parse(init.body).images, []);
+        return successfulResponse();
+    };
+    await requestModel("Summarize context", { fresh: true });
+    assert.deepEqual(state.pendingImages, [IMAGE_DATA_URL]);
+});
+
+test("invalid upload response fails visibly before requesting model", async () => {
+    prepareAuth();
+    state.pendingImages = [IMAGE_DATA_URL];
+    let requests = 0;
+    global.fetch = async url => {
+        requests++;
+        assert.ok(String(url).endsWith("/files/upload"));
+        return Response.json({ id: "not-an-image-uuid" });
+    };
+    await assert.rejects(requestModel("Look"), /UUID image valide/);
+    assert.equal(requests, 1);
+    assert.deepEqual(state.pendingImages, [IMAGE_DATA_URL]);
+});
+
+test("agent prompt permits attached vision without claiming unavailable pixels", () => {
+    const prompt = require("../src/agent/prompt").buildAgentPrompt({ task: "Examine image", history: [], observations: [], turn: 1, maxTurns: 0 });
+    assert.match(prompt, /ne désactive pas la vision/);
+    assert.doesNotMatch(prompt, /recherche, images, canvas/);
+});

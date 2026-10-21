@@ -2280,8 +2280,7 @@ async function send(text) {
             studioFeedback("Prompt en attente mis à jour.");
             return;
         }
-        const request = $("agent-workflow").value === "plan" && !value.trim().startsWith("/") ? `/plan ${value}` : value;
-        const result = await api.submit(request, attachments);
+        const result = await api.submit(value, attachments);
         if (result?.error) throw new Error(result.error);
         if (result?.queued) studioFeedback("Prompt ajouté à la suite.");
     } catch (err) {
@@ -4361,7 +4360,7 @@ function renderInlinePending(snapshot) {
         const actions = document.createElement("div"); actions.className = "pending-menu-items";
         const action = (label, callback) => { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.onclick = () => { menu.open = false; callback(); }; actions.appendChild(button); };
         if (task.status === "pending") {
-            action("Modifier", () => { inlineEditingId = task.id; input.value = task.prompt; $("agent-workflow").value = task.mode || "agent"; autosizeInput(); saveStudioDraft(); input.focus(); studioFeedback("Modifier le prompt en attente · Entrée pour enregistrer · Échap pour annuler"); });
+            action("Modifier", () => { inlineEditingId = task.id; input.value = task.prompt; autosizeInput(); saveStudioDraft(); input.focus(); studioFeedback("Modifier le prompt en attente · Entrée pour enregistrer · Échap pour annuler"); });
             action("Monter", () => queueAction("move", { id: task.id, direction: "up" }));
             action("Descendre", () => queueAction("move", { id: task.id, direction: "down" }));
         }
@@ -7014,7 +7013,7 @@ $("studio-browser-permission").onchange=async()=>{try{await api.browserPermissio
 const updateSettings=document.createElement("section");updateSettings.className="settings-card";
 updateSettings.innerHTML=`<h3>Application et mises à jour</h3><p id="studio-app-version" class="settings-help"></p><label class="setting-toggle"><span><b>Mises à jour automatiques</b><small>Vérifier et télécharger les versions publiées. Dans la version installée, une mise à jour téléchargée est appliquée à la fermeture. Les projets et réglages restent dans leurs dossiers.</small></span><input type="checkbox" role="switch" id="studio-automatic-updates"></label><p id="studio-update-message" class="settings-help" role="status"></p><progress id="studio-update-progress" max="100" value="0" class="hidden"></progress><div class="studio-actions"><button type="button" id="studio-update-check">Vérifier maintenant</button><button type="button" id="studio-update-download" class="hidden">Télécharger la mise à jour</button><button type="button" id="studio-update-install" class="primary hidden">Enregistrer et redémarrer</button></div><p class="settings-help">Source prévue : versions GitHub de extraopaa/francestudents-ide. Les nouvelles versions doivent être publiées avec leur installateur et leurs métadonnées de mise à jour. Aucune version n’est publiée automatiquement par cette interface.</p>`;
 $("settings-view").insertBefore(updateSettings,$("settings-message"));
-function renderStudioUpdates(data){$("studio-app-version").textContent=`Version de l’application : ${data.version}`;$("studio-automatic-updates").checked=data.automatic;$("studio-update-message").textContent=data.message;$("studio-update-progress").value=data.progress;$("studio-update-progress").classList.toggle("hidden",data.status!=="downloading");$("studio-update-check").disabled=["unavailable","checking","downloading"].includes(data.status);$("studio-update-download").classList.toggle("hidden",data.status!=="available");$("studio-update-install").classList.toggle("hidden",data.status!=="downloaded");}
+function renderStudioUpdates(data){$("studio-app-version").textContent=`Version de l’application : ${data.version}`;$("studio-automatic-updates").checked=data.automatic;$("studio-update-message").textContent=data.message;$("studio-update-progress").value=data.progress;$("studio-update-progress").classList.toggle("hidden",data.status!=="downloading");$("studio-update-check").disabled=["unavailable","checking","downloading"].includes(data.status);$("studio-update-download").classList.toggle("hidden",(data.status!=="available"||data.canInstall===false));$("studio-update-install").classList.toggle("hidden",data.status!=="downloaded");}
 api.updates().then(renderStudioUpdates).catch(()=>{});
 $("studio-automatic-updates").onchange=()=>api.updates("automatic",{enabled:$("studio-automatic-updates").checked}).then(renderStudioUpdates).catch(error=>{$("studio-update-message").textContent=error.message;});
 for(const action of ["check","download","install"])$("studio-update-"+action).onclick=async()=>{try{if(action==="install"){await saveAllStudioFiles();if(ui.tabs.some(tab=>tab.dirty))throw new Error("Certains fichiers n’ont pas pu être enregistrés. Enregistre-les avant de redémarrer.");}renderStudioUpdates(await api.updates(action));}catch(error){$("studio-update-message").textContent=error.message;}};
@@ -7024,6 +7023,31 @@ api.onEvent((channel,data)=>{if(channel==="appUpdate")renderStudioUpdates(data);
 const contextActions=centerNode("div","studio-actions");
 contextActions.append(studioAction("Voir le contexte","BookOpen",()=>{input.value="/resume";input.focus();}),studioAction("Compacter la conversation","Command",()=>{input.value="/compact";input.focus();}));
 $("agent-starter")?.append(contextActions);
+
+/* A bounded startup check; downloads continue without blocking the editor. */
+async function runStartupUpdateCheck() {
+    const overlay=$("startup-loading"),message=$("startup-message"),appRoot=$("app");
+    let finished=false,deadline=null,finishTimer=null;
+    appRoot.inert=true;
+    const close=()=>{if(finished)return;finished=true;clearTimeout(deadline);clearTimeout(finishTimer);overlay.hidden=true;appRoot.inert=false;if(overlay.contains(document.activeElement))input.focus();};
+    $("startup-continue").onclick=close;
+    $("startup-continue").focus();
+    const start=Date.now();
+    try {
+        const result=await Promise.race([
+            api.updates("check"),
+            new Promise(resolve=>{deadline=setTimeout(()=>resolve({status:"timeout",message:"La vérification continue en arrière-plan. Ouverture de l’IDE…"}),8000);})
+        ]);
+        if(finished)return;
+        message.textContent=result.status==="unavailable"?"Mode développement : ouverture de l’IDE…":result.message;
+    } catch {
+        if(!finished)message.textContent="Vérification indisponible. Ouverture de l’IDE…";
+    } finally {
+        clearTimeout(deadline);
+        if(!finished)finishTimer=setTimeout(close,Math.max(650,1100-(Date.now()-start)));
+    }
+}
+runStartupUpdateCheck().catch(()=>{$("startup-loading").hidden=true;$("app").inert=false;});
 /* ---------- Démarrage ---------- */
 
 (async () => {

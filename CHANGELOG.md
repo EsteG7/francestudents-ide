@@ -2,6 +2,20 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
+## [1.1.2] — 22 octobre 2026 · Images et démarrage
+
+- Correction du prompt d’agent qui excluait à tort les capacités d’image.
+- Indication explicite des pièces jointes visuelles dans la requête, sans inventer de description si la vision est indisponible.
+- Validation de l’UUID d’image renvoyé par le téléversement ; erreur visible plutôt qu’une pièce jointe invalide.
+- Conservation des téléversements réussis en cas d’échec d’une image suivante.
+- 26 tests ciblés validés, dont le parcours image, les relances et les appels en arrière-plan.
+- Lecture réelle de deux images de contrôle vérifiée sur le modèle API `gpt-5.6-terra`, en chat puis avec le protocole Agent. Les autres modèles n’ont pas été vérifiés individuellement.
+- Écran de chargement au démarrage avec vérification des mises à jour, bouton pour continuer et délai limité en cas de service indisponible.
+- Recherche des versions publiées aussi en mode portable, sans installation automatique.
+- Suppression du sélecteur Agent / Plan de la saisie : les demandes utilisent directement le mode Agent.
+- Sept tests ciblés de mises à jour validés ; démarrage, vérification publique, bouton de passage et délai de secours vérifiés dans Electron.
+- Publication GitHub limitée à l’installateur et aux fichiers de mise à jour ; portable exclusivement local. Le workflow applique désormais cette règle.
+
 ## [1.1.1] — Compaction automatique
 
 ### Ajouté
@@ -58,3 +72,4 @@ Version de travail locale précédant la première release publique du fork. Les
 L’historique du [projet de EsteG7](https://github.com/EsteG7/francestudents-ide) est conservé. L’éditeur, le terminal, le CLI et les intégrations existantes proviennent de cette base.
 
 [1.1.1]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.1
+[1.1.2]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.2

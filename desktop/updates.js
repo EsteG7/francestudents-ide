@@ -1,8 +1,10 @@
 "use strict";
 const {EventEmitter}=require("node:events");
-function createUpdateController({updater,enabled=false,version="",getPreference=()=>true,savePreference=()=>{},onChange=()=>{}}={}) {
+function createUpdateController({updater,enabled=false,version="",getPreference=()=>true,savePreference=()=>{},onChange=()=>{},checkRelease=null}={}) {
     const state={version,status:enabled?"idle":"unavailable",availableVersion:null,progress:0,automatic:getPreference(),message:enabled?"Les mises à jour sont distribuées via les versions GitHub publiées.":"Les mises à jour automatiques seront disponibles dans la version Windows installée. Le mode développement et la version portable restent manuels."};
     const publish=patch=>{Object.assign(state,patch);onChange({...state});};
+    state.canInstall=enabled;
+    if(checkRelease){state.status="idle";state.message="Vérification des versions publiées disponible. Les mises à jour de la version portable restent manuelles.";}
     let checking=null;
     if(enabled&&updater){
         updater.autoDownload=state.automatic;updater.autoInstallOnAppQuit=state.automatic;
@@ -16,6 +18,10 @@ function createUpdateController({updater,enabled=false,version="",getPreference=
     async function action(type,payload={}) {
         if(type==="status")return {...state};
         if(type==="automatic"){state.automatic=payload.enabled===true;savePreference(state.automatic);if(updater){updater.autoDownload=state.automatic;updater.autoInstallOnAppQuit=state.automatic;}publish({automatic:state.automatic});return {...state};}
+        if((!enabled||!updater)&&type==="check"&&checkRelease){
+            if(!checking){publish({status:"checking",message:"Recherche de mises à jour…"});checking=Promise.resolve().then(()=>checkRelease(version)).then(publish).catch(()=>publish({status:"error",message:"Vérification impossible. Tu peux continuer et réessayer plus tard."})).finally(()=>{checking=null;});}
+            await checking;return {...state};
+        }
         if(!enabled||!updater)return {...state};
         if(type==="check"){
             if(!checking)checking=Promise.resolve().then(()=>updater.checkForUpdates()).catch(()=>publish({status:"error",message:"Impossible de vérifier la version publiée. Vérifie la connexion ou réessaie plus tard."})).finally(()=>{checking=null;});
