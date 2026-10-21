@@ -11,7 +11,7 @@
 
 const path = require("node:path");
 const fs = require("node:fs/promises");
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, clipboard, safeStorage } = require("electron");
 
 const { setUiBackend } = require("../src/ui-bridge");
 const { createDesktopBackend } = require("./backend");
@@ -39,13 +39,42 @@ let backend = null;
 let session = null;
 let booted = false;
 let busy = false;
+let submissionInterrupted = false;
+let supportsSteering = false;
+let bootstrapPromise = null;
+let loginBusy = false;
+const preferences = require("./preferences");
+preferences.apply();
+if (preferences.get().defaultModel !== null && !process.env.FS_AGENT_ID) require("../src/state").state.model = preferences.get().defaultModel;
+const extensionCenter = require("./extension-center").createExtensionCenter({
+    workspace: () => require("../src/state").state.workspace,
+    busy: () => busy
+});
+const marketplaceKeyFile = path.join(require("../src/config").CONFIG.dataDir, "skillsmp-key.enc");
+async function marketplaceKey() {
+    if (process.env.SKILLSMP_API_KEY) return process.env.SKILLSMP_API_KEY;
+    try { return safeStorage.decryptString(await fs.readFile(marketplaceKeyFile)); } catch { return ""; }
+}
+const marketplace = require("./marketplace").createMarketplace({getKey:marketplaceKey});
+const projectStudio = require("./project-studio").createProjectStudio({workspace:()=>require("../src/state").state.workspace,onEvent:data=>send("projectTask",data)});
+const previewServer = require("./preview-server").createPreviewServer();
+let updates=null;
+const webResearch=require("../src/tools/web-research").manager;
+webResearch.subscribe(data=>send("webResearch",data));
+const taskQueue = require("./task-queue").createTaskQueue({
+    file: path.join(require("../src/config").CONFIG.dataDir, "task-queue.json"),
+    workspace: () => require("../src/state").state.workspace,
+    canRun: () => booted && !busy && !loginBusy,
+    run: (prompt, options) => submit(options.mode === "plan" ? `/plan ${prompt}` : prompt, [], { queued: true }),
+    onChange: snapshot => send("taskQueue", snapshot)
+});
 
 function send(channel, data) {
     if (win && !win.isDestroyed()) win.webContents.send("frst:event", { channel, data });
 }
 
 function pushStatus() {
-    if (backend) send("status", { ...backend.status(), busy, booted });
+    if (backend) send("status", { ...backend.status(), busy, booted, canSteer: busy && supportsSteering });
 }
 
 /** Chemin absolu dans le projet ouvert ; refuse toute sortie du projet. */
@@ -60,10 +89,16 @@ function insideWorkspace(relOrAbs) {
     return full;
 }
 
-async function bootstrap() {
+function bootstrap() {
+    if (bootstrapPromise) return bootstrapPromise;
+    bootstrapPromise = bootstrapSession().finally(() => { bootstrapPromise = null; });
+    return bootstrapPromise;
+}
+
+async function bootstrapSession() {
     if (booted) return { ok: true };
     backend.banner();
-    const result = await session.bootstrap();
+    const result = await session.bootstrap({ interactive: false });
     booted = Boolean(result.ok);
 
     if (result.ok) {
@@ -71,15 +106,22 @@ async function bootstrap() {
         // dossier utilisé, sinon l'accès aux fichiers est perdu à chaque
         // redémarrage et l'agent ne peut plus lire ni modifier le code.
         await restoreLastProject();
+        const startupModel = preferences.get().defaultModel;
+        if (startupModel !== null && !process.env.FS_AGENT_ID) {
+            const conversations = require("../src/state");
+            conversations.resetConversation();
+            conversations.state.model = startupModel;
+        }
 
         // En application de bureau, le mode par défaut est « agent » : toute
         // demande sur un projet ouvert passe par les outils fichiers.
         require("../src/state").state.mode = "agent";
     }
 
-    if (!result.ok) backend.error(result.reason);
+    if (!result.ok && !result.needsLogin) backend.error(result.reason);
     pushStatus();
-    return result;
+    taskQueue.kick();
+    return { ...result, origin: require("../src/config").CONFIG.origin };
 }
 
 /** Rouvre le dernier projet connu s'il existe encore sur le disque. */
@@ -145,16 +187,25 @@ function normalizeAttachments(list) {
     return { images, files, textBlock: blocks.join("\n\n"), names };
 }
 
-async function submit(raw, attachments) {
+async function submit(raw, attachments, { queued = false } = {}) {
     const { state } = require("../src/state");
     let text = String(raw ?? "");
     const files = normalizeAttachments(attachments);
     const hasFiles = files.images.length > 0 || files.files.length > 0 || files.textBlock.length > 0;
     if (!text.trim() && !hasFiles) return { exit: false };
+    if (text.trim() === "/logout") return logoutAccount();
+    if (loginBusy) throw new Error("La connexion ou la déconnexion est en cours.");
+    if (!booted && !text.trim().startsWith("/")) throw new Error("Connecte-toi avant d’envoyer une demande.");
     if (busy) {
-        backend.warn("Une demande est déjà en cours : attends sa fin ou clique sur Stop.");
-        return { exit: false };
+        if (queued) return { exit: false, ok: false, error: "Une demande est déjà en cours." };
+        if (hasFiles) throw new Error("Les pièces jointes ne peuvent pas être mises en attente. Garde-les pour un envoi après la tâche en cours.");
+        const planning = /^\/plan\s+/i.test(text.trim());
+        if (text.trim().startsWith("/") && !planning) throw new Error("Cette commande doit attendre la fin de la tâche en cours.");
+        taskQueue.action("add", { prompt: planning ? text.trim().replace(/^\/plan\s+/i, "") : text, mode: planning ? "plan" : "agent" });
+        taskQueue.action("start");
+        return { exit: false, ok: true, queued: true };
     }
+    if (!queued) taskQueue.pause();
 
     let display = text;
     if (hasFiles && !text.trim().startsWith("/")) {
@@ -175,6 +226,9 @@ async function submit(raw, attachments) {
     }
 
     busy = true;
+    submissionInterrupted = false;
+    supportsSteering = !text.trim().startsWith("/") && state.mode !== "chat";
+    backend.startRun(display || text);
     pushStatus();
     send("entry", { type: "user", text: display });
 
@@ -185,6 +239,7 @@ async function submit(raw, attachments) {
     };
 
     let result = null;
+    let failure = null;
     try {
         const input = text.trim();
         if (/^\/(preprompt|profil)\b/i.test(input)) {
@@ -194,9 +249,10 @@ async function submit(raw, attachments) {
             if (!input.startsWith("/")) {
                 require("../src/project/profile").observe(input).catch(() => {});
             }
-            result = await session.handleInput(text, { onChatDelta, preferAgent: true });
+            result = await session.handleInput(text, { onChatDelta, preferAgent: true, forceAgent: queued, shouldStop: () => submissionInterrupted, drainSteering: () => taskQueue.takeSteering() });
         }
     } catch (error) {
+        failure = error.message || String(error);
         backend.error(error && error.message ? error.message : String(error));
     } finally {
         if (stream) stream.end();
@@ -205,13 +261,18 @@ async function submit(raw, attachments) {
         state.pendingFiles = [];
         send("commandEnd");
         busy = false;
+        supportsSteering = false;
+        taskQueue.releaseSteering();
+        if (failure || submissionInterrupted || result?.completed === false) taskQueue.pause();
+        backend.endRun({ ok: !failure && result?.completed !== false, interrupted: submissionInterrupted });
         pushStatus();
+        taskQueue.kick();
     }
 
     if (result && result.exit) {
         setTimeout(() => app.quit(), 200);
     }
-    return { exit: Boolean(result && result.exit) };
+    return { exit: Boolean(result && result.exit), ok: !failure && !submissionInterrupted && result?.completed !== false, interrupted: submissionInterrupted, error: failure, message: result?.message };
 }
 
 async function openProject(directory) {
@@ -225,6 +286,7 @@ async function openProject(directory) {
         dir = picked.filePaths[0];
     }
     if (busy) throw new Error("Une demande est en cours : attends sa fin avant de changer de projet.");
+    taskQueue.pause();
 
     busy = true;
     pushStatus();
@@ -260,15 +322,14 @@ async function readEditorFile(rel) {
     if (!info.isFile()) throw new Error("Ce n'est pas un fichier.");
     if (info.size > MAX_EDITOR_BYTES) throw new Error("Fichier trop volumineux pour l'éditeur (2 Mo max).");
     const buffer = await fs.readFile(full);
-    if (buffer.includes(0)) throw new Error("Fichier binaire :ouverture impossible dans l'éditeur.");
-    return { path: rel, content: buffer.toString("utf8"), mtimeMs: info.mtimeMs };
+    return { path: rel, ...require("./file-assets").decodeText(buffer), mtimeMs: info.mtimeMs };
 }
 
-async function writeEditorFile(rel, content) {
+async function writeEditorFile(rel, content, options={}) {
     const full = insideWorkspace(rel);
     if (typeof content !== "string") throw new Error("Contenu invalide.");
     const tmp = `${full}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, content, "utf8");
+    await fs.writeFile(tmp, require("./file-assets").encodeText(content,options));
     await fs.rename(tmp, full);
     const info = await fs.stat(full);
     return { path: rel, mtimeMs: info.mtimeMs };
@@ -537,6 +598,7 @@ function killAllTerminals() {
  * la limite la plus consommée (souvent celle des images). Voir summarizeUserQuota.
  */
 async function usage() {
+    if (!booted || loginBusy) return null;
     const { fetchUserUsage, summarizeUserQuota } = require("../src/api/account");
     return summarizeUserQuota(await fetchUserUsage());
 }
@@ -545,8 +607,22 @@ function setAutoApprove(mode) {
     const { state } = require("../src/state");
     const settings = require("../src/settings");
     const value = String(mode || "");
+    const accessMode = /^access-(ask|auto|full)-(session|always)$/.exec(value);
 
-    if (value.startsWith("commands-")) {
+    if (accessMode) {
+        const selected = accessMode[1];
+        const remember = accessMode[2] === "always";
+        settings.save({ fullAccessAlways: remember && selected === "full", autoApproveAlways: remember && selected === "auto", autoApproveCommandsAlways: remember && selected === "auto", rememberAccessChoice: remember, accessModeChoice: selected });
+        state.fullAccess = selected === "full";
+        state.autoApprove = selected === "auto";
+        state.autoApproveCommands = selected === "auto";
+        if (state.fullAccess) backend?.approvePendingActions();
+    } else if (["full-on", "full-off", "full-always", "full-never"].includes(value)) {
+        const enabled = value === "full-on" || value === "full-always";
+        if (value === "full-always" || value === "full-never") settings.save({ fullAccessAlways: enabled });
+        state.fullAccess = enabled;
+        if (enabled) backend?.approvePendingActions();
+    } else if (value.startsWith("commands-")) {
         // Commandes run_command sans question (les commandes interdites restent bloquées).
         const sub = value.slice("commands-".length);
         if (sub === "always" || sub === "never") {
@@ -558,6 +634,10 @@ function setAutoApprove(mode) {
     } else if (value === "web-on" || value === "web-off") {
         // Recherche web côté serveur (même drapeau que la commande CLI /web on|off).
         state.webSearch = value === "web-on";
+    } else if (value === "auto-web-on" || value === "auto-web-off") {
+        const enabled = value === "auto-web-on";
+        settings.save({ automaticWeb: enabled });
+        state.automaticWeb = enabled;
     } else if (value === "extensions-auto" || value === "extensions-manual") {
         // Skills et MCP : détection automatique par l'agent ou choix de l'utilisateur (/extensions).
         settings.setExtensionsMode(value.slice("extensions-".length));
@@ -568,12 +648,18 @@ function setAutoApprove(mode) {
         state.autoApprove = value === "on";
     }
 
+    const savedAccess = settings.load();
+    const effectiveMode = state.fullAccess ? "full" : state.autoApprove && state.autoApproveCommands ? "auto" : !state.autoApprove && !state.autoApproveCommands ? "ask" : "custom";
     return {
+        fullAccess: Boolean(state.fullAccess),
+        rememberAccess: savedAccess.accessModeChoice === effectiveMode ? savedAccess.rememberAccessChoice === true : effectiveMode === "full" ? savedAccess.fullAccessAlways === true : effectiveMode === "auto" && savedAccess.autoApproveAlways === true && savedAccess.autoApproveCommandsAlways === true,
+        fullAccessAlways: settings.load().fullAccessAlways === true,
         autoApprove: state.autoApprove,
         always: settings.autoApproveAlways(),
         autoApproveCommands: Boolean(state.autoApproveCommands),
         commandsAlways: settings.autoApproveCommandsAlways(),
         webSearch: Boolean(state.webSearch),
+        automaticWeb: Boolean(state.automaticWeb),
         extensionsMode: settings.extensionsMode()
     };
 }
@@ -650,12 +736,149 @@ function handle(name, fn) {
     });
 }
 
+async function logoutAccount() {
+    if (busy || loginBusy) throw new Error("Arrête la tâche en cours avant de te déconnecter.");
+    loginBusy = true;
+    taskQueue.pause();
+    booted = false;
+    pushStatus();
+    try {
+        if (bootstrapPromise) await bootstrapPromise.catch(() => {});
+        booted = false;
+        await require("../src/api/auth").logout();
+        send("signedOut");
+        return { ok: true };
+    } finally {
+        booted = false;
+        loginBusy = false;
+        pushStatus();
+    }
+}
+
 function registerIpc() {
+    handle("inspectFile",rel=>require("./file-assets").inspectFile(require("../src/state").state.workspace,String(rel)));
+    handle("openFileInApp",async rel=>{
+        const file=String(rel);
+        if(/\.(exe|msi|bat|cmd|ps1|psm1|sh|bash|zsh|vbs|vbe|js|jse|wsf|wsh|scr|com|lnk|url|reg|hta|scf|jar|desktop)$/i.test(file))throw new Error("Ce fichier exécute du code. Lance-le explicitement dans le terminal plutôt que via l’aperçu.");
+        const {target}=await require("../src/tools/security").resolveInWorkspace(require("../src/state").state.workspace,file);
+        return shell.openPath(target);
+    });
+    handle("updates", (action,payload)=>{
+        if(action==="install"&&(busy||projectStudio.runningCount>0))throw new Error("Arrête les tâches en cours et enregistre tes fichiers avant de redémarrer.");
+        return updates.action(String(action||"status"),payload||{});
+    });
+    handle("webResearch", (action,payload={})=>{
+        if(action==="list")return webResearch.list();
+        if(action==="cancel")return webResearch.cancel(payload.id);
+        if(action==="result")return webResearch.get(payload.id);
+        return require("../src/tools/web-search").webSearch({query:String(payload.query||""),limit:5,background:true});
+    });
+    handle("captureWebPage", args=>require("../src/tools/browse").browse(args||{}));
+    handle("browserPermission",(action,value)=>{
+        const settings=require("../src/settings");
+        if(action==="save"){if(!["ask","allow","deny"].includes(value))throw new Error("Permission de capture invalide.");settings.save({browserCapturePermission:value});}
+        return settings.load().browserCapturePermission||"ask";
+    });
+    handle("projectStudio", (action,payload)=>projectStudio.action(action,payload));
+    handle("environmentDiagnostics", ()=>require("./project-studio").environmentDiagnostics());
+    handle("formatDocument", payload=>require("./formatter").formatDocument(payload||{}));
+    handle("localPreview", (action,payload={})=>{
+        if(action === "stop")return previewServer.stop();
+        if(action === "url")return {url:require("./preview-server").localPreviewUrl(payload.url)};
+        return previewServer.start(require("../src/state").state.workspace,String(payload.file||"index.html"));
+    });
+    handle("editorPreferences", (action,payload={})=>{
+        const settings=require("../src/settings");
+        const defaults={fontSize:13,tabSize:4,wordWrap:false,autoSave:false,formatOnSave:false,reducedMotion:false,theme:"original"};
+        if(action === "save") {
+            const value={fontSize:Number(payload.fontSize),tabSize:Number(payload.tabSize),wordWrap:payload.wordWrap===true,autoSave:payload.autoSave===true,formatOnSave:payload.formatOnSave===true,reducedMotion:payload.reducedMotion===true,theme:payload.theme === "midnight"?"midnight":"original"};
+            if(!Number.isInteger(value.fontSize)||value.fontSize<10||value.fontSize>24||![2,4,8].includes(value.tabSize))throw new Error("Taille de police : 10 à 24 ; indentation : 2, 4 ou 8 espaces.");
+            settings.save({editorPreferences:value});
+        }
+        return {...defaults,...settings.load().editorPreferences};
+    });
+    handle("openSourceLicenses", ()=>fs.readFile(path.join(__dirname,"renderer/vendor/OPEN_SOURCE_LICENSES.txt"),"utf8"));
+    handle("marketplace", async (action, payload = {}) => {
+        if (action === "search") return marketplace.search(payload);
+        if (action === "preview") return marketplace.preview(payload);
+        if (action === "install") return extensionCenter.action("import", {name:payload.name, scope:payload.scope, content:marketplace.takePreview(payload.url)});
+        throw new Error("Action de marketplace inconnue.");
+    });
+    handle("marketplaceKey", async (action, value) => {
+        if (action === "clear") await fs.unlink(marketplaceKeyFile).catch(error => { if (error.code !== "ENOENT") throw error; });
+        if (action === "save") {
+            if (!safeStorage.isEncryptionAvailable()) throw new Error("Le chiffrement système est indisponible. Utilise SKILLSMP_API_KEY dans l’environnement.");
+            const key = String(value || "").trim();
+            if (!key || key.length > 2000 || /[\r\n]/.test(key)) throw new Error("Clé invalide.");
+            await fs.mkdir(path.dirname(marketplaceKeyFile), {recursive:true});
+            await fs.writeFile(marketplaceKeyFile, safeStorage.encryptString(key), {mode:0o600});
+        }
+        return {configured:Boolean(await marketplaceKey()), fromEnvironment:Boolean(process.env.SKILLSMP_API_KEY)};
+    });
+    handle("extensionAction", (action, payload) => extensionCenter.action(action, payload));
+    handle("mcpManage", (action, payload) => extensionCenter.mcpAction(action, payload));
+    handle("preferences", (action, payload) => {
+        if (action !== "save") return preferences.get();
+        if (busy) throw new Error("Attends la fin de la tâche pour modifier le contexte.");
+        return preferences.save(payload || {});
+    });
     handle("bootstrap", bootstrap);
+    handle("logoutAccount", logoutAccount);
+    handle("loginAccount", async credentials => {
+        if (busy || loginBusy) throw new Error("Une opération est déjà en cours. Réessaie dans un instant.");
+        const email = typeof credentials?.email === "string" ? credentials.email.trim() : "";
+        const password = typeof credentials?.password === "string" ? credentials.password : "";
+        if (!email || !password || email.length > 500 || password.length > 4096) throw new Error("Renseigne ton adresse e-mail et ton mot de passe.");
+        loginBusy = true;
+        try {
+            await require("../src/api/login").loginWithPassword({ email, password });
+            await require("../src/api/auth").getAccessToken(true);
+            booted = false;
+            return await bootstrap();
+        } finally { loginBusy = false; }
+    });
     handle("submit", submit);
     handle("resolvePrompt", (id, value) => backend.resolvePrompt(id, value));
-    handle("interrupt", () => backend.interrupt());
-    handle("status", () => ({ ...backend.status(), busy, booted }));
+    handle("interrupt", () => {
+        submissionInterrupted = true;
+        taskQueue.pause({ interrupt: true });
+        return backend.interrupt();
+    });
+    handle("taskQueue", (action, payload) => {
+        if (action === "steer" && (!busy || !supportsSteering)) throw new Error("Aucune tâche compatible n’est en cours. Le prompt reste dans la file.");
+        return taskQueue.action(action, payload);
+    });
+    handle("agentActivity", () => backend.activity());
+    handle("copyText", text => { clipboard.writeText(String(text ?? "").slice(0, 2000000)); return true; });
+    handle("exportConversation", async text => {
+        const chosen = await dialog.showSaveDialog(win, { title: "Exporter la conversation", defaultPath: "conversation-francestudent.md", filters: [{ name: "Markdown", extensions: ["md"] }] });
+        if (chosen.canceled || !chosen.filePath) return { canceled: true };
+        await fs.writeFile(chosen.filePath, String(text ?? "").slice(0, 5000000), "utf8");
+        return { path: chosen.filePath };
+    });
+    handle("backgroundJobs", (action, id) => {
+        const manager = require("../src/tools/command/jobs").manager;
+        if (action === "stop") return manager.stop(String(id));
+        if (action === "output") return manager.peek(String(id));
+        return manager.list();
+    });
+    handle("checkpoints", async (action, id) => {
+        const { state } = require("../src/state");
+        const points = require("../src/project/checkpoints");
+        if (action !== "restore") return points.listCheckpoints(state.workspace).slice().reverse();
+        if (busy) throw new Error("Arrête la tâche en cours avant de restaurer les fichiers.");
+        const point = points.getCheckpoint(id);
+        if (!state.workspace || !point || point.workspace !== state.workspace) throw new Error("Point de reprise introuvable pour ce projet.");
+        taskQueue.pause();
+        busy = true; pushStatus();
+        try {
+            const result = await require("../src/tools/core/journal").rewindTo(point.at);
+            points.dropCheckpointsFrom(point.id);
+            state.history.length = Math.min(state.history.length, point.historyLength);
+            return result;
+        } finally { busy = false; pushStatus(); }
+    });
+    handle("status", () => ({ ...backend.status(), busy, booted, canSteer: busy && supportsSteering }));
     handle("models", () => backend.models());
     handle("setModel", async (id) => {
         if (busy) throw new Error("Une demande est en cours : attends sa fin avant de changer de modèle.");
@@ -690,7 +913,11 @@ function registerIpc() {
     handle("ptyResize", ptyResize);
     handle("ptyKill", ptyKill);
     handle("usage", usage);
-    handle("autoApprove", setAutoApprove);
+    handle("autoApprove", mode => {
+        const result = setAutoApprove(mode);
+        pushStatus();
+        return result;
+    });
     handle("mcpList", (action) => mcpList(String(action || "")));
     handle("mcpOpenConfig", mcpOpenConfig);
     handle("skillsList", skillsList);
@@ -792,6 +1019,7 @@ function registerIpc() {
         insideWorkspace(rel);
         return lspClient().references(String(rel), String(text ?? ""), Number(line) || 0, Number(character) || 0);
     });
+    handle("documentSymbols", (rel,text)=>{insideWorkspace(rel);return lspClient().documentSymbols(String(rel),String(text||""));});
     handle("lspRename", (rel, text, line, character, newName) => {
         insideWorkspace(rel);
         return lspClient().rename(String(rel), String(text ?? ""), Number(line) || 0, Number(character) || 0, String(newName ?? ""));
@@ -964,14 +1192,22 @@ if (!gotLock) {
         backend = createDesktopBackend(send);
         setUiBackend(backend);
         session = require("../src/core/session");
+        const updateSettings=require("../src/settings");
+        const updateEnabled=app.isPackaged&&process.platform==="win32"&&!process.env.PORTABLE_EXECUTABLE_DIR&&require("node:fs").existsSync(path.join(process.resourcesPath,"app-update.yml"));
+        updates=require("./updates").createUpdateController({updater:updateEnabled?require("electron-updater").autoUpdater:null,enabled:updateEnabled,version:app.getVersion(),getPreference:()=>updateSettings.load().automaticUpdates!==false,savePreference:automaticUpdates=>updateSettings.save({automaticUpdates}),onChange:data=>send("appUpdate",data)});
 
         registerIpc();
         createWindow();
+        if(updateEnabled){const checkUpdate=()=>{if(updateSettings.load().automaticUpdates!==false)updates.action("check").catch(()=>{});};setTimeout(checkUpdate,15000).unref();setInterval(checkUpdate,4*60*60*1000).unref();}
 
         setInterval(pushStatus, 2000).unref();
     });
 
-    app.on("window-all-closed", () => {
+    app.on("window-all-closed", async () => {
+        await projectStudio.stopAll();
+        await require("../src/tools/browse").stopAll();
+        webResearch.stopAll();
+        previewServer.stop().catch(()=>{});
         killAllTerminals();
         if (lspManager) lspManager.stopAll().catch(() => {});
         try {

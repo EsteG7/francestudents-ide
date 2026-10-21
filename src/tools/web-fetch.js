@@ -11,6 +11,7 @@ const dns = require("node:dns/promises");
 const net = require("node:net");
 
 const { ui } = require("../ui-bridge");
+const { state } = require("../state");
 const { requireString, optionalInt } = require("./core/args");
 
 const DEFAULT_MAX_CHARS = 20000;
@@ -206,7 +207,7 @@ function clampChars(value) {
 async function webFetch(args, deps = {}) {
     const fetchImpl = deps.fetch ?? globalThis.fetch;
     const lookup = deps.lookup ?? dns.lookup;
-    const confirm = deps.confirm ?? (question => ui.confirm(question));
+    const confirm = deps.confirm ?? (question => state.automaticWeb ? Promise.resolve(true) : ui.confirm(question));
     const allowPrivate = deps.allowPrivate === true;
     const timeoutMs = deps.timeoutMs ?? TIMEOUT_MS;
     const maxChars = clampChars(args.max_chars);
@@ -233,7 +234,7 @@ async function webFetch(args, deps = {}) {
         for (let hop = 0; ; hop++) {
             response = await fetchImpl(url.href, {
                 redirect: "manual",
-                signal: controller.signal,
+                signal: deps.signal?AbortSignal.any([controller.signal,deps.signal]):controller.signal,
                 headers: {
                     "user-agent": "FranceStudentCode/1.0 (web_fetch)",
                     accept: "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5"

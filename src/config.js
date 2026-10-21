@@ -28,6 +28,7 @@ const CONFIG = {
     // Agent
     maxAgentTurns: envInt("FS_MAX_AGENT_TURNS", 50),
     maxProtocolAttempts: 2,
+    autoCompactTokens: Math.max(16000, envInt("FS_AUTO_COMPACT_TOKENS", 100000)),
     maxPreloadFiles: 3,
 
     // Fichiers

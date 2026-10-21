@@ -9,9 +9,15 @@
     renderTree();
     input.focus();
     try {
-        await api.bootstrap();
+        const result = await api.bootstrap();
+        if (result.origin) connectionOrigin = result.origin;
+        if (!result.ok) {
+            openConnectionGuide(1);
+            if (!result.needsLogin) guideError(result.reason);
+        }
     } catch (err) {
-        renderEntry({ type: "error", text: err.message });
+        openConnectionGuide(1);
+        guideError(err);
     }
     refreshQuota();
     setInterval(refreshQuota, 120000);

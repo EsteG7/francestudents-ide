@@ -14,6 +14,8 @@ import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
 import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
+import { yaml } from "@codemirror/lang-yaml";
+import { MergeView } from "@codemirror/merge";
 import { oneDark } from "@codemirror/theme-one-dark";
 
 function languageFor(kind) {
@@ -25,6 +27,7 @@ function languageFor(kind) {
         case "html": return html();
         case "md": return markdown();
         case "py": return python();
+        case "yaml": return yaml();
         default: return [];
     }
 }
@@ -32,6 +35,7 @@ function languageFor(kind) {
 /* globalThis === window dans le bundle IIFE chargé par le renderer (et évite no-undef côté ESLint/Node). */
 globalThis.CM = {
     basicSetup,
+    MergeView,
     EditorState,
     EditorSelection,
     EditorView,

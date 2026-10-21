@@ -7,6 +7,14 @@ const path = require("path");
 
 const ROOT = path.join(__dirname, "..");
 const DEST = path.join(ROOT, "desktop", "renderer", "vendor");
+const bundledPackages = new Set();
+function recordPackages(result) {
+  for(const file of Object.keys(result.metafile?.inputs||{})) {
+    const parts=file.replace(/\\/g,"/").split("node_modules/").pop().split("/");
+    if(!file.includes("node_modules"))continue;
+    bundledPackages.add(parts[0].startsWith("@")?parts.slice(0,2).join("/"):parts[0]);
+  }
+}
 
 const FILES = [
   ["@xterm/xterm", "lib/xterm.js", "xterm.js"],
@@ -54,6 +62,30 @@ function main() {
   }
   console.log(`[vendor] ${FILES.length} fichiers vérifiés, ${copied} copiés dans ${path.relative(ROOT, DEST)}`);
   buildCodemirror();
+  buildStudio();
+  copyLicenses();
+}
+
+function buildStudio() {
+  const result = require("esbuild").buildSync({entryPoints:[path.join(__dirname,"studio-vendor-entry.mjs")],bundle:true,format:"iife",platform:"browser",target:"chrome120",minify:true,legalComments:"eof",write:false,metafile:true});
+  recordPackages(result);
+  const target = path.join(DEST,"studio.js");
+  const data = Buffer.from(result.outputFiles[0].contents);
+  if (!fs.existsSync(target) || !fs.readFileSync(target).equals(data)) fs.writeFileSync(target,data);
+  console.log(`[vendor] studio.js vérifié (${Math.round(data.length/1024)} Ko)`);
+}
+
+function copyLicenses() {
+  const packages = [...new Set(["prettier","electron-updater","node-pty","typescript","typescript-language-server","@xterm/xterm","@xterm/addon-fit",...bundledPackages])].sort();
+  const notices = [];
+  for (const name of packages) {
+    const dir = packageDir(name);
+    const pkg = JSON.parse(fs.readFileSync(path.join(dir,"package.json"),"utf8"));
+    const texts = fs.readdirSync(dir).filter(file => /^(license|licence|notice|copyright)([.-]|$)/i.test(file) && fs.statSync(path.join(dir,file)).isFile()).map(file => fs.readFileSync(path.join(dir,file),"utf8"));
+    if (!texts.length) throw new Error("Licence introuvable : " + name);
+    notices.push(`## ${name} ${pkg.version} (${pkg.license})\n\n${texts.join("\n\n")}`);
+  }
+  fs.writeFileSync(path.join(DEST,"OPEN_SOURCE_LICENSES.txt"),notices.join("\n\n------------------------\n\n"));
 }
 
 // Assemble CodeMirror 6 (modules ES) en un seul script qui expose window.CM.
@@ -76,6 +108,7 @@ function buildCodemirror() {
       platform: "browser",
       target: "chrome120",
       minify: true,
+      metafile: true,
       legalComments: "none",
       write: false,
       logLevel: "silent"
@@ -86,6 +119,7 @@ function buildCodemirror() {
     return;
   }
   const data = Buffer.from(result.outputFiles[0].contents);
+  recordPackages(result);
   if (fs.existsSync(target) && fs.readFileSync(target).equals(data)) {
     console.log("[vendor] codemirror.js à jour");
     return;

@@ -253,6 +253,14 @@ test("e-mail ou mot de passe vide : refusé sans réseau", async () => {
     await assert.rejects(login.loginWithPassword({ email: "", password: "x" }), /requis/);
 });
 
+test("une connexion explicite fonctionne après déconnexion", async () => {
+    await authModule.logout();
+    assert.equal(authModule.auth.signedOut, true);
+    await login.loginWithPassword({ email: EMAIL, password: PASSWORD });
+    assert.equal(authModule.auth.signedOut, false);
+    assert.equal(await authModule.getAccessToken(true), "jwt-token");
+});
+
 test("renewAccessToken sans session : AuthError.needsLogin", async () => {
     reset();
     authModule.auth.jar.delete(authModule.SESSION_COOKIE);

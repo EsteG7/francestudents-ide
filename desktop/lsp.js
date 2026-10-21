@@ -233,6 +233,13 @@ function rangesOverlap(a, b) {
     return before(a.start, b.end) && before(b.start, a.end);
 }
 
+function simplifyDocumentSymbols(items) {
+    const labels={2:"module",5:"classe",6:"méthode",7:"propriété",9:"constructeur",10:"enum",11:"interface",12:"fonction",13:"variable",14:"constante",23:"structure",26:"type"};
+    const pending=(Array.isArray(items)?items:[]).map(item=>({item,depth:0}));const result=[];
+    while(pending.length&&result.length<800){const {item,depth}=pending.shift();if(!item||!item.name)continue;const start=(item.selectionRange||item.range||item.location?.range)?.start;if(start)result.push({name:String(item.name),detail:String(item.detail||""),kind:labels[item.kind]||"symbole",line:Number(start.line)||0,character:Number(start.character)||0,depth});if(depth<12&&Array.isArray(item.children))pending.unshift(...item.children.map(child=>({item:child,depth:depth+1})));}
+    return result;
+}
+
 function createLspClient({ workspace, onDiagnostics = () => {}, spawn = defaultSpawn, timeoutMs = 10000 } = {}) {
     if (!workspace) throw new Error("LSP : un projet est requis.");
     const root = path.resolve(String(workspace));
@@ -348,6 +355,7 @@ function createLspClient({ workspace, onDiagnostics = () => {}, spawn = defaultS
                     publishDiagnostics: { relatedInformation: false },
                     definition: { linkSupport: false },
                     references: {},
+                    documentSymbol: {hierarchicalDocumentSymbolSupport:true},
                     rename: { prepareSupport: false },
                     signatureHelp: {
                         signatureInformation: {
@@ -445,6 +453,11 @@ function createLspClient({ workspace, onDiagnostics = () => {}, spawn = defaultS
         return (Array.isArray(result) ? result : []).map((loc) => simplifyLocation(loc, relFor)).filter(Boolean);
     }
 
+    async function documentSymbols(rel,text) {
+        if(!(await sync(rel,text)))return [];
+        return simplifyDocumentSymbols(await request("textDocument/documentSymbol",{textDocument:{uri:uriFor(rel)}}));
+    }
+
     async function rename(rel, text, line, character, newName) {
         const name = String(newName ?? "").trim();
         if (!name) throw new Error("LSP : nouveau nom vide.");
@@ -529,6 +542,7 @@ function createLspClient({ workspace, onDiagnostics = () => {}, spawn = defaultS
         hover,
         definition,
         references,
+        documentSymbols,
         rename,
         signatureHelp,
         codeActions,
@@ -574,5 +588,6 @@ module.exports = {
     simplifyDiagnostic,
     simplifyLocation,
     simplifySignature,
+    simplifyDocumentSymbols,
     simplifyWorkspaceEdit
 };

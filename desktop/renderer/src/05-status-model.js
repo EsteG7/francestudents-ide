@@ -5,13 +5,22 @@ function applyStatus(s) {
     const wasBusy = Boolean(ui.status.busy);
     ui.status = s;
     const busy = Boolean(s.busy);
+    $("settings-logout").disabled = !s.booted || busy;
+    $("settings-account-status").textContent = !s.booted ? "Non connecté." : busy ? "Connecté · arrête la tâche avant de te déconnecter." : "Connecté à FranceStudent.";
+    updateStudioStatus(s);
 
     $("statusbar").classList.toggle("busy", busy);
     $("btn-stop").classList.toggle("hidden", !busy);
-    $("btn-send").disabled = busy;
+    $("btn-send").disabled = false;
+    $("btn-send").textContent = busy ? "Ajouter" : "Envoyer";
+    $("btn-send").title = busy ? "Ajouter ce prompt à la file (Entrée)" : "Envoyer (Entrée)";
+    input.placeholder = busy ? "Ajouter une demande à la suite…" : "Demande à l’agent… (/ pour les commandes)";
+    document.querySelector(".composer-hint").textContent = busy ? "Entrée : ajouter à la suite" : "Entrée : envoyer · Maj+Entrée : ligne";
+    $("mode-select").disabled = busy;
+    renderInlinePending(queueSnapshot);
     $("st-busy").textContent = busy ? "⟳ en cours" : "";
     $("st-jobs").textContent = s.jobs ? `jobs : ${s.jobs}` : "";
-    $("st-auto").textContent = s.autoApprove ? "auto-approbation" : "";
+    $("st-auto").textContent = s.fullAccess ? "Full accès" : s.autoApprove ? "auto-approbation" : "";
     $("st-mode").textContent = s.mode ? `mode : ${s.mode}` : "";
     $("st-model").textContent = s.model || "";
     $("model-label").textContent = s.model || "modèle";
@@ -36,6 +45,7 @@ function applyStatus(s) {
     if ((s.workspace || null) !== ui.workspace) {
         ui.workspace = s.workspace || null;
         onWorkspaceChanged();
+        refreshTaskQueue();
     } else if (wasBusy && !busy) {
         scheduleRefresh();
     }
@@ -78,8 +88,10 @@ function renderQuota() {
 }
 
 async function refreshQuota() {
+    if (!ui.status.booted) { ui.quota = null; renderQuota(); return; }
     try {
-        ui.quota = await api.usage();
+        const quota = await api.usage();
+        ui.quota = ui.status.booted ? quota : null;
     } catch {
         ui.quota = null;
     }

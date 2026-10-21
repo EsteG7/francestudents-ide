@@ -1,10 +1,10 @@
 /* ---------- Rendu du texte ---------- */
 
 const TOOL_LABELS = {
-    list_directory: "Lister", read_file: "Lire", search_files: "Chercher",
+    list_directory: "Lister", read_file: "Lire", search_files: "Chercher",web_search_result:"Résultat web",view_image:"Examiner l’image",
     create_directory: "Créer le dossier", write_file: "Écrire", edit_file: "Éditer",
     move_path: "Déplacer", copy_path: "Copier", delete_path: "Supprimer",
-    remember: "Mémoriser", run_command: "Commande"
+    remember: "Mémoriser", run_command: "Commande", web_search: "Rechercher sur le web", web_fetch: "Lire une source", update_plan: "Actualiser le plan", semantic_search: "Explorer le code", diagnostics: "Diagnostics", browse: "Vérifier la page", job_output: "Lire la commande", job_stop: "Arrêter la commande"
 };
 
 function toolLabel(name) {
@@ -20,12 +20,26 @@ function escapeHtml(text) {
 }
 
 function inline(text) {
-    return escapeHtml(text)
-        .replace(/`([^`]+)`/g, "<code>$1</code>")
-        .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+    return String(text ?? "").split(/(`[^`]+`|\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)|\*\*[^*]+\*\*|https?:\/\/[^\s<>]+)/g).map(part => {
+        if (part.startsWith("`") && part.endsWith("`")) return `<code>${escapeHtml(part.slice(1, -1))}</code>`;
+        if (part.startsWith("**") && part.endsWith("**")) return `<b>${escapeHtml(part.slice(2, -2))}</b>`;
+        const match = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(part);
+        const url = match ? match[2] : /^https?:\/\//.test(part) ? part : null;
+        if (url) return `<a href="${escapeHtml(url)}" data-web-url="${escapeHtml(url)}">${escapeHtml(match ? match[1] : url)}</a>`;
+        return escapeHtml(part);
+    }).join("");
 }
 
 function renderMarkdown(src) {
+    if(typeof window!=="undefined"&&window.StudioVendor) {
+        const template=document.createElement("template");template.innerHTML=window.StudioVendor.markdown(src);
+        for(const anchor of template.content.querySelectorAll("a")) {
+            const href=anchor.getAttribute("href")||"";
+            if(/^https?:\/\//i.test(href))anchor.dataset.webUrl=href;
+            else anchor.removeAttribute("href");
+        }
+        return template.innerHTML;
+    }
     const lines = String(src ?? "").split("\n");
     let html = "";
     let block = null;

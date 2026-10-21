@@ -225,6 +225,7 @@ async function send(text) {
     const value = text ?? input.value;
     const withFiles = text === undefined && pendingAttachments.length > 0;
     if (!value.trim() && !withFiles) return;
+    if (!ui.status.booted && !value.trim().startsWith("/")) { openConnectionGuide(1); return; }
     const attachments = withFiles ? pendingAttachments : [];
     if (text === undefined) {
         if (value.trim()) {
@@ -232,6 +233,7 @@ async function send(text) {
             ui.historyIndex = ui.history.length;
         }
         input.value = "";
+        saveStudioDraft();
         if (withFiles) {
             pendingAttachments = [];
             renderAttachments();
@@ -239,8 +241,22 @@ async function send(text) {
     }
     hideSlash();
     try {
-        await api.submit(value, attachments);
+        if (inlineEditingId) {
+            await api.taskQueue("edit", { id: inlineEditingId, prompt: value });
+            inlineEditingId = null;
+            studioFeedback("Prompt en attente mis à jour.");
+            return;
+        }
+        const request = $("agent-workflow").value === "plan" && !value.trim().startsWith("/") ? `/plan ${value}` : value;
+        const result = await api.submit(request, attachments);
+        if (result?.error) throw new Error(result.error);
+        if (result?.queued) studioFeedback("Prompt ajouté à la suite.");
     } catch (err) {
+        if (text === undefined && !input.value) {
+            input.value = value;
+            if (withFiles) { pendingAttachments = attachments; renderAttachments(); }
+            saveStudioDraft(); autosizeInput();
+        }
         renderEntry({ type: "error", text: err.message });
     }
 }
@@ -318,6 +334,7 @@ input.addEventListener("keydown", (ev) => {
     }
     if (ev.key === "Escape") {
         ev.preventDefault();
+        if (inlineEditingId) { inlineEditingId = null; input.value = ""; saveStudioDraft(); studioFeedback("Modification annulée."); return; }
         if (menuOpen) hideSlash();
         else if (ui.status.busy) api.interrupt().catch(() => {});
         else input.value = "";

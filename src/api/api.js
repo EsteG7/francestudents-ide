@@ -244,6 +244,26 @@ function appendFileText(message, fileText) {
 }
 
 async function requestModel(message, options = {}) {
+    const { AutoCompact, isContextOverflow } = require("../agent/auto-compact");
+    const compactor = requestModel.compactor ||= new AutoCompact();
+    const mode = options.conversationMode === "agent" ? "agent" : "chat";
+    let compacted = false;
+    const compact = async () => {
+        ui.info("Compaction automatique du contexte en cours…");
+        const prepared = await compactor.prepare(mode, state.chatIds[mode], message, options.freshMessage,
+            prompt => requestModel(prompt, { fresh: true, conversationMode: mode, onInterrupt: options.onInterrupt }));
+        if (!prepared) return false;
+        if (prepared.length > CONFIG.maxMessageChars) throw new Error("Contexte compacté trop volumineux ; conversation conservée.");
+        message = prepared;
+        state.chatIds[mode] = null;
+        state.chatId = null;
+        compacted = true;
+        ui.info("Contexte compacté. Reprise automatique de la tâche.");
+        return true;
+    };
+    if (!options.fresh && compactor.shouldCompact(mode, state.chatIds[mode], message, CONFIG.autoCompactTokens)) {
+        await compact();
+    }
     if (!options.fresh) {
         await resolvePendingImages();
         message = appendFileText(message, await resolvePendingFiles());
@@ -269,9 +289,11 @@ async function requestModel(message, options = {}) {
 
     while (true) {
         try {
+            const inputBefore = usage.inputTokens;
             const answer = await requestModelOnce(message, options);
             // Images et fichiers joints : envoyés une seule fois (première réponse réussie).
             if (!options.fresh) {
+                compactor.record(mode, state.chatIds[mode], message, answer, usage.inputTokens - inputBefore);
                 state.pendingImages = [];
                 state.pendingFiles = [];
             }
@@ -279,6 +301,7 @@ async function requestModel(message, options = {}) {
         } catch (error) {
             // Annulation volontaire (Ctrl+C) : jamais de relance.
             if (error.cancelled) throw error;
+            if (!options.fresh && !compacted && isContextOverflow(error) && await compact()) continue;
 
             const status = error.status;
             const isClientError = status >= 400 && status < 500;

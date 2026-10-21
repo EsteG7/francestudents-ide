@@ -32,9 +32,18 @@ function createDesktopBackend(send) {
     }
 
     const resolvers = new Map();
+    const promptKinds = new Map();
     const interrupts = [];
     let nextPromptId = 1;
     let nextSpinnerId = 1;
+    let nextActionId = 0;
+    let run = null;
+    let runTracking = false;
+    let pendingTools = [];
+
+    function publishActivity() {
+        if (run) send("agentActivity", structuredClone(run));
+    }
 
     function emit(entry) {
         send("entry", entry);
@@ -44,11 +53,30 @@ function createDesktopBackend(send) {
         const id = nextPromptId++;
         return new Promise((resolve) => {
             resolvers.set(id, resolve);
+            promptKinds.set(id, kind);
             send("prompt", { id, kind, question: clean(question), ...extra });
         });
     }
 
     const backend = {
+        startRun(prompt) {
+            pendingTools = [];
+            runTracking = true;
+            run = { prompt: clean(prompt).slice(0, 500), workspace: state.workspace, startedAt: Date.now(), endedAt: null, status: "running", actions: [], sources: [], steps: [], commands: 0, reads: 0, writes: 0 };
+            publishActivity();
+        },
+
+        endRun({ ok, interrupted } = {}) {
+            if (!run) return;
+            runTracking = false;
+            run.status = interrupted ? "interrupted" : ok ? "done" : "failed";
+            run.endedAt = Date.now();
+            for (const action of pendingTools) { action.status = interrupted ? "interrupted" : "failed"; action.endedAt = run.endedAt; }
+            pendingTools = [];
+            publishActivity();
+        },
+
+        activity() { return run ? structuredClone(run) : null; },
         banner() {
             // Pas d'encadré d'accueil dans le panneau agent : le modèle, le projet et le mode
             // sont déjà affichés dans la barre d'état.
@@ -85,6 +113,10 @@ function createDesktopBackend(send) {
 
         plan(items) {
             emit({ type: "plan", items: Array.isArray(items) ? items.map(clean) : [] });
+            if (run && runTracking) {
+                run.steps = state.agentPlan?.length ? state.agentPlan.map(s => ({ ...s })) : (items || []).map(step => ({ step: clean(step), status: "pending" }));
+                publishActivity();
+            }
         },
 
         reason(text) {
@@ -93,10 +125,35 @@ function createDesktopBackend(send) {
 
         tool(name, arg) {
             emit({ type: "tool", name: clean(name), arg: clean(arg) });
+            if (run && runTracking) {
+                const action = { id: ++nextActionId, name: clean(name), argument: clean(arg).slice(0, 1800), startedAt: Date.now(), endedAt: null, status: "running" };
+                run.actions.push(action);
+                if (run.actions.length > 300) run.actions.shift();
+                pendingTools.push(action);
+                if (name === "run_command") run.commands++;
+                if (["read_file", "search_files", "list_directory", "semantic_search"].includes(name)) run.reads++;
+                if (["edit_file", "write_file", "delete_path", "move_path", "copy_path", "create_directory"].includes(name)) run.writes++;
+                publishActivity();
+            }
         },
 
-        result(text, { tone } = {}) {
+        result(text, { tone, sources = [] } = {}) {
             emit({ type: "result", text: clean(text), tone: tone || null });
+            if (run && runTracking) {
+                const action = pendingTools.shift();
+                if (action) {
+                    action.status = tone === "error" || tone === "err" ? "failed" : "done";
+                    action.endedAt = Date.now();
+                    action.result = clean(text).slice(0, 1800);
+                }
+                for (const source of sources) {
+                    if (typeof source.url !== "string" || !/^https?:\/\//i.test(source.url)) continue;
+                    const previous = run.sources.find(s => s.url === source.url);
+                    if (previous) { if (source.consulted) previous.consulted = true; }
+                    else if (run.sources.length < 100) run.sources.push({ url: source.url, title: clean(source.title || source.url), consulted: Boolean(source.consulted) });
+                }
+                publishActivity();
+            }
         },
 
         commandLine(text) {
@@ -131,7 +188,7 @@ function createDesktopBackend(send) {
 
         /** o/oui = oui, t = session, tt = toujours (enregistré) (sauf force), sinon refus. */
         async confirm(question, { force = false } = {}) {
-            if (!force && state.autoApprove) return true;
+            if (state.fullAccess || (!force && state.autoApprove)) return true;
 
             const raw = await openPrompt("confirm", question, { force: Boolean(force) });
             const answer = String(raw ?? "").trim().toLowerCase();
@@ -157,6 +214,7 @@ function createDesktopBackend(send) {
         },
 
         askCommand(question, prefixText) {
+            if (state.fullAccess) return Promise.resolve("o");
             return openPrompt("command", question, { prefix: clean(prefixText) });
         },
 
@@ -249,6 +307,7 @@ function createDesktopBackend(send) {
                 model: agentName(),
                 modelId: state.model,
                 workspace: state.workspace,
+                fullAccess: Boolean(state.fullAccess),
                 autoApprove: Boolean(state.autoApprove),
                 autoApproveCommands: Boolean(state.autoApproveCommands),
                 webSearch: Boolean(state.webSearch),
@@ -261,16 +320,25 @@ function createDesktopBackend(send) {
             const resolve = resolvers.get(id);
             if (!resolve) return false;
             resolvers.delete(id);
+            promptKinds.delete(id);
             send("promptResolved", { id });
             resolve(value);
             return true;
         },
 
+        approvePendingActions() {
+            if (!state.fullAccess) return;
+            for (const [id, kind] of promptKinds) {
+                if (kind === "confirm" || kind === "command") backend.resolvePrompt(id, "o");
+            }
+        },
+
         interrupt() {
             const handler = interrupts[interrupts.length - 1];
-            if (!handler) return false;
-            handler();
-            return true;
+            const pending = promptKinds.size > 0;
+            for (const [id, kind] of promptKinds) backend.resolvePrompt(id, kind === "confirm" || kind === "command" ? "n" : null);
+            if (handler) handler();
+            return Boolean(handler) || pending;
         }
     };
 

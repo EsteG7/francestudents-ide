@@ -7,6 +7,7 @@ const { state } = require("../../state");
 const memory = require("../../project/memory");
 const { formatCommand } = require("./parse");
 const { runProcess } = require("./runner");
+const { shellSegment, shellCwd } = require("./shell");
 const { judge } = require("./policy");
 const { splitPipeline, executePipeline, resolveStartDir, isCd } = require("./pipeline");
 const { cleanOutput, snapshotChanges, diffSnapshots, sanitizeDescription } = require("./output");
@@ -44,6 +45,7 @@ const GIT_STATUS_TIMEOUT_MS = 10000;
 
 // Renvoie le motif de refus de judge(), ou null si la commande n'est pas interdite.
 function denialReason(file, args = [], cwd = state.workspace) {
+    if (state.fullAccess) return null;
     const verdict = judge({ file, args, cwd, workspace: state.workspace || cwd });
     return verdict.level === "deny" ? verdict.reason : null;
 }
@@ -97,6 +99,7 @@ function runGitStatus(args) {
 
 // Vérifie chaque segment avant de lancer quoi que ce soit : un seul deny bloque toute la ligne.
 async function confirmSegments(segments, cwd) {
+    if (state.fullAccess) return { denied: false };
     const store = getPermissionStore();
     const rules = store ? await store.rules() : [];
     const pending = [];
@@ -150,8 +153,9 @@ async function runCommand(toolArgs = {}) {
     const description = sanitizeDescription(toolArgs.description);
 
     // Les CommandParseError remontent telles quelles (message destiné à l'agent).
-    const segments = splitPipeline(line);
-    const startCwd = resolveStartDir(toolArgs.cwd, state.cwd, state.workspace);
+    const fullAccess = Boolean(state.fullAccess);
+    const segments = fullAccess ? [shellSegment(line)] : splitPipeline(line);
+    const startCwd = fullAccess ? shellCwd(toolArgs.cwd, state.workspace) : resolveStartDir(toolArgs.cwd, state.cwd, state.workspace);
     const display = segments.length === 1 ? segments[0].display : line.trim();
 
     const permission = await confirmSegments(segments, startCwd);

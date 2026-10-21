@@ -87,6 +87,18 @@ function setup({
 
 // ---- handleInput : routage ----
 
+test("bootstrap non interactif : signale la connexion sans demander le mot de passe dans le chat", async () => {
+    const { calls, restore } = setup();
+    auth.initAuth = async () => { const error = new Error("Connexion requise"); error.needsLogin = true; throw error; };
+    login.promptAndLogin = async () => { calls.login++; return true; };
+    try {
+        const result = await session.bootstrap({ interactive: false });
+        assert.equal(result.ok, false);
+        assert.equal(result.needsLogin, true);
+        assert.equal(calls.login, 0);
+    } finally { restore(); }
+});
+
 test("handleInput : saisie vide ignorée", async () => {
     const { calls, restore } = setup();
     try {

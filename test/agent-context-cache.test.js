@@ -47,6 +47,22 @@ test("loadAgentContext invalide l'entrée si le mtime de FRSTCLI.md change", asy
     assert.equal(second.instructions, "VERSION_2");
 });
 
+test("loadAgentContext charge AGENTS.md et invalide le cache après modification", async () => {
+    clearAgentContextCache();
+    const dir = makeProject();
+    const file = path.join(dir, "AGENTS.md");
+    fs.writeFileSync(file, "AGENT_RULE_1");
+    const first = await loadAgentContext(dir);
+    assert.match(first.instructions, /AGENT_RULE_1/);
+    assert.match(first.instructions, /VERSION_1/);
+    fs.writeFileSync(file, "AGENT_RULE_2");
+    const stamp = new Date(Date.now() - 3600000);
+    fs.utimesSync(file, stamp, stamp);
+    const second = await loadAgentContext(dir);
+    assert.notStrictEqual(second, first);
+    assert.match(second.instructions, /AGENT_RULE_2/);
+});
+
 test("loadAgentContext invalide l'entrée si le mtime de package.json change", async () => {
     clearAgentContextCache();
     const dir = makeProject();

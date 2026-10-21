@@ -320,6 +320,7 @@ async function loginWithPassword({ email, password }) {
         const authorizeUrl = await startOAuth(session);
 
         await completeAuthorization(session, authorizeUrl, { email, secret: password });
+        auth.signedOut = false;
         dropTransientCookies();
         await saveSession();
     } catch (error) {

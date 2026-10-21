@@ -124,11 +124,11 @@ async function snapshot(workspace) {
         }
 
         budget -= content.length;
-        items.push({ rel: item.rel, lines: item.lines, content, partial, hash });
+        items.push({ rel: item.rel, lines: item.lines, content, partial, hash, excerptHash: sha1(content) });
     }
 
     const fingerprint = sha1(
-        JSON.stringify([dirs, items.map(it => [it.rel, it.hash ?? it.skipped, it.partial ?? false])])
+        JSON.stringify([CONFIG.contextMaxFiles, CONFIG.contextFileChars, CONFIG.contextBudgetChars, dirs, items.map(it => [it.rel, it.hash ?? it.skipped, it.partial ?? false])])
     );
 
     return { dirs, items, fingerprint };
@@ -299,7 +299,7 @@ async function load(workspace, { force = false } = {}) {
         for (const it of readable) {
             const entry = cache[it.rel];
 
-            if (entry && entry.hash === it.hash && typeof entry.summary === "string") {
+            if (entry && entry.hash === it.hash && entry.excerptHash === it.excerptHash && typeof entry.summary === "string") {
                 known.set(it.rel, entry.summary);
             }
         }
@@ -317,7 +317,7 @@ async function load(workspace, { force = false } = {}) {
         const saveCache = () => writeFileCache(Object.fromEntries(
             readable
                 .filter(it => cached.has(it.rel))
-                .map(it => [it.rel, { hash: it.hash, summary: cached.get(it.rel) }])
+                .map(it => [it.rel, { hash: it.hash, excerptHash: it.excerptHash, summary: cached.get(it.rel) }])
         ));
 
         try {

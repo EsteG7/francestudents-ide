@@ -33,6 +33,7 @@ function summarizeResult(name, result) {
             return `${result.total_lines} lignes${where}` + (result.truncated ? ", tronqué" : "");
         }
         case "search_files":
+        case "web_search":
             return result.message;
         case "run_command":
             return result.timed_out

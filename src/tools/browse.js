@@ -16,6 +16,7 @@ const path = require("node:path");
 
 const { ui } = require("../ui-bridge");
 const { requireString, optionalInt } = require("./core/args");
+const {resolveInWorkspace,assertRealInside}=require("./security");
 
 const SCREENSHOT_DIR = path.join(".frst", "screenshots");
 const DEFAULT_MAX_CHARS = 10000;
@@ -28,6 +29,7 @@ const IDLE_TIMEOUT_MS = 5000;
 const MAX_WAIT_MS = 30000;
 const MAX_CONSOLE = 20;
 const CHANNELS = ["chrome", "msedge", "chromium"];
+const activeBrowsers=new Set();
 
 function clamp(value, min, max, fallback) {
     if (value === undefined) return fallback;
@@ -109,7 +111,9 @@ async function browse(args, deps = {}) {
     const waitMs = clamp(args.wait_ms, 0, MAX_WAIT_MS, 0);
     const maxChars = clamp(args.max_chars, MIN_CHARS, MAX_CHARS_LIMIT, DEFAULT_MAX_CHARS);
 
-    const confirm = deps.confirm ?? (question => ui.confirm(question));
+    const permission=require("../settings").load().browserCapturePermission||"ask";
+    if(permission==="deny"&&!deps.confirm)return {denied:true,changed:false,message:"Les captures web sont désactivées dans les paramètres."};
+    const confirm = deps.confirm ?? (permission==="allow"?async()=>true:question=>ui.confirm(question));
     const ok = await confirm(
         `Ouvrir ${url.href} dans un navigateur en arrière-plan et enregistrer une capture d'écran ?`
     );
@@ -125,6 +129,7 @@ async function browse(args, deps = {}) {
 
     const launch = deps.launch ?? (() => launchBrowser(require("playwright-core").chromium));
     const browser = await launch();
+    activeBrowsers.add(browser);
     const consoleMessages = [];
 
     const note = text => {
@@ -151,9 +156,10 @@ async function browse(args, deps = {}) {
         await page.waitForLoadState("networkidle", { timeout: IDLE_TIMEOUT_MS }).catch(() => {});
         if (waitMs) await page.waitForTimeout(waitMs);
 
-        const relative = path.join(SCREENSHOT_DIR, screenshotName(url));
-        const absolute = path.join(workspace, relative);
+        const relative = path.join(SCREENSHOT_DIR, screenshotName(url).replace(/\.png$/,`-${require("node:crypto").randomUUID().slice(0,8)}.png`));
+        const {target:absolute}=await resolveInWorkspace(workspace,relative);
         await fs.mkdir(path.dirname(absolute), { recursive: true });
+        await assertRealInside(workspace,absolute);
         await page.screenshot({ path: absolute, fullPage });
 
         const title = await page.title();
@@ -182,6 +188,7 @@ async function browse(args, deps = {}) {
                 "."
         };
     } finally {
+        activeBrowsers.delete(browser);
         await browser.close().catch(() => {});
     }
 }
@@ -203,6 +210,7 @@ function describe(a) {
 }
 
 module.exports = {
+    stopAll:()=>Promise.allSettled([...activeBrowsers].map(browser=>browser.close())),
     name: "browse",
     run: args => browse(args),
     check,

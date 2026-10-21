@@ -134,13 +134,19 @@ function createCodeEditor(host) {
     }
     const events = new EventTarget();
     const language = new CM.Compartment();
+    const options = new CM.Compartment();
+    let preferences = {fontSize:13,tabSize:4,wordWrap:false};
+    const optionExtensions = () => [
+        CM.indentUnit.of(" ".repeat(preferences.tabSize)), CM.EditorState.tabSize.of(preferences.tabSize),
+        CM.EditorView.theme({"&":{fontSize:`${preferences.fontSize}px`},".cm-scroller":{fontFamily:"var(--mono)"}}),
+        ...(preferences.wordWrap ? [CM.EditorView.lineWrapping] : [])
+    ];
     let silent = false;
     const emit = (name) => events.dispatchEvent(new Event(name));
     const extensions = (kind) => [
         CM.basicSetup,
         CM.keymap.of([CM.indentWithTab]),
-        CM.indentUnit.of("    "),
-        CM.EditorState.tabSize.of(4),
+        options.of(optionExtensions()),
         CM.oneDark,
         language.of(CM.languageFor(kind || "default")),
         inlineCompletionExtension(kind),
@@ -188,6 +194,7 @@ function createCodeEditor(host) {
         removeEventListener: (name, fn, opts) => events.removeEventListener(name, fn, opts),
         dispatchEvent: (ev) => events.dispatchEvent(ev),
         getState() { return view.state; },
+        configure(value) { preferences={...preferences,...value}; view.dispatch({effects:options.reconfigure(optionExtensions())}); },
         /* Charge un texte ; réutilise l'état sauvegardé (historique, sélection) s'il correspond encore. */
         load(text, kind, saved) {
             const doc = String(text ?? "");
@@ -195,6 +202,7 @@ function createCodeEditor(host) {
                 ? saved
                 : CM.EditorState.create({ doc, extensions: extensions(kind) });
             view.setState(state);
+            view.dispatch({effects:options.reconfigure(optionExtensions())});
         }
     };
 }

@@ -450,7 +450,7 @@ const ui = {
      * Avec { force: true } : ignore l'auto-approbation et ne propose pas "t".
      */
     async confirm(question, { force = false } = {}) {
-        if (!force && state.autoApprove) return true;
+        if (state.fullAccess || (!force && state.autoApprove)) return true;
 
         const hint = force ? "[o/N]" : "[o/N | t = session | tt = toujours]";
         const raw = await ask(

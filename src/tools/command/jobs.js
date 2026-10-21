@@ -147,6 +147,11 @@ function createJobManager({ maxJobs = MAX_JOBS, maxBufferChars = MAX_BUFFER_CHAR
         return [...jobs.values()].map(summary);
     }
 
+    function peek(id) {
+        const job = get(id);
+        return { ...summary(job), output: cleanOutput(job.buffer, { truncated: job.total > job.buffer.length }).output };
+    }
+
     async function stopAll() {
         await Promise.all([...jobs.values()].filter(isRunning).map(job => stop(job.id)));
     }
@@ -163,7 +168,7 @@ function createJobManager({ maxJobs = MAX_JOBS, maxBufferChars = MAX_BUFFER_CHAR
         }
     }
 
-    return { start, output, stop, list, stopAll, killAll, runningCount, get: id => summary(get(id)) };
+    return { start, output, peek, stop, list, stopAll, killAll, runningCount, get: id => summary(get(id)) };
 }
 
 function statusMessage(job) {

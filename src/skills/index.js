@@ -18,7 +18,7 @@ const { CONFIG } = require("../config");
 
 const SKILL_FILE = "SKILL.md";
 const MAX_SKILL_CHARS = 60_000;
-const MAX_SKILLS = 100;
+const MAX_SKILLS = 2000;
 const MAX_EXTRA_FILES = 50;
 
 function userSkillsDir() {
@@ -147,7 +147,10 @@ function catalogText(skills) {
     return skills
         .filter(skill => !skill.disabled)
         .map(skill => `- "${skill.name}" (${skill.scope}) : ${skill.description.slice(0, 300) || "sans description"}`)
-        .join("\n");
+        .reduce((lines, line) => {
+            if (lines.length + line.length < 24000) return lines + (lines ? "\n" : "") + line;
+            return lines;
+        }, "");
 }
 
 async function catalog(workspace) {
@@ -265,6 +268,13 @@ function setFrontmatterValue(text, key, value) {
             let end = index + 1;
             while (end < lines.length && /^\s+\S/.test(lines[end])) end++;
             lines.splice(index, end - index, line);
+            // Une clé répétée ne doit pas réactiver un skill mis en quarantaine.
+            for (let duplicate = lines.length - 1; duplicate > index; duplicate--) {
+                if (!keyPattern.test(lines[duplicate])) continue;
+                let blockEnd = duplicate + 1;
+                while (blockEnd < lines.length && /^\s+\S/.test(lines[blockEnd])) blockEnd++;
+                lines.splice(duplicate, blockEnd - duplicate);
+            }
         } else {
             lines.push(line);
         }

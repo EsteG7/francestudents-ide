@@ -89,10 +89,13 @@ test("browse enregistre la capture et renvoie le texte", async () => {
         assert.equal(result.full_page, true);
         assert.deepEqual(calls.viewport, { width: 1024, height: 700 });
         assert.deepEqual(result.console, ["[error] boom"]);
-        assert.match(result.screenshot, /^\.frst\/screenshots\/.+-localhost\.png$/);
+        assert.match(result.screenshot, /^\.frst\/screenshots\/.+-localhost-[a-f0-9]{8}\.png$/);
         assert.equal(calls.screenshot.fullPage, true);
         assert.equal(calls.closed, true);
         await fs.access(path.join(workspace, result.screenshot));
+        const secondBrowser=fakeBrowser().browser;
+        const second=await browseTool.browse({url:"http://localhost:5173"},{workspace,confirm:async()=>true,launch:async()=>secondBrowser});
+        assert.notEqual(second.screenshot,result.screenshot,"deux captures ne doivent pas écraser le même fichier");
     } finally {
         await fs.rm(workspace, { recursive: true, force: true });
     }

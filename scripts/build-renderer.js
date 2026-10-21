@@ -29,6 +29,7 @@ function assemble() {
 
 function main(argv) {
     const built = assemble();
+  new (require("node:vm").Script)(built, {filename:"desktop/renderer/app.js"});
     if (argv.includes("--check")) {
         const current = fs.existsSync(APP) ? fs.readFileSync(APP, "utf8") : "";
         if (current !== built) {

@@ -56,13 +56,24 @@ function appendOutput(text) {
 }
 
 function renderEntry(e) {
+    recordStudioEntry(e);
     switch (e.type) {
         case "welcome":
             return null;
         case "user":
-            return addEntry("user", escapeHtml(e.text));
-        case "assistant":
-            return addEntry("assistant", renderMarkdown(e.text));
+            $("agent-starter").classList.add("hidden");
+            return addEntry("user", `<div class="message-content">${escapeHtml(e.text)}</div>`);
+        case "assistant": {
+            $("agent-starter").classList.add("hidden");
+            const message = addEntry("assistant", `<div class="message-content">${renderMarkdown(e.text)}</div>`);
+            const actions = document.createElement("div");
+            actions.className = "message-actions";
+            const copy = document.createElement("button");
+            copy.type = "button"; copy.textContent = "Copier";
+            copy.onclick = () => api.copyText(e.text).then(() => { copy.textContent = "Copié ✓"; }).catch(error => studioFeedback(error.message));
+            actions.appendChild(copy); message.appendChild(actions);
+            return message;
+        }
         case "reason": {
             const el = addEntry("reason collapsed", `<span class="reason-mark">✻</span><span class="reason-text">${inline(e.text)}</span>`);
             el.title = "Cliquer pour déplier ou replier la réflexion";

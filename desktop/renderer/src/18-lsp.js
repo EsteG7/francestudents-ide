@@ -13,6 +13,7 @@ function lspEnabledFor(rel) {
 
 function lspActivePath() {
     const tab = currentTab();
+    if(tab?.kind==="asset")return "";
     return tab ? (tab.path || tab.rel || "") : "";
 }
 
@@ -445,46 +446,7 @@ async function lspShowCodeActions() {
     lspReportEdit(chosen.title, chosen.edit, await lspApplyWorkspaceEdit(chosen.edit, { rel: at.rel, text: at.text }));
 }
 
-async function lspFormatDocument() {
-    const at = lspCursor();
-    if (!at) {
-        lspNotice("Formatage : disponible pour les fichiers JS/TS.");
-        return;
-    }
-    const CM = window.CM;
-    const unit = CM && CM.indentUnit ? at.view.state.facet(CM.indentUnit) : "    ";
-    const tabSize = unit === "\t" ? 4 : unit.length || 4;
-    let result;
-    try {
-        result = await api.lspFormat(at.rel, at.text, tabSize);
-    } catch (err) {
-        lspNotice(`Formatage impossible : ${err.message}`);
-        return;
-    }
-    if (!result || !result.changed || result.text === at.text) {
-        lspStatus(`${at.rel} : déjà formaté`);
-        return;
-    }
-    const view = code.view;
-    if (lspActivePath() !== at.rel || !view || view.state.doc.toString() !== at.text) {
-        lspNotice("Formatage annulé : le fichier a changé pendant la requête.");
-        return;
-    }
-    const before = at.text;
-    const after = String(result.text);
-    let start = 0;
-    while (start < before.length && start < after.length && before[start] === after[start]) start++;
-    let endA = before.length;
-    let endB = after.length;
-    while (endA > start && endB > start && before[endA - 1] === after[endB - 1]) {
-        endA--;
-        endB--;
-    }
-    view.dispatch({ changes: { from: start, to: endA, insert: after.slice(start, endB) }, userEvent: "input.format" });
-    lspSyncTabFromEditor(currentTab());
-    renderTabs();
-    lspScheduleSync();
-}
+async function lspFormatDocument() { return formatEditorDocument(); }
 
 /* Aide à la signature : champ d'état + infobulle (créés à la demande, window.CM étant chargé avant). */
 function lspSignatureState() {

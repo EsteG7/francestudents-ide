@@ -37,6 +37,7 @@ const auth = {
     accessToken: "",
     expiresAt: 0,
     pending: null,
+    signedOut: false,
     lastSaved: ""
 };
 
@@ -52,6 +53,7 @@ class AuthError extends Error {
 function serializeSession() {
     return JSON.stringify({
         deviceId: auth.deviceId,
+        signedOut: auth.signedOut,
         cookies: Object.fromEntries(auth.jar)
     });
 }
@@ -59,6 +61,7 @@ function serializeSession() {
 async function loadSession() {
     try {
         const saved = JSON.parse(await fs.readFile(SESSION_FILE, "utf8"));
+        auth.signedOut = saved.signedOut === true;
 
         for (const [name, value] of Object.entries(saved.cookies || {})) {
             if (typeof value === "string" && value) auth.jar.set(name, value);
@@ -77,7 +80,7 @@ async function loadSession() {
     }
 }
 
-async function saveSession() {
+async function saveSession({ strict = false } = {}) {
     const data = serializeSession();
 
     if (data === auth.lastSaved) return;
@@ -92,6 +95,7 @@ async function saveSession() {
 
         auth.lastSaved = data;
     } catch (error) {
+        if (strict) throw error;
         ui.debug(`Session non sauvegardée : ${error.message}`);
     }
 }
@@ -181,7 +185,7 @@ async function renewAccessToken() {
         attempts.push(["session enregistrée", () => fetchAccessToken()]);
     }
 
-    if (ENV_SESSION && auth.jar.get(SESSION_COOKIE) !== ENV_SESSION) {
+    if (!auth.signedOut && ENV_SESSION && auth.jar.get(SESSION_COOKIE) !== ENV_SESSION) {
         attempts.push([
             "FS_SESSION_TOKEN",
             () => {
@@ -254,6 +258,9 @@ async function initAuth() {
  * (seul l'identifiant d'appareil est conservé), puis réécrit session.json.
  */
 async function logout() {
+    // Un renouvellement déjà en vol ne doit pas réinstaller un token après la déconnexion.
+    if (auth.pending) await auth.pending.catch(() => {});
+    auth.signedOut = true;
     for (const name of [...auth.jar.keys()]) {
         if (name !== "francestudent-device-id") auth.jar.delete(name);
     }
@@ -261,7 +268,7 @@ async function logout() {
     auth.accessToken = "";
     auth.expiresAt = 0;
 
-    await saveSession();
+    await saveSession({ strict: true });
 }
 
 function authStatus() {

@@ -8,7 +8,7 @@ const memory = require("../project/memory");
 const profile = require("../project/profile");
 const conversations = require("../project/conversations");
 const projectContext = require("../project/project-context");
-const { loadInstructions, INSTRUCTIONS_NAME } = require("../project/instructions");
+const { loadInstructions, INSTRUCTIONS_FILES } = require("../project/instructions");
 const { buildAgentPrompt, buildFollowUpPrompt } = require("./prompt");
 const {
     TOOLS,
@@ -97,7 +97,7 @@ async function mtimeOf(file) {
 async function agentContextStamp(workspace) {
     if (!workspace) return "";
 
-    const files = ["package.json", path.join(".git", "HEAD"), INSTRUCTIONS_NAME];
+    const files = ["package.json", path.join(".git", "HEAD"), ...INSTRUCTIONS_FILES];
     const stamps = await Promise.all(files.map(file => mtimeOf(path.join(workspace, file))));
 
     return stamps.join("|");
@@ -228,6 +228,7 @@ function parseAgentResponse(text) {
         if (typeof action.message !== "string") {
             throw new Error("message doit être une chaîne.");
         }
+        if (action.completed !== undefined && typeof action.completed !== "boolean") throw new Error("completed doit être un booléen.");
         return action;
     }
 
@@ -445,6 +446,7 @@ async function fallbackPlainAnswer(task, observations) {
 
 async function runAgent(task, options = {}) {
     activateConversation("agent");
+    state.agentPlan = [];
     if (task.length > CONFIG.messageBudget / 2) {
         throw new Error(
             `Demande trop longue : ${fmt(task.length)} caractères ` +
@@ -574,8 +576,19 @@ async function runAgent(task, options = {}) {
     // Aucune limite de tours : l'agent continue jusqu'à final (ou interruption, ou garde-fou anti-boucle).
     // maxTurns = 0 : aucun avertissement de fin de tours n'est envoyé au modèle.
     const maxTurns = 0;
+    let deferredSteering = [];
 
     for (let turn = 1; ; turn++) {
+        if (options.shouldStop?.()) {
+            await finish("Tâche interrompue. Les tâches suivantes restent en attente.");
+            return { completed: false, message: "Tâche interrompue." };
+        }
+        const steering = [...deferredSteering, ...(options.drainSteering?.() || [])];
+        deferredSteering = [];
+        if (steering.length) {
+            task += `\n\nCONSIGNES SUPPLÉMENTAIRES DE L’UTILISATEUR\n${steering.join("\n\n")}`;
+            ui.info("Nouvelle consigne reçue : prise en compte à cette étape.");
+        }
         let action = null;
         let correction = null;
         let lastResponse;
@@ -615,7 +628,8 @@ async function runAgent(task, options = {}) {
                         lastObservation: observations[observations.length - 1],
                         turn,
                         maxTurns,
-                        correction
+                        correction,
+                        steering
                     })
                     : fullPrompt(!hasConversation);
 
@@ -645,20 +659,30 @@ async function runAgent(task, options = {}) {
             spin.stop();
         }
 
+        if (options.shouldStop?.()) {
+            await finish("Tâche interrompue. Les tâches suivantes restent en attente.");
+            return { completed: false, message: "Tâche interrompue." };
+        }
         if (!action) {
             record("user", task);
             await fallbackPlainAnswer(task, observations);
             await saveConversation();
             reportUsage(usageBefore);
-            return;
+            return { completed: false, message: "La réponse de l’agent n’a pas suivi le protocole d’outils." };
         }
 
         if (action.type === "final") {
+            const lateSteering = options.drainSteering?.() || [];
+            if (lateSteering.length) {
+                deferredSteering = lateSteering;
+                continue;
+            }
             await finish(action.message);
-            return;
+            return { completed: action.completed !== false, message: action.message };
         }
 
         if (action.plan?.length && !planShown) {
+            state.agentPlan = action.plan.map(step => ({ step, status: "pending" }));
             ui.plan(action.plan);
             planShown = true;
         }
@@ -686,7 +710,7 @@ async function runAgent(task, options = {}) {
 
             if (stuck >= 2) {
                 await finish("Je tourne en rond : j'arrête ici. Précise ta demande ou le fichier concerné.");
-                return;
+                return { completed: false, message: "L’agent s’est arrêté car il répétait les mêmes actions." };
             }
 
             continue;
@@ -766,13 +790,13 @@ async function runAgent(task, options = {}) {
         }
 
         // Mode plan (/plan) : lecture seule, toute autre action est refusée sans être exécutée.
-        if (options.readOnly && !["list_directory", "read_file", "search_files", "task"].includes(action.name)) {
+        if (options.readOnly && !["list_directory", "read_file", "search_files", "task", "semantic_search", "web_search", "web_search_result", "web_fetch", "update_plan"].includes(action.name)) {
             ui.result(`Mode plan : ${action.name} refusé (lecture seule)`, { tone: "error" });
             observations.push({
                 tool: action.name,
                 args: recordArgs(action.args),
                 ok: false,
-                error: "Mode plan (lecture seule) : seuls list_directory, read_file et search_files sont permis. Termine avec final et le plan détaillé."
+                error: "Mode plan : seuls les outils de lecture, de recherche et de suivi du plan sont permis. Termine avec final et le plan détaillé."
             });
             continue;
         }
@@ -806,7 +830,10 @@ async function runAgent(task, options = {}) {
                 if (reports.length && typeof result === "object") result.hooks = reports;
             }
 
-            ui.result(summarizeResult(action.name, result));
+            const sources = action.name === "web_fetch" && result.status >= 200 && result.status < 300
+                ? [{ url: result.final_url || result.url, title: result.title || result.final_url || result.url, consulted: true }]
+                : ["web_search","web_search_result"].includes(action.name) ? (result.results || []).map(s => ({ url: s.url, title: s.title, consulted: false })) : [];
+            ui.result(summarizeResult(action.name, result), { sources, tone: result.denied || result.interrupted || (typeof result.exit_code === "number" && result.exit_code !== 0) ? "error" : null });
 
             observations.push({
                 tool: action.name,

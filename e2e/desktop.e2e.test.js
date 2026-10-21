@@ -36,6 +36,7 @@ async function launch() {
     });
     const page = await app.firstWindow();
     await page.waitForLoadState("domcontentloaded");
+    await page.locator("#guide-close").waitFor({ state: "visible", timeout: 2000 }).then(() => page.locator("#guide-close").click()).catch(() => {});
     return { app, page };
 }
 
@@ -45,7 +46,8 @@ test("e2e : la fenêtre s'ouvre avec la zone de saisie, le transcript et la barr
         const errors = [];
         page.on("pageerror", (err) => errors.push(err.message));
         await page.waitForSelector("#input", { timeout: 30000 });
-        assert.ok(await page.isVisible("#transcript"));
+        assert.equal(await page.locator("#transcript").count(), 1);
+        assert.ok(await page.isVisible("#agent-starter"));
         assert.ok(await page.isVisible("#statusbar"));
         assert.equal(await page.evaluate(() => typeof window.frst?.submit), "function");
         await page.waitForTimeout(500);

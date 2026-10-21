@@ -1,0 +1,34 @@
+"use strict";
+const {EventEmitter}=require("node:events");
+function createUpdateController({updater,enabled=false,version="",getPreference=()=>true,savePreference=()=>{},onChange=()=>{}}={}) {
+    const state={version,status:enabled?"idle":"unavailable",availableVersion:null,progress:0,automatic:getPreference(),message:enabled?"Les mises à jour sont distribuées via les versions GitHub publiées.":"Les mises à jour automatiques seront disponibles dans la version Windows installée. Le mode développement et la version portable restent manuels."};
+    const publish=patch=>{Object.assign(state,patch);onChange({...state});};
+    let checking=null;
+    if(enabled&&updater){
+        updater.autoDownload=state.automatic;updater.autoInstallOnAppQuit=state.automatic;
+        updater.on("checking-for-update",()=>publish({status:"checking",message:"Recherche d’une nouvelle version…"}));
+        updater.on("update-available",info=>publish({status:"available",availableVersion:info.version,message:`La version ${info.version} est disponible.`}));
+        updater.on("update-not-available",()=>publish({status:"current",message:"Cette application est à jour par rapport à la version publiée."}));
+        updater.on("download-progress",info=>publish({status:"downloading",progress:Math.max(0,Math.min(100,info.percent||0)),message:"Téléchargement de la mise à jour en arrière-plan…"}));
+        updater.on("update-downloaded",info=>publish({status:"downloaded",availableVersion:info.version,progress:100,message:state.automatic?"Mise à jour prête. Elle sera installée à la fermeture de l’application.":"Mise à jour prête. Enregistre ton travail puis redémarre pour l’installer."}));
+        updater.on("error",()=>publish({status:"error",message:"La source de mises à jour est indisponible ou aucune version compatible n’est publiée. Tu peux réessayer plus tard."}));
+    }
+    async function action(type,payload={}) {
+        if(type==="status")return {...state};
+        if(type==="automatic"){state.automatic=payload.enabled===true;savePreference(state.automatic);if(updater){updater.autoDownload=state.automatic;updater.autoInstallOnAppQuit=state.automatic;}publish({automatic:state.automatic});return {...state};}
+        if(!enabled||!updater)return {...state};
+        if(type==="check"){
+            if(!checking)checking=Promise.resolve().then(()=>updater.checkForUpdates()).catch(()=>publish({status:"error",message:"Impossible de vérifier la version publiée. Vérifie la connexion ou réessaie plus tard."})).finally(()=>{checking=null;});
+            await checking;
+        }else if(type==="download"){
+            if(state.status!=="available")throw new Error("Aucune mise à jour disponible à télécharger.");
+            await updater.downloadUpdate();
+        }else if(type==="install"){
+            if(state.status!=="downloaded")throw new Error("Télécharge d’abord la mise à jour.");
+            updater.quitAndInstall(false,true);
+        }else throw new Error("Action de mise à jour inconnue.");
+        return {...state};
+    }
+    return {action,events:updater instanceof EventEmitter?updater:null};
+}
+module.exports={createUpdateController};

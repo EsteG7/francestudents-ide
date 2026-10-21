@@ -78,6 +78,45 @@ function prepareAuth() {
     state.model = -1002;
 }
 
+test("automatic compaction opens a fresh conversation and resumes the agent task", { concurrency: false }, async () => {
+    prepareAuth();
+    const { AutoCompact } = require("../src/agent/auto-compact");
+    requestModel.compactor = new AutoCompact();
+    requestModel.compactor.record("chat", "chat-1", "Original user requirements", "Work in progress", 100000);
+    const requests = [];
+    global.fetch = async (_url, options) => {
+        requests.push(JSON.parse(options.body));
+        return successfulResponse();
+    };
+    assert.equal(await requestModel("Continue current task"), "ok");
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].chatId, null);
+    assert.match(requests[0].initialContent, /Original user requirements/);
+    assert.equal(requests[1].chatId, null);
+    assert.match(requests[1].initialContent, /CONTEXTE CONSERVÉ/);
+    assert.match(requests[1].initialContent, /Continue current task/);
+    requestModel.compactor = new AutoCompact();
+});
+
+test("context overflow compacts once and resumes without repeating the failed request", { concurrency: false }, async () => {
+    prepareAuth();
+    const { AutoCompact } = require("../src/agent/auto-compact");
+    requestModel.compactor = new AutoCompact();
+    requestModel.compactor.record("chat", "chat-1", "Keep my requirements", "Earlier work");
+    const requests = [];
+    global.fetch = async (_url, options) => {
+        requests.push(JSON.parse(options.body));
+        if (requests.length === 1) return new Response("context_length_exceeded", { status: 400 });
+        return successfulResponse();
+    };
+    assert.equal(await requestModel("Finish"), "ok");
+    assert.equal(requests.length, 3);
+    assert.equal(requests[0].chatId, "chat-1");
+    assert.equal(requests[2].chatId, null);
+    assert.match(requests[2].initialContent, /Finish/);
+    requestModel.compactor = new AutoCompact();
+});
+
 test("requestModel retente puis réussit après deux échecs", { concurrency: false }, async () => {
     prepareAuth();
     let calls = 0;

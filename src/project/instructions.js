@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 
 const INSTRUCTIONS_NAME = "FRSTCLI.md";
+const INSTRUCTIONS_FILES = ["AGENTS.md", INSTRUCTIONS_NAME];
 const MAX_INSTRUCTIONS_CHARS = 8_000;
 
 function template({ testCommand } = {}) {
@@ -30,15 +31,14 @@ function template({ testCommand } = {}) {
 async function loadInstructions(workspace, maxChars = MAX_INSTRUCTIONS_CHARS) {
     if (!workspace) return "";
 
-    let text;
-
-    try {
-        text = await fs.readFile(path.join(workspace, INSTRUCTIONS_NAME), "utf8");
-    } catch {
-        return "";
+    const sources = [];
+    for (const name of INSTRUCTIONS_FILES) {
+        try {
+            const text = (await fs.readFile(path.join(workspace, name), "utf8")).replace(/^\uFEFF/, "").trim();
+            if (text) sources.push({ name, text });
+        } catch { /* Optional project instructions. */ }
     }
-
-    const value = text.replace(/^\uFEFF/, "").trim();
+    const value = sources.length === 1 ? sources[0].text : sources.map(s => `## ${s.name}\n${s.text}`).join("\n\n");
 
     return value.length <= maxChars ? value : `${value.slice(0, maxChars)}\n... [tronqué]`;
 }
@@ -60,6 +60,7 @@ async function initInstructions(workspace, options = {}) {
 
 module.exports = {
     INSTRUCTIONS_NAME,
+    INSTRUCTIONS_FILES,
     MAX_INSTRUCTIONS_CHARS,
     loadInstructions,
     initInstructions,

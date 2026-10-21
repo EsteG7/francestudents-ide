@@ -6,6 +6,12 @@ const assert = require("node:assert/strict");
 const { inlineEdit, buildEditPrompt, cleanEdit } = require("../src/agent/inline-edit");
 const { applyTextEdits, simplifyWorkspaceEdit, simplifySignature, simplifyLocation } = require("../desktop/lsp");
 
+test("symboles LSP : hiérarchie, positions et libellés",()=>{
+    const {simplifyDocumentSymbols}=require("../desktop/lsp");
+    const symbols=simplifyDocumentSymbols([{name:"Service",kind:5,range:{start:{line:0,character:0}},children:[{name:"run",kind:6,selectionRange:{start:{line:2,character:4}}}]}]);
+    assert.deepEqual(symbols.map(item=>[item.name,item.kind,item.line,item.depth]),[["Service","classe",0,0],["run","méthode",2,1]]);
+});
+
 test("buildEditPrompt : sélection balisée, consigne et contenu traité comme donnée", () => {
     const prompt = buildEditPrompt({
         path: "a.js",

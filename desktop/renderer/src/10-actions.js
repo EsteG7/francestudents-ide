@@ -47,6 +47,7 @@ const IS_MAC = /Mac/i.test(navigator.platform || navigator.userAgent || "");
 if (IS_MAC) document.documentElement.classList.add("mac");
 
 document.addEventListener("keydown", (ev) => {
+    if(document.querySelector("dialog[open]"))return;
     if (!(ev.ctrlKey || (IS_MAC && ev.metaKey))) {
         if (ev.key === "Escape" && ui.status.busy && document.activeElement !== input) {
             api.interrupt().catch(() => {});
