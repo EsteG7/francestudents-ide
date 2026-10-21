@@ -28,8 +28,6 @@ Version **1.1.1 pour Windows x64**. Aucun Node.js ni npm n’est nécessaire pou
 | Version | Usage | Téléchargement |
 | --- | --- | --- |
 | **Installateur** | Installation classique et prise en charge des futures mises à jour | [Setup Windows](https://github.com/extraopaa/francestudents-ide/releases/download/v1.1.1/FranceStudentCode-1.1.1-setup.exe) |
-| **Portable** | Sans installation ; remplacement manuel pour les mises à jour | [Exécutable portable](https://github.com/extraopaa/francestudents-ide/releases/download/v1.1.1/FranceStudentCode-1.1.1-portable.exe) |
-
 1. Ferme une ancienne version éventuelle, puis lance le setup ou le portable.
 2. Suis le guide avec ton **compte FranceStudent**. Aucune clé API n’est demandée pour le chat.
 3. Ouvre ton dossier de projet et décris ce que tu veux réaliser.
