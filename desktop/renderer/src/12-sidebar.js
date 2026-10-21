@@ -3,7 +3,7 @@
 ui.sideView = "explorer";
 
 function setActivity(view) {
-    for (const b of document.querySelectorAll('[data-view="explorer"], [data-view="search"], [data-view="git"], [data-view="extensions"], [data-view="settings"]')) {
+    for (const b of document.querySelectorAll('[data-view="explorer"], [data-view="search"], [data-view="git"], [data-view="worktrees"], [data-view="extensions"], [data-view="settings"]')) {
         b.classList.toggle("active", b.dataset.view === view);
     }
 }
@@ -16,8 +16,10 @@ function showSideView(view) {
     app.classList.toggle("view-ext", view === "extensions");
     app.classList.toggle("view-settings", view === "settings");
     app.classList.toggle("view-git", view === "git");
+    app.classList.toggle("view-worktrees", view === "worktrees");
     setActivity(view);
     if (view === "git") refreshGit();
+    if (view === "worktrees") refreshWorktrees();
     if (view === "extensions") refreshExtensions();
     if (view === "settings") refreshSettings();
     if (view === "search") {
@@ -47,6 +49,7 @@ function focusSearch() {
 document.querySelector('[data-view="explorer"]').onclick = () => toggleSideView("explorer");
 document.querySelector('[data-view="search"]').onclick = () => toggleSideView("search");
 document.querySelector('[data-view="git"]').onclick = () => toggleSideView("git");
+document.querySelector('[data-view="worktrees"]').onclick = () => toggleSideView("worktrees");
 document.querySelector('[data-view="extensions"]').onclick = () => toggleSideView("extensions");
 document.querySelector('[data-view="settings"]').onclick = () => toggleSideView("settings");
 

@@ -7,6 +7,8 @@ const $ = (id) => document.getElementById(id);
 
 const SLASH_COMMANDS = [
     ["/help", "Aide"], ["/project", "Choisir un projet"], ["/unproject", "Quitter le projet"],
+    ["/pwd", "Projet sélectionné"], ["/tree", "Lister un dossier (2 niveaux)"], ["/read", "Lire un fichier"],
+    ["/extensions", "Extensions"],
     ["/plan", "Plan en lecture seule"], ["/undo", "Annuler la dernière modification"],
     ["/changes", "Modifications annulables"], ["/memory", "Notes du projet"],
     ["/remember", "Ajouter une note"], ["/forget", "Supprimer une note"],
@@ -17,6 +19,10 @@ const SLASH_COMMANDS = [
     ["/web", "Recherche web on|off"], ["/index", "Régénérer RESUME.md"], ["/init", "Créer FRSTCLI.md"],
     ["/resume", "Résumé du projet"], ["/fr-project", "Projet FranceStudent"], ["/auth", "État de la connexion"],
     ["/login", "Se connecter"], ["/logout", "Se déconnecter"], ["/github", "Compte GitHub : login, remote, push, pull"],
+    ["/review-pr", "Revue d'une pull request GitHub (n|owner/repo#n|URL) [--post]"],
+    ["/worktree", "Agents parallèles en worktrees : list|new|run|show|diff|stop|remove"],
+    ["/compact", "Résumer la conversation (contexte léger)"], ["/checkpoints", "Points de reprise de la session"],
+    ["/rewind", "Revenir avant une demande"],
     ["/preprompt", "Pré-prompt"], ["/profil", "Profil"], ["/clear", "Effacer"]
 ];
 
@@ -43,6 +49,83 @@ const ui = {
 
 const transcript = $("transcript");
 const input = $("input");
+/* Complétion IA en ligne : Alt+\\ (ou Ctrl+Alt+Espace) demande une suggestion, Tab l'accepte, Échap l'ignore. */
+function inlineCompletionExtension(kind) {
+    const CM = window.CM;
+    if (!CM.StateField || !CM.StateEffect || !CM.Decoration || !CM.WidgetType || !CM.Prec) return [];
+    const setGhost = CM.StateEffect.define();
+    class GhostWidget extends CM.WidgetType {
+        constructor(text) {
+            super();
+            this.text = text;
+        }
+        eq(other) { return other.text === this.text; }
+        toDOM() {
+            const span = document.createElement("span");
+            span.className = "cm-ghost-text";
+            span.textContent = this.text;
+            return span;
+        }
+        ignoreEvent() { return true; }
+    }
+    const ghostField = CM.StateField.define({
+        create: () => null,
+        update(value, tr) {
+            for (const effect of tr.effects) if (effect.is(setGhost)) return effect.value;
+            if (value && (tr.docChanged || tr.selection)) return null;
+            return value;
+        },
+        provide: (field) => CM.EditorView.decorations.from(field, (ghost) => ghost
+            ? CM.Decoration.set([CM.Decoration.widget({ widget: new GhostWidget(ghost.text), side: 1 }).range(ghost.pos)])
+            : CM.Decoration.none)
+    });
+    let seq = 0;
+    const activePath = () => {
+        const active = typeof ui !== "undefined" ? ui.active : null;
+        if (typeof active === "string") return active;
+        return (active && (active.path || active.rel)) || "";
+    };
+    const request = (view) => {
+        if (!api || !api.inlineComplete) return false;
+        const pos = view.state.selection.main.head;
+        const doc = view.state.doc;
+        const id = ++seq;
+        api.inlineComplete({
+            path: activePath(),
+            language: kind || "",
+            prefix: doc.sliceString(Math.max(0, pos - 4000), pos),
+            suffix: doc.sliceString(pos, Math.min(doc.length, pos + 1500))
+        }).then((text) => {
+            if (id !== seq || !text || view.state.doc !== doc || view.state.selection.main.head !== pos) return;
+            view.dispatch({ effects: setGhost.of({ pos, text }) });
+        }).catch(() => {});
+        return true;
+    };
+    const accept = (view) => {
+        const ghost = view.state.field(ghostField, false);
+        if (!ghost) return false;
+        view.dispatch({
+            changes: { from: ghost.pos, insert: ghost.text },
+            selection: { anchor: ghost.pos + ghost.text.length }
+        });
+        return true;
+    };
+    const dismiss = (view) => {
+        if (!view.state.field(ghostField, false)) return false;
+        view.dispatch({ effects: setGhost.of(null) });
+        return true;
+    };
+    return [
+        ghostField,
+        CM.Prec.highest(CM.keymap.of([
+            { key: "Tab", run: accept },
+            { key: "Escape", run: dismiss },
+            { key: "Alt-\\", run: request },
+            { key: "Ctrl-Alt-Space", run: request }
+        ]))
+    ];
+}
+
 /* Couche de compatibilité : API proche de l'ancien <textarea> au-dessus de CodeMirror 6. */
 function createCodeEditor(host) {
     const CM = window.CM;
@@ -60,6 +143,9 @@ function createCodeEditor(host) {
         CM.EditorState.tabSize.of(4),
         CM.oneDark,
         language.of(CM.languageFor(kind || "default")),
+        inlineCompletionExtension(kind),
+        lspExtension(kind),
+        inlineEditExtension(kind),
         CM.EditorView.updateListener.of((update) => {
             if (update.docChanged && !silent) emit("input");
             if (update.selectionSet) emit("select");

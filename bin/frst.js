@@ -40,6 +40,11 @@ function restoreTerminal({ stdin = process.stdin, stdout = process.stdout } = {}
 }
 
 async function main() {
+    // Mode non interactif (frst -p "..." / frst exec "...") : ni TUI ni boucle de saisie.
+    const { parseHeadlessArgs, runHeadlessCli } = require("../src/cli/headless");
+    const headless = parseHeadlessArgs(process.argv.slice(2));
+    if (headless) return runHeadlessCli(headless);
+
     const choice = chooseInterface({
         argv: process.argv.slice(2),
         env: process.env,

@@ -15,6 +15,21 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require("electron")
 
 const { setUiBackend } = require("../src/ui-bridge");
 const { createDesktopBackend } = require("./backend");
+const { createLspManager } = require("./lsp");
+
+let lspManager = null;
+
+/** Serveur LSP du projet ouvert (créé à la demande ; les diagnostics sont envoyés à la fenêtre). */
+function lspClient() {
+    const { state } = require("../src/state");
+    if (!state.workspace) throw new Error("Aucun projet ouvert.");
+    if (!lspManager) {
+        lspManager = createLspManager({
+            onDiagnostics: (rel, diagnostics) => send("lspDiagnostics", { path: rel, diagnostics })
+        });
+    }
+    return lspManager.forWorkspace(state.workspace);
+}
 
 const MAX_EDITOR_BYTES = 2 * 1024 * 1024;
 const IGNORED_DIRS = new Set(["node_modules", ".git"]);
@@ -718,6 +733,23 @@ function registerIpc() {
     handle("githubPush", ghSafe(() => gh().push(ghWs(), {})));
     handle("githubPull", ghSafe(() => gh().pull(ghWs(), {})));
     handle("githubFetch", ghSafe(() => gh().fetchRemote(ghWs(), {})));
+
+    // Agents parallèles dans des worktrees Git (même module que /worktree du CLI).
+    const wt = () => require("../src/agent/worktrees");
+    handle("worktreeList", async () => {
+        const ws = ghWs();
+        if (!ws) return { root: null, worktrees: [], agents: [] };
+        return { root: wt().worktreeRoot(ws), worktrees: await wt().listWorktrees(ws), agents: wt().listAgents(ws) };
+    });
+    handle("worktreeCreate", (name, base) => wt().createWorktree(ghWs(), String(name || ""), { base: String(base || "HEAD") }));
+    handle("worktreeStart", (name, prompt, options) => wt().startAgent(ghWs(), String(name || ""), String(prompt || ""), {
+        yes: Boolean(options && options.yes),
+        readOnly: Boolean(options && options.readOnly),
+        onUpdate: (agent) => send("worktreeAgent", agent)
+    }));
+    handle("worktreeStop", (name) => wt().stopAgent(ghWs(), String(name || "")));
+    handle("worktreeChanges", (name) => wt().worktreeChanges(ghWs(), String(name || "")));
+    handle("worktreeRemove", (name, force) => wt().removeWorktree(ghWs(), String(name || ""), { force: force === true }));
     handle("undoList", () => require("../src/tools/core/journal").listUndoEntries());
     handle("undoEntry", async (index, at) => {
         if (busy) throw new Error("Une demande est en cours : attends sa fin avant d'annuler.");
@@ -726,6 +758,87 @@ function registerIpc() {
         return message;
     });
     handle("undoDiff", (index, at) => require("../src/tools/core/journal").entryDiff(Number(index), at ? String(at) : null));
+    handle("inlineComplete", async (request) => {
+        if (busy) throw new Error("Une demande est en cours : complétion indisponible.");
+        const r = request && typeof request === "object" ? request : {};
+        return require("../src/agent/inline-complete").inlineComplete({
+            path: String(r.path ?? ""),
+            language: String(r.language ?? ""),
+            prefix: String(r.prefix ?? ""),
+            suffix: String(r.suffix ?? "")
+        });
+    });
+    handle("lspSync", (rel, text) => {
+        insideWorkspace(rel);
+        return lspClient().sync(String(rel), String(text ?? ""));
+    });
+    handle("lspClose", (rel) => {
+        if (!lspManager) return false;
+        return lspClient().close(String(rel ?? ""));
+    });
+    handle("lspCompletion", (rel, text, line, character) => {
+        insideWorkspace(rel);
+        return lspClient().completion(String(rel), String(text ?? ""), Number(line) || 0, Number(character) || 0);
+    });
+    handle("lspHover", (rel, text, line, character) => {
+        insideWorkspace(rel);
+        return lspClient().hover(String(rel), String(text ?? ""), Number(line) || 0, Number(character) || 0);
+    });
+    handle("lspDefinition", (rel, text, line, character) => {
+        insideWorkspace(rel);
+        return lspClient().definition(String(rel), String(text ?? ""), Number(line) || 0, Number(character) || 0);
+    });
+    handle("lspReferences", (rel, text, line, character) => {
+        insideWorkspace(rel);
+        return lspClient().references(String(rel), String(text ?? ""), Number(line) || 0, Number(character) || 0);
+    });
+    handle("lspRename", (rel, text, line, character, newName) => {
+        insideWorkspace(rel);
+        return lspClient().rename(String(rel), String(text ?? ""), Number(line) || 0, Number(character) || 0, String(newName ?? ""));
+    });
+    handle("lspSignatureHelp", (rel, text, line, character) => {
+        insideWorkspace(rel);
+        return lspClient().signatureHelp(String(rel), String(text ?? ""), Number(line) || 0, Number(character) || 0);
+    });
+    handle("lspCodeActions", (rel, text, range) => {
+        insideWorkspace(rel);
+        const r = range && typeof range === "object" ? range : {};
+        return lspClient().codeActions(
+            String(rel),
+            String(text ?? ""),
+            Number(r.fromLine) || 0,
+            Number(r.fromChar) || 0,
+            Number(r.toLine) || 0,
+            Number(r.toChar) || 0
+        );
+    });
+    handle("lspFormat", (rel, text, tabSize) => {
+        insideWorkspace(rel);
+        return lspClient().format(String(rel), String(text ?? ""), Number(tabSize) || 4, true);
+    });
+    handle("inlineEdit", async (request) => {
+        if (busy) throw new Error("Une demande est en cours : modification IA indisponible.");
+        const r = request && typeof request === "object" ? request : {};
+        return require("../src/agent/inline-edit").inlineEdit({
+            path: String(r.path ?? ""),
+            language: String(r.language ?? ""),
+            instruction: String(r.instruction ?? ""),
+            selection: String(r.selection ?? ""),
+            prefix: String(r.prefix ?? ""),
+            suffix: String(r.suffix ?? "")
+        });
+    });
+    handle("undoApplyContent", async (index, at, content, expected) => {
+        if (busy) throw new Error("Une demande est en cours : attends sa fin avant de rejeter des blocs.");
+        const message = await require("../src/tools/core/journal").applyEntryContent(
+            Number(index),
+            at ? String(at) : null,
+            String(content ?? ""),
+            String(expected ?? "")
+        );
+        pushStatus();
+        return message;
+    });
     handle("conversationsRecent", async (limit) => {
         const conversations = require("../src/project/conversations");
         const items = await conversations.recent(Math.max(1, Math.min(Number(limit) || 30, 100)));
@@ -860,8 +973,14 @@ if (!gotLock) {
 
     app.on("window-all-closed", () => {
         killAllTerminals();
+        if (lspManager) lspManager.stopAll().catch(() => {});
         try {
             require("../src/tools/command/jobs").manager.stopAll?.();
+        } catch {
+            // ignoré
+        }
+        try {
+            require("../src/agent/worktrees").stopAll();
         } catch {
             // ignoré
         }

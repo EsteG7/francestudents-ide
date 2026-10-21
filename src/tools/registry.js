@@ -60,7 +60,11 @@ const MODULES = [
     jobStopTool,
     require("../mcp/tool"),
     require("../skills/tool"),
-    require("./web-fetch")
+    require("./web-fetch"),
+    require("../agent/subagent"),
+    require("./browse"),
+    require("./diagnostics"),
+    require("./semantic-search")
 ];
 
 const TOOLS = {};

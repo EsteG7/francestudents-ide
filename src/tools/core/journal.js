@@ -281,4 +281,91 @@ async function entryDiff(index, at) {
     };
 }
 
-module.exports = { finishMutation, revert, undoLast, listUndoEntries, undoEntry, entryDiff };
+/**
+ * Point de reprise (checkpoint) : annule, de la plus récente à la plus ancienne,
+ * toutes les modifications enregistrées à partir de l'horodatage `at` (ISO).
+ * S'arrête à la première erreur ; les entrées non annulées restent dans la pile.
+ */
+async function rewindTo(at) {
+    if (!state.workspace) throw new Error("Aucun projet sélectionné.");
+
+    const since = String(at || "");
+
+    if (!since) throw new Error("Point de reprise manquant.");
+
+    const targets = memory.listUndo().filter(entry => String(entry.at || "") >= since).reverse();
+    const messages = [];
+
+    for (const entry of targets) {
+        const position = memory.removeUndo(entry);
+
+        try {
+            messages.push(await revert(entry));
+        } catch (error) {
+            memory.restoreUndo(entry, position);
+            await memory.save();
+            throw new Error(
+                `Retour arrière interrompu (${messages.length}/${targets.length} annulée(s)) : ${error.message}`,
+                { cause: error }
+            );
+        }
+
+        memory.noteAction(`retour arrière : ${entry.label}`);
+
+        if (entry.kind !== "copy") await memory.discard(entry);
+    }
+
+    if (targets.length) await memory.save();
+
+    return { reverted: messages.length, messages };
+}
+
+/**
+ * Rejet par bloc (hunk) : écrit le contenu recomposé par l'interface (blocs rejetés
+ * remis à l'état d'origine, blocs acceptés gardés). Refuse si le fichier a changé
+ * depuis l'affichage du diff (`expected` = contenu « après » vu par l'interface).
+ * L'entrée reste dans le journal : /undo restaure toujours l'état d'origine complet.
+ */
+async function applyEntryContent(index, at, content, expected) {
+    if (!state.workspace) throw new Error("Aucun projet sélectionné.");
+
+    const stack = memory.listUndo();
+    const entry = stack[Number(index)];
+
+    if (!entry || (at && entry.at !== at)) {
+        throw new Error("Modification introuvable (la liste a changé, rafraîchissez).");
+    }
+
+    if (!["create", "copy", "write", "edit"].includes(entry.kind) || !entry.rel) {
+        throw new Error("Rejet par bloc impossible pour ce type de modification.");
+    }
+
+    if (typeof content !== "string" || typeof expected !== "string") {
+        throw new Error("Contenu invalide.");
+    }
+
+    const { target } = await resolveInWorkspace(state.workspace, entry.rel);
+    const current = await readForDiff(target);
+
+    if (current !== expected) {
+        throw new Error(`${entry.rel} a changé depuis l'affichage du diff : rouvrez le diff.`);
+    }
+
+    await fs.writeFile(target, content, "utf8");
+    memory.dropPath(entry.rel);
+    memory.noteAction(`blocs rejetés : ${entry.label || entry.rel}`);
+    await memory.save();
+
+    return `${entry.rel} : blocs rejetés restaurés.`;
+}
+
+module.exports = {
+    finishMutation,
+    revert,
+    undoLast,
+    listUndoEntries,
+    undoEntry,
+    entryDiff,
+    rewindTo,
+    applyEntryContent
+};

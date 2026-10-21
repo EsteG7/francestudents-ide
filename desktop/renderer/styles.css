@@ -691,7 +691,8 @@ kbd {
 #app.view-search .explorer-only,
 #app.view-ext .explorer-only,
 #app.view-settings .explorer-only,
-#app.view-git .explorer-only {
+#app.view-git .explorer-only,
+#app.view-worktrees .explorer-only {
     display: none !important;
 }
 
@@ -701,6 +702,87 @@ kbd {
 
 #app:not(.view-git) #git-view {
     display: none !important;
+}
+
+#app:not(.view-worktrees) #wt-view {
+    display: none !important;
+}
+
+/* Vue Worktrees : une carte par worktree et son agent */
+.wt-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 4px 8px 8px;
+    padding: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+}
+
+.wt-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+}
+
+.wt-name {
+    font-weight: 600;
+}
+
+.wt-branch {
+    overflow: hidden;
+    font-family: monospace;
+    font-size: 11px;
+    opacity: 0.7;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wt-status {
+    font-size: 12px;
+    opacity: 0.85;
+}
+
+.wt-status.wt-running {
+    color: #4fc1ff;
+}
+
+.wt-status.wt-done {
+    color: #89d185;
+}
+
+.wt-status.wt-failed,
+.wt-status.wt-stopped {
+    color: #f48771;
+}
+
+.wt-options,
+.wt-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.wt-base {
+    max-width: 90px;
+}
+
+.wt-output {
+    max-height: 220px;
+    margin: 0;
+    padding: 6px;
+    overflow: auto;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.25);
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.wt-output.hidden,
+.wt-diff.hidden {
+    display: none;
 }
 
 /* Vue Git : fichiers modifiés, historique et diff */

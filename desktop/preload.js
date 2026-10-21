@@ -62,9 +62,56 @@ contextBridge.exposeInMainWorld("frst", {
     githubPush: () => call("githubPush"),
     githubPull: () => call("githubPull"),
     githubFetch: () => call("githubFetch"),
+    worktreeList: () => call("worktreeList"),
+    worktreeCreate: (name, base) => call("worktreeCreate", String(name ?? ""), String(base || "HEAD")),
+    worktreeStart: (name, prompt, options) => call("worktreeStart", String(name ?? ""), String(prompt ?? ""), {
+        yes: Boolean(options && options.yes),
+        readOnly: Boolean(options && options.readOnly)
+    }),
+    worktreeStop: (name) => call("worktreeStop", String(name ?? "")),
+    worktreeChanges: (name) => call("worktreeChanges", String(name ?? "")),
+    worktreeRemove: (name, force) => call("worktreeRemove", String(name ?? ""), force === true),
     undoList: () => call("undoList"),
     undoEntry: (index, at) => call("undoEntry", Number(index), at ? String(at) : null),
     undoDiff: (index, at) => call("undoDiff", Number(index), at ? String(at) : null),
+    inlineComplete: (request) => call("inlineComplete", {
+        path: String(request?.path ?? ""),
+        language: String(request?.language ?? ""),
+        prefix: String(request?.prefix ?? ""),
+        suffix: String(request?.suffix ?? "")
+    }),
+    undoApplyContent: (index, at, content, expected) =>
+        call("undoApplyContent", Number(index), at ? String(at) : null, String(content ?? ""), String(expected ?? "")),
+    lspSync: (rel, text) => call("lspSync", String(rel ?? ""), String(text ?? "")),
+    lspClose: (rel) => call("lspClose", String(rel ?? "")),
+    lspCompletion: (rel, text, line, character) =>
+        call("lspCompletion", String(rel ?? ""), String(text ?? ""), Number(line) || 0, Number(character) || 0),
+    lspHover: (rel, text, line, character) =>
+        call("lspHover", String(rel ?? ""), String(text ?? ""), Number(line) || 0, Number(character) || 0),
+    lspDefinition: (rel, text, line, character) =>
+        call("lspDefinition", String(rel ?? ""), String(text ?? ""), Number(line) || 0, Number(character) || 0),
+    lspReferences: (rel, text, line, character) =>
+        call("lspReferences", String(rel ?? ""), String(text ?? ""), Number(line) || 0, Number(character) || 0),
+    lspRename: (rel, text, line, character, newName) =>
+        call("lspRename", String(rel ?? ""), String(text ?? ""), Number(line) || 0, Number(character) || 0, String(newName ?? "")),
+    lspSignatureHelp: (rel, text, line, character) =>
+        call("lspSignatureHelp", String(rel ?? ""), String(text ?? ""), Number(line) || 0, Number(character) || 0),
+    lspCodeActions: (rel, text, range) =>
+        call("lspCodeActions", String(rel ?? ""), String(text ?? ""), {
+            fromLine: Number(range?.fromLine) || 0,
+            fromChar: Number(range?.fromChar) || 0,
+            toLine: Number(range?.toLine) || 0,
+            toChar: Number(range?.toChar) || 0
+        }),
+    lspFormat: (rel, text, tabSize) => call("lspFormat", String(rel ?? ""), String(text ?? ""), Number(tabSize) || 4),
+    inlineEdit: (request) => call("inlineEdit", {
+        path: String(request?.path ?? ""),
+        language: String(request?.language ?? ""),
+        instruction: String(request?.instruction ?? ""),
+        selection: String(request?.selection ?? ""),
+        prefix: String(request?.prefix ?? ""),
+        suffix: String(request?.suffix ?? "")
+    }),
     conversationsRecent: (limit) => call("conversationsRecent", Number(limit) || 30),
     conversationsRename: (id, title) => call("conversationsRename", String(id ?? ""), String(title ?? "")),
     conversationsRemove: (id) => call("conversationsRemove", String(id ?? "")),

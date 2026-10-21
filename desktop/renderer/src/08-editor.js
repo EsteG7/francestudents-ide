@@ -59,6 +59,7 @@ function activate(rel) {
     document.querySelectorAll(".node").forEach((n) => n.classList.toggle("selected", n.dataset.path === rel));
     if (tab) code.focus();
     syncEditorContext();
+    lspOnActivate();
 }
 
 /* Indique au processus principal quels fichiers sont ouverts (contexte de l'agent). */
@@ -190,6 +191,7 @@ function closeTab(rel) {
     if (tab.dirty && !window.confirm(`${rel} n'est pas enregistré. Fermer quand même ?`)) return;
     const index = ui.tabs.indexOf(tab);
     ui.tabs.splice(index, 1);
+    lspOnClose(rel);
     if (ui.active === rel) {
         const next = ui.tabs[index] || ui.tabs[index - 1];
         ui.active = null;
@@ -234,6 +236,7 @@ function scheduleRefresh() {
                 if (tab.path === ui.active) {
                     const scroll = code.scrollTop;
                     code.value = text;
+                    lspScheduleSync();
                     code.scrollTop = scroll;
                     updateGutter();
                     syncHighlight();

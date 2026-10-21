@@ -103,7 +103,14 @@ function paletteCommands() {
         ["Changer de modèle…", "/model", () => openModelMenu()],
         ["Afficher les modifications", "", () => selectPanel("changes")],
         ["Interrompre l'agent", "Échap", () => api.interrupt().catch(() => {})],
-        ["Aller à la saisie de l'agent", "Ctrl+L", () => input.focus()]
+        ["Aller à la saisie de l'agent", "Ctrl+L", () => input.focus()],
+        ["Aller à la définition", "F12", () => lspGoToDefinition()],
+        ["Rechercher les références", "Maj+F12", () => lspFindReferences()],
+        ["Renommer le symbole", "F2", () => lspRenameSymbol()],
+        ["Afficher l'aide à la signature", "Ctrl+Maj+Espace", () => lspShowSignature(code.view, true)],
+        ["Actions de code / corrections rapides", "Ctrl+.", () => lspShowCodeActions()],
+        ["Formater le document", "Maj+Alt+F", () => lspFormatDocument()],
+        ["Modifier la sélection avec l'IA…", "Ctrl+K", () => inlineEditStart()]
     ].map(([label, detail, run]) => ({ label, detail, run }));
     for (const [cmd, desc] of SLASH_COMMANDS) {
         cmds.push({

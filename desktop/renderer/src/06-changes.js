@@ -77,7 +77,7 @@ function undoKey(entry) {
 }
 
 /** Diff ligne à ligne simple (LCS) avec 3 lignes de contexte autour du bloc modifié. */
-function undoLineDiff(before, after) {
+function undoLineDiff(before, after, context = 3) {
     const a = String(before).split("\n");
     const b = String(after).split("\n");
     let start = 0;
@@ -91,7 +91,7 @@ function undoLineDiff(before, after) {
     const midA = a.slice(start, endA);
     const midB = b.slice(start, endB);
     const ops = [];
-    for (let i = Math.max(0, start - 3); i < start; i++) ops.push({ t: " ", s: a[i] });
+    for (let i = Math.max(0, start - context); i < start; i++) ops.push({ t: " ", s: a[i] });
     const n = midA.length;
     const m = midB.length;
     if (n && m && (n + 1) * (m + 1) <= 2000000) {
@@ -121,8 +121,45 @@ function undoLineDiff(before, after) {
         for (const s of midA) ops.push({ t: "-", s });
         for (const s of midB) ops.push({ t: "+", s });
     }
-    for (let i = endA; i < Math.min(a.length, endA + 3); i++) ops.push({ t: " ", s: a[i] });
+    for (let i = endA; i < Math.min(a.length, endA + context); i++) ops.push({ t: " ", s: a[i] });
     return ops;
+}
+
+/** Blocs (hunks) : suites consécutives de lignes ajoutées/supprimées, {start, end} (end exclu) dans ops. */
+function undoHunks(ops) {
+    const hunks = [];
+    let current = null;
+    ops.forEach((op, i) => {
+        if (op.t === " ") {
+            current = null;
+            return;
+        }
+        if (!current) {
+            current = { start: i, end: i + 1 };
+            hunks.push(current);
+        } else {
+            current.end = i + 1;
+        }
+    });
+    return hunks;
+}
+
+/**
+ * Recompose le fichier à partir d'un diff complet (contexte infini) : les blocs dont
+ * l'index est dans `rejected` reprennent leurs lignes d'origine, les autres gardent les nouvelles.
+ */
+function composeHunks(ops, rejected) {
+    const hunks = undoHunks(ops);
+    const owner = new Array(ops.length).fill(-1);
+    hunks.forEach((hunk, h) => {
+        for (let i = hunk.start; i < hunk.end; i++) owner[i] = h;
+    });
+    const lines = [];
+    ops.forEach((op, i) => {
+        if (op.t === " ") lines.push(op.s);
+        else if (rejected.has(owner[i]) ? op.t === "-" : op.t === "+") lines.push(op.s);
+    });
+    return lines.join("\n");
 }
 
 async function toggleUndoDiff(row, entry, btn) {
@@ -154,20 +191,58 @@ async function toggleUndoDiff(row, entry, btn) {
             box.textContent = "Aucune différence avec l'état actuel du fichier.";
             return;
         }
+        const ops = undoLineDiff(diff.before, diff.after, Infinity);
+        const hunks = undoHunks(ops);
         let added = 0;
         let removed = 0;
-        for (const op of undoLineDiff(diff.before, diff.after)) {
-            const line = document.createElement("span");
-            line.className = op.t === "+" ? "diff-line add" : op.t === "-" ? "diff-line del" : "diff-line";
-            line.textContent = `${op.t} ${op.s}\n`;
+        for (const op of ops) {
             if (op.t === "+") added++;
             if (op.t === "-") removed++;
-            box.appendChild(line);
         }
         const head = document.createElement("span");
         head.className = "diff-line head";
-        head.textContent = `${diff.rel} · +${added} -${removed}\n`;
-        box.prepend(head);
+        head.textContent = `${diff.rel} · +${added} -${removed} · ${hunks.length} bloc(s)\n`;
+        box.appendChild(head);
+        const tooBig = (s) => String(s).startsWith("(fichier trop volumineux");
+        const canSplit = Boolean(api.undoApplyContent) && hunks.length > 1 &&
+            ["create", "copy", "write", "edit"].includes(entry.kind) && !tooBig(diff.before) && !tooBig(diff.after);
+        let shown = 0;
+        hunks.forEach((hunk, h) => {
+            const bar = document.createElement("span");
+            bar.className = "diff-line hunk-head";
+            bar.textContent = `@@ bloc ${h + 1}/${hunks.length} `;
+            if (canSplit) {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "undo-btn reject hunk-reject";
+                btn.textContent = "Rejeter ce bloc";
+                btn.title = "Remettre ce bloc à l'état d'origine et garder les autres";
+                btn.onclick = async () => {
+                    box.querySelectorAll(".hunk-reject").forEach((b) => { b.disabled = true; });
+                    let message;
+                    try {
+                        message = await api.undoApplyContent(entry.index, entry.at, composeHunks(ops, new Set([h])), diff.after);
+                    } catch (error) {
+                        message = error && error.message ? error.message : String(error);
+                    }
+                    scheduleGitRefresh();
+                    renderUndoList(message);
+                };
+                bar.appendChild(btn);
+            }
+            bar.appendChild(document.createTextNode("\n"));
+            box.appendChild(bar);
+            const from = Math.max(shown, hunk.start - 3);
+            const to = Math.min(ops.length, hunk.end + 3);
+            for (let i = from; i < to; i++) {
+                const op = ops[i];
+                const line = document.createElement("span");
+                line.className = op.t === "+" ? "diff-line add" : op.t === "-" ? "diff-line del" : "diff-line";
+                line.textContent = `${op.t} ${op.s}\n`;
+                box.appendChild(line);
+            }
+            shown = Math.max(shown, to);
+        });
     } catch (error) {
         box.textContent = error && error.message ? error.message : String(error);
     }

@@ -31,6 +31,8 @@ function showHelp() {
     ["/resume", "Afficher le résumé du projet"],
     ["/undo", "Annuler la dernière modification"],
     ["/changes", "Historique des modifications annulables"],
+    ["/checkpoints", "Points de reprise de la session (un par demande à l'agent)"],
+    ["/rewind [n]", "Revenir avant la demande n (défaut : la dernière) : annule ses fichiers modifiés"],
     ["/memory", "Notes et dernières actions du projet"],
     ["/remember <texte>", "Ajouter une note durable au projet"],
     ["/forget <n|all>", "Supprimer une note (ou toutes)"],
@@ -42,6 +44,7 @@ function showHelp() {
     ["/auto commands on|off|always|never", "Lancer toutes les commandes sans confirmation (interdites toujours bloquées)"],
     ["/mode auto|agent|chat", "Quand utiliser les outils fichiers"],
     ["/new", "Nouvelle conversation"],
+    ["/compact [consigne]", "Résumer la conversation et repartir avec un contexte léger"],
     ["/chat-id [n|id]", "Voir le chat ID / reprendre une conversation"],
     ["/history [all]", "Dernières conversations (id + titre)"],
     ["/messages", "Messages de la conversation (session)"],
@@ -51,6 +54,8 @@ function showHelp() {
     ["/auth [refresh]", "État de la connexion / renouvellement"],
     ["/login", "Se connecter avec e-mail et mot de passe"], ["/logout", "Se déconnecter (efface la session locale)"],
     ["/github [status|login|logout|remote|create|push|pull|fetch]", "Connexion au compte GitHub, remote et push/pull authentifiés"],
+    ["/worktree [list|new|run|show|diff|stop|remove]", "Agents parallèles dans des worktrees Git (branche frst/<nom>)"],
+    ["/review-pr <n|owner/repo#n|URL> [--post] [consigne]", "Revue d'une pull request GitHub par l'agent (--post : publier en commentaire)"],
     ["/clear", "Effacer le terminal"],
     ["/exit", "Quitter (alias : /quit)"],
   ];
@@ -268,6 +273,74 @@ ui.info("Projet FranceStudent retiré : les nouvelles conversations ne sont plus
             c.dim(entry.at.slice(0, 16).replace("T", " ")),
         );
       });
+      break;
+    }
+
+    case "/checkpoints": {
+      if (!requireProject()) break;
+
+      const points = require("../project/checkpoints").listCheckpoints(state.workspace);
+
+      if (!points.length) {
+        ui.info("Aucun point de reprise dans cette session (un est créé à chaque demande à l'agent).");
+        break;
+      }
+
+      const stack = memory.listUndo();
+
+      ui.print(c.bold("Points de reprise (/rewind n pour revenir avant la demande n)"));
+
+      points.forEach((cp, i) => {
+        const count = stack.filter((e) => String(e.at || "") >= cp.at).length;
+        ui.print(
+          `  ${c.gray(String(i + 1).padStart(2))} ${cp.task || "(demande vide)"} ` +
+            c.dim(`${cp.at.slice(11, 19)} · ${count} modification(s) depuis`),
+        );
+      });
+      break;
+    }
+
+    case "/rewind": {
+      if (!requireProject()) break;
+
+      const checkpoints = require("../project/checkpoints");
+      const points = checkpoints.listCheckpoints(state.workspace);
+
+      if (!points.length) {
+        ui.info("Aucun point de reprise dans cette session.");
+        break;
+      }
+
+      const n = value ? Number.parseInt(value, 10) : points.length;
+
+      if (!Number.isInteger(n) || n < 1 || n > points.length) {
+        ui.warn(`Numéro invalide : choisissez entre 1 et ${points.length} (voir /checkpoints).`);
+        break;
+      }
+
+      const cp = points[n - 1];
+      const count = memory.listUndo().filter((e) => String(e.at || "") >= cp.at).length;
+      const ok = await ui.confirm(
+        `Revenir avant « ${cp.task} » ? ${count} modification(s) de fichiers seront annulées.`,
+        { force: true },
+      );
+
+      if (!ok) {
+        ui.info("Retour arrière abandonné.");
+        break;
+      }
+
+      try {
+        const { reverted } = await require("../tools/core/journal").rewindTo(cp.at);
+        checkpoints.dropCheckpointsFrom(cp.id);
+        if (state.history.length > cp.historyLength) state.history.length = cp.historyLength;
+        ui.info(
+          `Retour avant la demande ${n} : ${reverted} modification(s) annulée(s). ` +
+            "L'historique local est tronqué ; la conversation serveur garde ses messages (/new pour repartir à zéro).",
+        );
+      } catch (error) {
+        ui.warn(error.message);
+      }
       break;
     }
 
@@ -937,6 +1010,146 @@ ui.info(
         }
       } catch (error) {
         ui.error(github.redact(error.message, github.getToken()));
+      }
+      break;
+    }
+
+    case "/review-pr": {
+      const { reviewPullRequest } = require("../agent/review-pr");
+      const github = require("../github");
+      const tokens = value.split(/\s+/).filter(Boolean);
+      const post = tokens.includes("--post");
+      const rest = tokens.filter((t) => t !== "--post");
+      const ref = rest.shift();
+
+      if (!ref) {
+        ui.info("Usage : /review-pr <n|owner/repo#n|URL> [--post] [consigne]");
+        break;
+      }
+
+      const spin = ui.spinner("Revue de la pull request");
+
+      try {
+        const res = await reviewPullRequest({ ref, workspace: state.workspace || null, focus: rest.join(" "), post });
+        spin.stop();
+        ui.info(`Revue de ${res.pr.owner}/${res.pr.repo}#${res.pr.number} (${res.files} fichier(s))${res.posted ? " : publiée en commentaire." : "."}`);
+        ui.print(res.review);
+      } catch (error) {
+        spin.stop();
+        ui.error(github.redact(error.message, github.getToken()));
+      }
+      break;
+    }
+
+    case "/worktree":
+    case "/worktrees": {
+      if (!requireProject()) break;
+      const wt = require("../agent/worktrees");
+      const tokens = value.split(/\s+/).filter(Boolean);
+      const sub = (tokens.shift() || "list").toLowerCase();
+      const name = tokens[0];
+      const usage =
+        "Usage : /worktree [list] | new <nom> [base] | run <nom> [--yes] [--plan] <demande> | show <nom> | diff <nom> | stop <nom> | remove <nom> [--force]";
+      const statusOf = (agent) =>
+        `${agent.status}${agent.exitCode !== null ? ` (code ${agent.exitCode})` : ""}`;
+
+      try {
+        switch (sub) {
+          case "list": {
+            const managed = (await wt.listWorktrees(state.workspace)).filter((item) => item.managed);
+            if (!managed.length) {
+              ui.info(`Aucun worktree d'agent. Crée-en un avec /worktree new <nom> (dossier : ${wt.worktreeRoot(state.workspace)}).`);
+              break;
+            }
+            for (const item of managed) {
+              ui.print(`  ${c.cyan(item.name.padEnd(20))} ${c.dim(item.branch || "détaché")}  ${item.agent ? statusOf(item.agent) : "inactif"}`);
+            }
+            break;
+          }
+
+          case "new": {
+            if (!name) { ui.info(usage); break; }
+            const res = await wt.createWorktree(state.workspace, name, { base: tokens[1] || "HEAD" });
+            ui.info(`Worktree ${res.name} créé : ${res.path} (branche ${res.branch}, base ${res.base}).`);
+            break;
+          }
+
+          case "run": {
+            const rest = tokens.slice(1);
+            const yes = rest.includes("--yes");
+            const readOnly = rest.includes("--plan");
+            const prompt = rest.filter((t) => t !== "--yes" && t !== "--plan").join(" ");
+            if (!name || !prompt) { ui.info(usage); break; }
+            let announced = false;
+            wt.startAgent(state.workspace, name, prompt, {
+              yes,
+              readOnly,
+              onUpdate: (agent) => {
+                if (agent.status === "running" || announced) return;
+                announced = true;
+                ui.info(`Agent ${agent.name} terminé : ${statusOf(agent)}. /worktree show ${agent.name} pour la réponse.`);
+              },
+            });
+            ui.info(`Agent lancé dans le worktree ${name}${yes ? " (écritures autorisées)" : " (sans --yes : aucune écriture possible)"}.`);
+            break;
+          }
+
+          case "show": {
+            if (!name) { ui.info(usage); break; }
+            const agent = wt.getAgent(state.workspace, name);
+            if (!agent) { ui.info(`Aucun agent lancé dans ${name} pendant cette session.`); break; }
+            ui.info(`${agent.name} : ${statusOf(agent)} — ${agent.prompt}`);
+            ui.print(agent.answer || c.dim(agent.log.slice(-4000) || "(aucune sortie pour l'instant)"));
+            break;
+          }
+
+          case "diff": {
+            if (!name) { ui.info(usage); break; }
+            const res = await wt.worktreeChanges(state.workspace, name);
+            ui.print(c.dim(res.status || "(aucun fichier modifié)"));
+            if (res.diff) ui.print(res.diff);
+            break;
+          }
+
+          case "stop": {
+            if (!name) { ui.info(usage); break; }
+            wt.stopAgent(state.workspace, name);
+            ui.info(`Agent ${name} arrêté.`);
+            break;
+          }
+
+          case "remove": {
+            if (!name) { ui.info(usage); break; }
+            const force = tokens.includes("--force");
+            const ok = await ui.confirm(`Supprimer le worktree ${name}${force ? " (modifications non commitées perdues)" : ""} ? La branche frst/${name} est conservée.`);
+            if (!ok) break;
+            const res = await wt.removeWorktree(state.workspace, name, { force });
+            ui.info(`Worktree ${res.name} supprimé (branche ${res.branch} conservée).`);
+            break;
+          }
+
+          default:
+            ui.info(usage);
+        }
+      } catch (error) {
+        ui.error(error.message);
+      }
+      break;
+    }
+
+    case "/compact": {
+      const { compactConversation } = require("../agent/compact");
+      const mode = state.mode === "chat" ? "chat" : "agent";
+      const spin = ui.spinner("Compactage de la conversation");
+
+      try {
+        const { summary, before } = await compactConversation({ focus: value, mode });
+        spin.stop();
+        ui.info(`Conversation compactée : ${before} message(s) remplacé(s) par un résumé. Nouvelle conversation ${mode}.`);
+        ui.print(summary);
+      } catch (error) {
+        spin.stop();
+        ui.error(`Compactage impossible : ${error.message}`);
       }
       break;
     }

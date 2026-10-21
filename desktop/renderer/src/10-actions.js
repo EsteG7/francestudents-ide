@@ -82,28 +82,112 @@ window.addEventListener("beforeunload", (ev) => {
     }
 });
 
-function dragResizer(id, cssVar, axis, invert, min, max) {
-    $(id).addEventListener("mousedown", (ev) => {
-        ev.preventDefault();
-        const start = axis === "x" ? ev.clientX : ev.clientY;
-        const initial = parseInt(getComputedStyle(document.documentElement).getPropertyValue(cssVar), 10);
-        const move = (e) => {
-            const delta = (axis === "x" ? e.clientX : e.clientY) - start;
-            const value = Math.max(min, Math.min(max, initial + (invert ? -delta : delta)));
-            document.documentElement.style.setProperty(cssVar, `${value}px`);
-        };
-        const up = () => {
-            window.removeEventListener("mousemove", move);
-            window.removeEventListener("mouseup", up);
-        };
-        window.addEventListener("mousemove", move);
-        window.addEventListener("mouseup", up);
+const LAYOUT_LIMITS = {
+    "--left": { min: 150, max: 600 },
+    "--right": { min: 280, max: 900 },
+    "--bottom": { min: 60, max: 600 },
+};
+const CENTER_MIN_WIDTH = 320;
+const EDITOR_MIN_HEIGHT = 160;
+
+function layoutPx(cssVar) {
+    const value = parseInt(getComputedStyle(document.documentElement).getPropertyValue(cssVar), 10);
+    return Number.isFinite(value) ? value : LAYOUT_LIMITS[cssVar].min;
+}
+
+function layoutHidden(cssVar) {
+    const app = $("app");
+    if (cssVar === "--left") return app.classList.contains("no-sidebar");
+    if (cssVar === "--right") return app.classList.contains("no-agent");
+    return app.classList.contains("no-panel");
+}
+
+function layoutMax(cssVar) {
+    const limits = LAYOUT_LIMITS[cssVar];
+    let room;
+    if (cssVar === "--bottom") {
+        const center = $("center");
+        const height = center && center.clientHeight ? center.clientHeight : window.innerHeight;
+        room = height - EDITOR_MIN_HEIGHT;
+    } else {
+        const other = cssVar === "--left" ? "--right" : "--left";
+        const otherWidth = layoutHidden(other) ? 0 : layoutPx(other) + 4;
+        room = window.innerWidth - 48 - 4 - otherWidth - CENTER_MIN_WIDTH;
+    }
+    return Math.max(limits.min, Math.min(limits.max, room));
+}
+
+function clampLayout() {
+    for (const v of ["--right", "--left", "--bottom"]) {
+        if (layoutHidden(v)) continue;
+        const current = layoutPx(v);
+        const next = Math.max(LAYOUT_LIMITS[v].min, Math.min(layoutMax(v), current));
+        if (next !== current) document.documentElement.style.setProperty(v, `${next}px`);
+    }
+}
+
+let layoutFrame = 0;
+
+function scheduleClampLayout() {
+    if (layoutFrame) return;
+    layoutFrame = requestAnimationFrame(() => {
+        layoutFrame = 0;
+        clampLayout();
     });
 }
 
-dragResizer("resizer-left", "--left", "x", false, 150, 600);
-dragResizer("resizer-right", "--right", "x", true, 280, 900);
-dragResizer("resizer-bottom", "--bottom", "y", true, 60, 600);
+function dragResizer(id, cssVar, axis, invert) {
+    const handle = $(id);
+    if (!handle) return;
+    handle.addEventListener("pointerdown", (ev) => {
+        if (ev.button !== 0) return;
+        ev.preventDefault();
+        try {
+            handle.setPointerCapture(ev.pointerId);
+        } catch {
+            // capture indisponible
+        }
+        const start = axis === "x" ? ev.clientX : ev.clientY;
+        const initial = layoutPx(cssVar);
+        const min = LAYOUT_LIMITS[cssVar].min;
+        const max = layoutMax(cssVar);
+        let last = start;
+        let frame = 0;
+        document.body.classList.add(axis === "x" ? "resizing-x" : "resizing-y");
+        const apply = () => {
+            frame = 0;
+            const delta = last - start;
+            const value = Math.max(min, Math.min(max, initial + (invert ? -delta : delta)));
+            document.documentElement.style.setProperty(cssVar, `${value}px`);
+        };
+        const move = (e) => {
+            last = axis === "x" ? e.clientX : e.clientY;
+            if (!frame) frame = requestAnimationFrame(apply);
+        };
+        const up = () => {
+            if (frame) {
+                cancelAnimationFrame(frame);
+                apply();
+            }
+            handle.removeEventListener("pointermove", move);
+            handle.removeEventListener("pointerup", up);
+            handle.removeEventListener("pointercancel", up);
+            document.body.classList.remove("resizing-x", "resizing-y");
+            if (typeof saveLayout === "function") saveLayout();
+        };
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", up);
+        handle.addEventListener("pointercancel", up);
+    });
+}
+
+dragResizer("resizer-left", "--left", "x", false);
+dragResizer("resizer-right", "--right", "x", true);
+dragResizer("resizer-bottom", "--bottom", "y", true);
+
+window.addEventListener("resize", scheduleClampLayout);
+new MutationObserver(scheduleClampLayout).observe($("app"), { attributes: true, attributeFilter: ["class"] });
+scheduleClampLayout();
 
 /* ---------- Boîte de saisie ---------- */
 

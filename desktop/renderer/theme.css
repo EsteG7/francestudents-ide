@@ -742,6 +742,63 @@ html.mac #titlebar {
     }
 }
 
+@media (max-width: 1100px) {
+    .editor-welcome {
+        padding: 32px 24px;
+    }
+
+    .command-center {
+        min-width: 120px;
+    }
+
+    .command-center kbd {
+        display: none;
+    }
+}
+
+@media (max-height: 700px) {
+    .editor-welcome {
+        padding-top: 24px;
+        padding-bottom: 24px;
+    }
+}
+
+/* Glisser d'un séparateur : curseur constant, pas de sélection de texte */
+body.resizing-x,
+body.resizing-x * {
+    cursor: col-resize !important;
+    user-select: none !important;
+}
+
+body.resizing-y,
+body.resizing-y * {
+    cursor: row-resize !important;
+    user-select: none !important;
+}
+
+body.resizing-x iframe,
+body.resizing-y iframe,
+body.resizing-x .xterm,
+body.resizing-y .xterm {
+    pointer-events: none;
+}
+
+#resizer-left,
+#resizer-right,
+#resizer-bottom {
+    touch-action: none;
+}
+
+#center > .panel {
+    flex-shrink: 0;
+    max-height: calc(100% - 160px);
+}
+
+.editor-welcome {
+    overflow: auto;
+    max-height: 100%;
+}
+
 /* Panneau du bas */
 .panel {
     background: var(--bg-side);
@@ -2298,6 +2355,22 @@ html.mac #titlebar {
     margin-bottom: 4px;
     color: var(--fg-strong);
     font-weight: 600;
+}
+
+.undo-diff .diff-line.hunk-head {
+    margin-top: 4px;
+    padding-top: 2px;
+    border-top: 1px dashed var(--border-strong);
+    color: var(--fg-dim);
+    font-style: italic;
+}
+
+.undo-diff .hunk-reject {
+    margin-left: 6px;
+    padding: 0 6px;
+    font-size: 10.5px;
+    font-style: normal;
+    line-height: 1.5;
 }
 
 #st-model {

@@ -1,8 +1,10 @@
 // Point d'entrée du bundle CodeMirror 6 pour le renderer (sans modules ES ni CDN).
 // esbuild l'assemble en desktop/renderer/vendor/codemirror.js, qui expose window.CM.
 import { basicSetup } from "codemirror";
-import { EditorState, Compartment, EditorSelection } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorState, Compartment, EditorSelection, StateField, StateEffect, Prec } from "@codemirror/state";
+import { EditorView, keymap, Decoration, WidgetType, hoverTooltip, showTooltip } from "@codemirror/view";
+import { autocompletion, startCompletion } from "@codemirror/autocomplete";
+import { setDiagnostics, lintGutter } from "@codemirror/lint";
 import { indentWithTab } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
 import { indentUnit } from "@codemirror/language";
@@ -34,6 +36,17 @@ globalThis.CM = {
     EditorSelection,
     EditorView,
     Compartment,
+    StateField,
+    StateEffect,
+    Prec,
+    Decoration,
+    WidgetType,
+    hoverTooltip,
+    showTooltip,
+    autocompletion,
+    startCompletion,
+    setDiagnostics,
+    lintGutter,
     keymap,
     indentWithTab,
     indentUnit,

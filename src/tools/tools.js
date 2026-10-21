@@ -38,6 +38,17 @@ function summarizeResult(name, result) {
             return result.timed_out
                 ? `${result.command} : délai dépassé`
                 : `${result.command} : code ${result.exit_code}`;
+        case "task":
+            return `Sous-agent : ${result.turns} tour(s), ${(result.files_read || []).length} fichier(s) lu(s)` +
+                (result.incomplete ? ", sans compte rendu final" : "");
+        case "browse":
+            return `Capture : ${result.screenshot}` +
+                (result.status !== null && result.status !== undefined ? ` (HTTP ${result.status})` : "") +
+                (result.console && result.console.length ? `, ${result.console.length} erreur(s) console` : "");
+        case "diagnostics":
+            return result.message || `${result.errors ?? 0} erreur(s), ${result.warnings ?? 0} avertissement(s)`;
+        case "semantic_search":
+            return result.message || `${(result.results || []).length} passage(s)`;
         default:
             return result.message || "OK";
     }

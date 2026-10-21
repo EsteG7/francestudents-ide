@@ -83,6 +83,11 @@ async function main() {
 }
 
 function run() {
+  // Mode non interactif aussi via index.js (node index.js -p "...").
+  const headless = require("./cli/headless");
+  const options = headless.parseHeadlessArgs(process.argv.slice(2));
+  if (options) return headless.runHeadlessCli(options);
+
   return main()
     .catch((error) => {
       ui.error(`Erreur fatale : ${error.message}`);

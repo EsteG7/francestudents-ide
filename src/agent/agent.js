@@ -456,6 +456,19 @@ async function runAgent(task, options = {}) {
 
     const observations = [];
     const changesBefore = memory.sessionChanges();
+
+    // Point de reprise : /rewind peut annuler d'un coup tout ce que cette demande a modifié.
+    if (state.workspace && !options.readOnly) {
+        try {
+            require("../project/checkpoints").addCheckpoint({
+                task,
+                workspace: state.workspace,
+                historyLength: state.history.length
+            });
+        } catch (error) {
+            ui.debug(`Point de reprise non enregistré : ${error.message}`);
+        }
+    }
     const signatures = new Map();
     const { projectText, env, instructions } = await loadAgentContext(state.workspace);
 
@@ -501,8 +514,17 @@ async function runAgent(task, options = {}) {
             mcpCatalog,
             skillsCatalog
         }));
-    } catch (error) {
+        } catch (error) {
         ui.warn(`Réglage skills/MCP illisible : ${error.message}`);
+    }
+
+    // Hooks (hooks.json utilisateur et .frst/hooks.json du projet) : scripts lancés autour des outils.
+    const hooks = require("./hooks");
+    let hookConfig = null;
+    try {
+        hookConfig = await hooks.loadHooks({ workspace: state.workspace, ui });
+    } catch (error) {
+        ui.warn(`Hooks indisponibles : ${error.message}`);
     }
 
     let planShown = false;
@@ -549,21 +571,11 @@ async function runAgent(task, options = {}) {
 
     await preloadContext(task, observations);
 
-    // Limite souple : au plafond, on propose de continuer au lieu d'arrêter.
-    // Les observations et la conversation serveur sont conservées.
-    let maxTurns = CONFIG.maxAgentTurns;
-    const TURN_EXTENSION = 20;
+    // Aucune limite de tours : l'agent continue jusqu'à final (ou interruption, ou garde-fou anti-boucle).
+    // maxTurns = 0 : aucun avertissement de fin de tours n'est envoyé au modèle.
+    const maxTurns = 0;
 
     for (let turn = 1; ; turn++) {
-        if (turn > maxTurns) {
-            const more = await ui.confirm(
-                `Limite de ${maxTurns} tours atteinte. Continuer ${TURN_EXTENSION} tours de plus ?`,
-                { force: true }
-            );
-            if (!more) break;
-            maxTurns += TURN_EXTENSION;
-        }
-
         let action = null;
         let correction = null;
         let lastResponse;
@@ -682,8 +694,49 @@ async function runAgent(task, options = {}) {
 
         if (action.calls) {
             // Lectures seules : exécutées en parallèle, observations et affichage dans l'ordre des appels.
+            // Hooks preToolUse lancés avant chaque appel, dans l'ordre : un appel bloqué n'est pas exécuté.
+            const useHooks = Boolean(hookConfig && hooks.hasHooks(hookConfig));
+            const blocked = [];
+
+            for (const call of action.calls) {
+                let reason = null;
+
+                if (useHooks) {
+                    try {
+                        const pre = await hooks.runPreToolHooks(hookConfig, {
+                            tool: call.name,
+                            args: call.args,
+                            workspace: state.workspace,
+                            ui
+                        });
+                        if (pre.blocked) reason = pre.message;
+                    } catch (error) {
+                        reason = error.message;
+                    }
+                }
+
+                blocked.push(reason);
+            }
+
             const settled = await Promise.allSettled(
-                action.calls.map(call => Promise.resolve().then(() => TOOLS[call.name].run(call.args)))
+                action.calls.map((call, index) => Promise.resolve().then(async () => {
+                    if (blocked[index]) throw new Error(blocked[index]);
+
+                    const result = await TOOLS[call.name].run(call.args);
+
+                    // Hooks postToolUse : leur sortie est jointe au résultat de l'appel.
+                    if (useHooks && result && typeof result === "object" && !result.denied) {
+                        const reports = await hooks.runPostToolHooks(hookConfig, {
+                            tool: call.name,
+                            args: call.args,
+                            workspace: state.workspace,
+                            ui
+                        });
+                        if (reports.length) result.hooks = reports;
+                    }
+
+                    return result;
+                }))
             );
 
             const results = action.calls.map((call, index) => {
@@ -713,7 +766,7 @@ async function runAgent(task, options = {}) {
         }
 
         // Mode plan (/plan) : lecture seule, toute autre action est refusée sans être exécutée.
-        if (options.readOnly && !["list_directory", "read_file", "search_files"].includes(action.name)) {
+        if (options.readOnly && !["list_directory", "read_file", "search_files", "task"].includes(action.name)) {
             ui.result(`Mode plan : ${action.name} refusé (lecture seule)`, { tone: "error" });
             observations.push({
                 tool: action.name,
@@ -729,7 +782,29 @@ async function runAgent(task, options = {}) {
         const recorded = recordArgs(action.args);
 
         try {
+            // Hooks preToolUse : un code de sortie non nul bloque l'outil.
+            if (hookConfig && hooks.hasHooks(hookConfig)) {
+                const pre = await hooks.runPreToolHooks(hookConfig, {
+                    tool: action.name,
+                    args: action.args,
+                    workspace: state.workspace,
+                    ui
+                });
+                if (pre.blocked) throw new Error(pre.message);
+            }
+
             const result = await TOOLS[action.name].run(action.args);
+
+            // Hooks postToolUse (formatage, lint...) : leur sortie est jointe au résultat pour l'agent.
+            if (hookConfig && hooks.hasHooks(hookConfig) && result && !result.denied) {
+                const reports = await hooks.runPostToolHooks(hookConfig, {
+                    tool: action.name,
+                    args: action.args,
+                    workspace: state.workspace,
+                    ui
+                });
+                if (reports.length && typeof result === "object") result.hooks = reports;
+            }
 
             ui.result(summarizeResult(action.name, result));
 
@@ -750,15 +825,6 @@ async function runAgent(task, options = {}) {
             });
         }
     }
-
-    const message =
-        "Limite de tours atteinte. Les modifications déjà confirmées restent enregistrées (/undo pour les annuler).";
-
-    ui.warn(message);
-    record("user", task);
-    record("assistant", message);
-    await saveConversation();
-    reportUsage(usageBefore);
 }
 
 module.exports = {

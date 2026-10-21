@@ -7,6 +7,8 @@ const $ = (id) => document.getElementById(id);
 
 const SLASH_COMMANDS = [
     ["/help", "Aide"], ["/project", "Choisir un projet"], ["/unproject", "Quitter le projet"],
+    ["/pwd", "Projet sélectionné"], ["/tree", "Lister un dossier (2 niveaux)"], ["/read", "Lire un fichier"],
+    ["/extensions", "Extensions"],
     ["/plan", "Plan en lecture seule"], ["/undo", "Annuler la dernière modification"],
     ["/changes", "Modifications annulables"], ["/memory", "Notes du projet"],
     ["/remember", "Ajouter une note"], ["/forget", "Supprimer une note"],
@@ -17,6 +19,10 @@ const SLASH_COMMANDS = [
     ["/web", "Recherche web on|off"], ["/index", "Régénérer RESUME.md"], ["/init", "Créer FRSTCLI.md"],
     ["/resume", "Résumé du projet"], ["/fr-project", "Projet FranceStudent"], ["/auth", "État de la connexion"],
     ["/login", "Se connecter"], ["/logout", "Se déconnecter"], ["/github", "Compte GitHub : login, remote, push, pull"],
+    ["/review-pr", "Revue d'une pull request GitHub (n|owner/repo#n|URL) [--post]"],
+    ["/worktree", "Agents parallèles en worktrees : list|new|run|show|diff|stop|remove"],
+    ["/compact", "Résumer la conversation (contexte léger)"], ["/checkpoints", "Points de reprise de la session"],
+    ["/rewind", "Revenir avant une demande"],
     ["/preprompt", "Pré-prompt"], ["/profil", "Profil"], ["/clear", "Effacer"]
 ];
 
@@ -43,6 +49,83 @@ const ui = {
 
 const transcript = $("transcript");
 const input = $("input");
+/* Complétion IA en ligne : Alt+\\ (ou Ctrl+Alt+Espace) demande une suggestion, Tab l'accepte, Échap l'ignore. */
+function inlineCompletionExtension(kind) {
+    const CM = window.CM;
+    if (!CM.StateField || !CM.StateEffect || !CM.Decoration || !CM.WidgetType || !CM.Prec) return [];
+    const setGhost = CM.StateEffect.define();
+    class GhostWidget extends CM.WidgetType {
+        constructor(text) {
+            super();
+            this.text = text;
+        }
+        eq(other) { return other.text === this.text; }
+        toDOM() {
+            const span = document.createElement("span");
+            span.className = "cm-ghost-text";
+            span.textContent = this.text;
+            return span;
+        }
+        ignoreEvent() { return true; }
+    }
+    const ghostField = CM.StateField.define({
+        create: () => null,
+        update(value, tr) {
+            for (const effect of tr.effects) if (effect.is(setGhost)) return effect.value;
+            if (value && (tr.docChanged || tr.selection)) return null;
+            return value;
+        },
+        provide: (field) => CM.EditorView.decorations.from(field, (ghost) => ghost
+            ? CM.Decoration.set([CM.Decoration.widget({ widget: new GhostWidget(ghost.text), side: 1 }).range(ghost.pos)])
+            : CM.Decoration.none)
+    });
+    let seq = 0;
+    const activePath = () => {
+        const active = typeof ui !== "undefined" ? ui.active : null;
+        if (typeof active === "string") return active;
+        return (active && (active.path || active.rel)) || "";
+    };
+    const request = (view) => {
+        if (!api || !api.inlineComplete) return false;
+        const pos = view.state.selection.main.head;
+        const doc = view.state.doc;
+        const id = ++seq;
+        api.inlineComplete({
+            path: activePath(),
+            language: kind || "",
+            prefix: doc.sliceString(Math.max(0, pos - 4000), pos),
+            suffix: doc.sliceString(pos, Math.min(doc.length, pos + 1500))
+        }).then((text) => {
+            if (id !== seq || !text || view.state.doc !== doc || view.state.selection.main.head !== pos) return;
+            view.dispatch({ effects: setGhost.of({ pos, text }) });
+        }).catch(() => {});
+        return true;
+    };
+    const accept = (view) => {
+        const ghost = view.state.field(ghostField, false);
+        if (!ghost) return false;
+        view.dispatch({
+            changes: { from: ghost.pos, insert: ghost.text },
+            selection: { anchor: ghost.pos + ghost.text.length }
+        });
+        return true;
+    };
+    const dismiss = (view) => {
+        if (!view.state.field(ghostField, false)) return false;
+        view.dispatch({ effects: setGhost.of(null) });
+        return true;
+    };
+    return [
+        ghostField,
+        CM.Prec.highest(CM.keymap.of([
+            { key: "Tab", run: accept },
+            { key: "Escape", run: dismiss },
+            { key: "Alt-\\", run: request },
+            { key: "Ctrl-Alt-Space", run: request }
+        ]))
+    ];
+}
+
 /* Couche de compatibilité : API proche de l'ancien <textarea> au-dessus de CodeMirror 6. */
 function createCodeEditor(host) {
     const CM = window.CM;
@@ -60,6 +143,9 @@ function createCodeEditor(host) {
         CM.EditorState.tabSize.of(4),
         CM.oneDark,
         language.of(CM.languageFor(kind || "default")),
+        inlineCompletionExtension(kind),
+        lspExtension(kind),
+        inlineEditExtension(kind),
         CM.EditorView.updateListener.of((update) => {
             if (update.docChanged && !silent) emit("input");
             if (update.selectionSet) emit("select");
@@ -1215,7 +1301,7 @@ function undoKey(entry) {
 }
 
 /** Diff ligne à ligne simple (LCS) avec 3 lignes de contexte autour du bloc modifié. */
-function undoLineDiff(before, after) {
+function undoLineDiff(before, after, context = 3) {
     const a = String(before).split("\n");
     const b = String(after).split("\n");
     let start = 0;
@@ -1229,7 +1315,7 @@ function undoLineDiff(before, after) {
     const midA = a.slice(start, endA);
     const midB = b.slice(start, endB);
     const ops = [];
-    for (let i = Math.max(0, start - 3); i < start; i++) ops.push({ t: " ", s: a[i] });
+    for (let i = Math.max(0, start - context); i < start; i++) ops.push({ t: " ", s: a[i] });
     const n = midA.length;
     const m = midB.length;
     if (n && m && (n + 1) * (m + 1) <= 2000000) {
@@ -1259,8 +1345,45 @@ function undoLineDiff(before, after) {
         for (const s of midA) ops.push({ t: "-", s });
         for (const s of midB) ops.push({ t: "+", s });
     }
-    for (let i = endA; i < Math.min(a.length, endA + 3); i++) ops.push({ t: " ", s: a[i] });
+    for (let i = endA; i < Math.min(a.length, endA + context); i++) ops.push({ t: " ", s: a[i] });
     return ops;
+}
+
+/** Blocs (hunks) : suites consécutives de lignes ajoutées/supprimées, {start, end} (end exclu) dans ops. */
+function undoHunks(ops) {
+    const hunks = [];
+    let current = null;
+    ops.forEach((op, i) => {
+        if (op.t === " ") {
+            current = null;
+            return;
+        }
+        if (!current) {
+            current = { start: i, end: i + 1 };
+            hunks.push(current);
+        } else {
+            current.end = i + 1;
+        }
+    });
+    return hunks;
+}
+
+/**
+ * Recompose le fichier à partir d'un diff complet (contexte infini) : les blocs dont
+ * l'index est dans `rejected` reprennent leurs lignes d'origine, les autres gardent les nouvelles.
+ */
+function composeHunks(ops, rejected) {
+    const hunks = undoHunks(ops);
+    const owner = new Array(ops.length).fill(-1);
+    hunks.forEach((hunk, h) => {
+        for (let i = hunk.start; i < hunk.end; i++) owner[i] = h;
+    });
+    const lines = [];
+    ops.forEach((op, i) => {
+        if (op.t === " ") lines.push(op.s);
+        else if (rejected.has(owner[i]) ? op.t === "-" : op.t === "+") lines.push(op.s);
+    });
+    return lines.join("\n");
 }
 
 async function toggleUndoDiff(row, entry, btn) {
@@ -1292,20 +1415,58 @@ async function toggleUndoDiff(row, entry, btn) {
             box.textContent = "Aucune différence avec l'état actuel du fichier.";
             return;
         }
+        const ops = undoLineDiff(diff.before, diff.after, Infinity);
+        const hunks = undoHunks(ops);
         let added = 0;
         let removed = 0;
-        for (const op of undoLineDiff(diff.before, diff.after)) {
-            const line = document.createElement("span");
-            line.className = op.t === "+" ? "diff-line add" : op.t === "-" ? "diff-line del" : "diff-line";
-            line.textContent = `${op.t} ${op.s}\n`;
+        for (const op of ops) {
             if (op.t === "+") added++;
             if (op.t === "-") removed++;
-            box.appendChild(line);
         }
         const head = document.createElement("span");
         head.className = "diff-line head";
-        head.textContent = `${diff.rel} · +${added} -${removed}\n`;
-        box.prepend(head);
+        head.textContent = `${diff.rel} · +${added} -${removed} · ${hunks.length} bloc(s)\n`;
+        box.appendChild(head);
+        const tooBig = (s) => String(s).startsWith("(fichier trop volumineux");
+        const canSplit = Boolean(api.undoApplyContent) && hunks.length > 1 &&
+            ["create", "copy", "write", "edit"].includes(entry.kind) && !tooBig(diff.before) && !tooBig(diff.after);
+        let shown = 0;
+        hunks.forEach((hunk, h) => {
+            const bar = document.createElement("span");
+            bar.className = "diff-line hunk-head";
+            bar.textContent = `@@ bloc ${h + 1}/${hunks.length} `;
+            if (canSplit) {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "undo-btn reject hunk-reject";
+                btn.textContent = "Rejeter ce bloc";
+                btn.title = "Remettre ce bloc à l'état d'origine et garder les autres";
+                btn.onclick = async () => {
+                    box.querySelectorAll(".hunk-reject").forEach((b) => { b.disabled = true; });
+                    let message;
+                    try {
+                        message = await api.undoApplyContent(entry.index, entry.at, composeHunks(ops, new Set([h])), diff.after);
+                    } catch (error) {
+                        message = error && error.message ? error.message : String(error);
+                    }
+                    scheduleGitRefresh();
+                    renderUndoList(message);
+                };
+                bar.appendChild(btn);
+            }
+            bar.appendChild(document.createTextNode("\n"));
+            box.appendChild(bar);
+            const from = Math.max(shown, hunk.start - 3);
+            const to = Math.min(ops.length, hunk.end + 3);
+            for (let i = from; i < to; i++) {
+                const op = ops[i];
+                const line = document.createElement("span");
+                line.className = op.t === "+" ? "diff-line add" : op.t === "-" ? "diff-line del" : "diff-line";
+                line.textContent = `${op.t} ${op.s}\n`;
+                box.appendChild(line);
+            }
+            shown = Math.max(shown, to);
+        });
     } catch (error) {
         box.textContent = error && error.message ? error.message : String(error);
     }
@@ -1606,6 +1767,7 @@ function activate(rel) {
     document.querySelectorAll(".node").forEach((n) => n.classList.toggle("selected", n.dataset.path === rel));
     if (tab) code.focus();
     syncEditorContext();
+    lspOnActivate();
 }
 
 /* Indique au processus principal quels fichiers sont ouverts (contexte de l'agent). */
@@ -1737,6 +1899,7 @@ function closeTab(rel) {
     if (tab.dirty && !window.confirm(`${rel} n'est pas enregistré. Fermer quand même ?`)) return;
     const index = ui.tabs.indexOf(tab);
     ui.tabs.splice(index, 1);
+    lspOnClose(rel);
     if (ui.active === rel) {
         const next = ui.tabs[index] || ui.tabs[index - 1];
         ui.active = null;
@@ -1781,6 +1944,7 @@ function scheduleRefresh() {
                 if (tab.path === ui.active) {
                     const scroll = code.scrollTop;
                     code.value = text;
+                    lspScheduleSync();
                     code.scrollTop = scroll;
                     updateGutter();
                     syncHighlight();
@@ -2484,28 +2648,112 @@ window.addEventListener("beforeunload", (ev) => {
     }
 });
 
-function dragResizer(id, cssVar, axis, invert, min, max) {
-    $(id).addEventListener("mousedown", (ev) => {
-        ev.preventDefault();
-        const start = axis === "x" ? ev.clientX : ev.clientY;
-        const initial = parseInt(getComputedStyle(document.documentElement).getPropertyValue(cssVar), 10);
-        const move = (e) => {
-            const delta = (axis === "x" ? e.clientX : e.clientY) - start;
-            const value = Math.max(min, Math.min(max, initial + (invert ? -delta : delta)));
-            document.documentElement.style.setProperty(cssVar, `${value}px`);
-        };
-        const up = () => {
-            window.removeEventListener("mousemove", move);
-            window.removeEventListener("mouseup", up);
-        };
-        window.addEventListener("mousemove", move);
-        window.addEventListener("mouseup", up);
+const LAYOUT_LIMITS = {
+    "--left": { min: 150, max: 600 },
+    "--right": { min: 280, max: 900 },
+    "--bottom": { min: 60, max: 600 },
+};
+const CENTER_MIN_WIDTH = 320;
+const EDITOR_MIN_HEIGHT = 160;
+
+function layoutPx(cssVar) {
+    const value = parseInt(getComputedStyle(document.documentElement).getPropertyValue(cssVar), 10);
+    return Number.isFinite(value) ? value : LAYOUT_LIMITS[cssVar].min;
+}
+
+function layoutHidden(cssVar) {
+    const app = $("app");
+    if (cssVar === "--left") return app.classList.contains("no-sidebar");
+    if (cssVar === "--right") return app.classList.contains("no-agent");
+    return app.classList.contains("no-panel");
+}
+
+function layoutMax(cssVar) {
+    const limits = LAYOUT_LIMITS[cssVar];
+    let room;
+    if (cssVar === "--bottom") {
+        const center = $("center");
+        const height = center && center.clientHeight ? center.clientHeight : window.innerHeight;
+        room = height - EDITOR_MIN_HEIGHT;
+    } else {
+        const other = cssVar === "--left" ? "--right" : "--left";
+        const otherWidth = layoutHidden(other) ? 0 : layoutPx(other) + 4;
+        room = window.innerWidth - 48 - 4 - otherWidth - CENTER_MIN_WIDTH;
+    }
+    return Math.max(limits.min, Math.min(limits.max, room));
+}
+
+function clampLayout() {
+    for (const v of ["--right", "--left", "--bottom"]) {
+        if (layoutHidden(v)) continue;
+        const current = layoutPx(v);
+        const next = Math.max(LAYOUT_LIMITS[v].min, Math.min(layoutMax(v), current));
+        if (next !== current) document.documentElement.style.setProperty(v, `${next}px`);
+    }
+}
+
+let layoutFrame = 0;
+
+function scheduleClampLayout() {
+    if (layoutFrame) return;
+    layoutFrame = requestAnimationFrame(() => {
+        layoutFrame = 0;
+        clampLayout();
     });
 }
 
-dragResizer("resizer-left", "--left", "x", false, 150, 600);
-dragResizer("resizer-right", "--right", "x", true, 280, 900);
-dragResizer("resizer-bottom", "--bottom", "y", true, 60, 600);
+function dragResizer(id, cssVar, axis, invert) {
+    const handle = $(id);
+    if (!handle) return;
+    handle.addEventListener("pointerdown", (ev) => {
+        if (ev.button !== 0) return;
+        ev.preventDefault();
+        try {
+            handle.setPointerCapture(ev.pointerId);
+        } catch {
+            // capture indisponible
+        }
+        const start = axis === "x" ? ev.clientX : ev.clientY;
+        const initial = layoutPx(cssVar);
+        const min = LAYOUT_LIMITS[cssVar].min;
+        const max = layoutMax(cssVar);
+        let last = start;
+        let frame = 0;
+        document.body.classList.add(axis === "x" ? "resizing-x" : "resizing-y");
+        const apply = () => {
+            frame = 0;
+            const delta = last - start;
+            const value = Math.max(min, Math.min(max, initial + (invert ? -delta : delta)));
+            document.documentElement.style.setProperty(cssVar, `${value}px`);
+        };
+        const move = (e) => {
+            last = axis === "x" ? e.clientX : e.clientY;
+            if (!frame) frame = requestAnimationFrame(apply);
+        };
+        const up = () => {
+            if (frame) {
+                cancelAnimationFrame(frame);
+                apply();
+            }
+            handle.removeEventListener("pointermove", move);
+            handle.removeEventListener("pointerup", up);
+            handle.removeEventListener("pointercancel", up);
+            document.body.classList.remove("resizing-x", "resizing-y");
+            if (typeof saveLayout === "function") saveLayout();
+        };
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", up);
+        handle.addEventListener("pointercancel", up);
+    });
+}
+
+dragResizer("resizer-left", "--left", "x", false);
+dragResizer("resizer-right", "--right", "x", true);
+dragResizer("resizer-bottom", "--bottom", "y", true);
+
+window.addEventListener("resize", scheduleClampLayout);
+new MutationObserver(scheduleClampLayout).observe($("app"), { attributes: true, attributeFilter: ["class"] });
+scheduleClampLayout();
 
 /* ---------- Boîte de saisie ---------- */
 
@@ -2729,7 +2977,7 @@ $("btn-collapse-tree").onclick = () => {
 ui.sideView = "explorer";
 
 function setActivity(view) {
-    for (const b of document.querySelectorAll('[data-view="explorer"], [data-view="search"], [data-view="git"], [data-view="extensions"], [data-view="settings"]')) {
+    for (const b of document.querySelectorAll('[data-view="explorer"], [data-view="search"], [data-view="git"], [data-view="worktrees"], [data-view="extensions"], [data-view="settings"]')) {
         b.classList.toggle("active", b.dataset.view === view);
     }
 }
@@ -2742,8 +2990,10 @@ function showSideView(view) {
     app.classList.toggle("view-ext", view === "extensions");
     app.classList.toggle("view-settings", view === "settings");
     app.classList.toggle("view-git", view === "git");
+    app.classList.toggle("view-worktrees", view === "worktrees");
     setActivity(view);
     if (view === "git") refreshGit();
+    if (view === "worktrees") refreshWorktrees();
     if (view === "extensions") refreshExtensions();
     if (view === "settings") refreshSettings();
     if (view === "search") {
@@ -2773,6 +3023,7 @@ function focusSearch() {
 document.querySelector('[data-view="explorer"]').onclick = () => toggleSideView("explorer");
 document.querySelector('[data-view="search"]').onclick = () => toggleSideView("search");
 document.querySelector('[data-view="git"]').onclick = () => toggleSideView("git");
+document.querySelector('[data-view="worktrees"]').onclick = () => toggleSideView("worktrees");
 document.querySelector('[data-view="extensions"]').onclick = () => toggleSideView("extensions");
 document.querySelector('[data-view="settings"]').onclick = () => toggleSideView("settings");
 
@@ -3213,7 +3464,14 @@ function paletteCommands() {
         ["Changer de modèle…", "/model", () => openModelMenu()],
         ["Afficher les modifications", "", () => selectPanel("changes")],
         ["Interrompre l'agent", "Échap", () => api.interrupt().catch(() => {})],
-        ["Aller à la saisie de l'agent", "Ctrl+L", () => input.focus()]
+        ["Aller à la saisie de l'agent", "Ctrl+L", () => input.focus()],
+        ["Aller à la définition", "F12", () => lspGoToDefinition()],
+        ["Rechercher les références", "Maj+F12", () => lspFindReferences()],
+        ["Renommer le symbole", "F2", () => lspRenameSymbol()],
+        ["Afficher l'aide à la signature", "Ctrl+Maj+Espace", () => lspShowSignature(code.view, true)],
+        ["Actions de code / corrections rapides", "Ctrl+.", () => lspShowCodeActions()],
+        ["Formater le document", "Maj+Alt+F", () => lspFormatDocument()],
+        ["Modifier la sélection avec l'IA…", "Ctrl+K", () => inlineEditStart()]
     ].map(([label, detail, run]) => ({ label, detail, run }));
     for (const [cmd, desc] of SLASH_COMMANDS) {
         cmds.push({
@@ -3999,6 +4257,7 @@ window.addEventListener("keydown", (ev) => {
     else if (key === "e" && ev.shiftKey) action = () => toggleSideView("explorer");
     else if (key === "j" && !ev.shiftKey) action = () => togglePanel();
     else if (key === "g" && ev.shiftKey) action = () => toggleSideView("git");
+    else if (key === "w" && ev.shiftKey) action = () => toggleSideView("worktrees");
     else if (key === "g" && !ev.shiftKey) action = askGoToLine;
     else if (key === "n" && !ev.shiftKey) action = () => newEntry("file", ".");
     else if (key === "b" && !ev.shiftKey) action = () => toggleSideView(ui.sideView || "explorer");
@@ -4472,6 +4731,1066 @@ $("btn-gh-create").onclick = () => {
         return `Dépôt ${repo.private ? "privé" : "public"} créé : ${repo.html_url}.${extra}`;
     });
 };
+/* ---------- Vue Worktrees : agents parallèles dans des worktrees Git ---------- */
+
+ui.worktrees = { busy: false, agents: new Map(), cards: new Map() };
+
+const WT_STATUS = { running: "en cours", done: "terminé", failed: "échec", stopped: "arrêté" };
+
+function wtMessage(text, kind) {
+    const box = $("wt-msg");
+    if (!box) return;
+    box.textContent = text || "";
+    box.className = `git-action-msg${kind ? ` ${kind}` : ""}`;
+}
+
+function updateWorktreeBadge() {
+    const badge = $("wt-count");
+    if (!badge) return;
+    let running = 0;
+    for (const agent of ui.worktrees.agents.values()) if (agent.status === "running") running++;
+    badge.textContent = running ? String(running) : "";
+    badge.classList.toggle("hidden", !running);
+}
+
+function wtStatusText(agent) {
+    if (!agent) return "Aucun agent lancé.";
+    const label = WT_STATUS[agent.status] || agent.status;
+    const ended = agent.status !== "running" && agent.exitCode !== null && agent.exitCode !== undefined;
+    const mode = agent.readOnly ? "lecture seule" : agent.yes ? "écritures auto" : "sans écriture";
+    return `Agent : ${label}${ended ? ` (code ${agent.exitCode})` : ""} · ${mode}`;
+}
+
+function wtAgentText(agent) {
+    if (!agent) return "";
+    const answer = String(agent.answer || "").trim();
+    const text = answer || String(agent.log || "").trim();
+    return text.length > 6000 ? `…${text.slice(-6000)}` : text;
+}
+
+function wtApplyCard(name) {
+    const card = ui.worktrees.cards.get(name);
+    if (!card) return;
+    const agent = ui.worktrees.agents.get(name) || null;
+    const running = Boolean(agent && agent.status === "running");
+    card.status.textContent = wtStatusText(agent);
+    card.status.className = `wt-status wt-${agent ? agent.status : "idle"}`;
+    card.status.title = agent && agent.prompt ? `Demande : ${agent.prompt}` : "";
+    card.output.textContent = wtAgentText(agent);
+    card.output.classList.toggle("hidden", !card.output.textContent);
+    card.start.disabled = running;
+    card.stop.disabled = !running;
+    card.remove.disabled = running;
+}
+
+/** Mise à jour envoyée par le processus principal (événement worktreeAgent). */
+function wtUpdateAgent(agent) {
+    if (!agent || !agent.name) return;
+    const previous = ui.worktrees.agents.get(agent.name);
+    ui.worktrees.agents.set(agent.name, agent);
+    if (ui.worktrees.cards.has(agent.name)) wtApplyCard(agent.name);
+    else if (ui.sideView === "worktrees") refreshWorktrees();
+    if (previous && previous.status === "running" && agent.status !== "running") {
+        const label = WT_STATUS[agent.status] || agent.status;
+        wtMessage(`Agent ${agent.name} : ${label}. Ouvre « Diff » pour relire sa branche ${agent.branch}.`, agent.status === "done" ? "ok" : "error");
+    }
+    updateWorktreeBadge();
+}
+
+function wtButton(label, title, onClick, primary) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `git-btn${primary ? " git-btn-primary" : ""}`;
+    button.textContent = label;
+    button.title = title;
+    button.onclick = onClick;
+    return button;
+}
+
+function wtCheck(label, title, parent) {
+    const wrap = document.createElement("label");
+    wrap.className = "git-check";
+    wrap.title = title;
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    wrap.append(box, ` ${label}`);
+    parent.appendChild(wrap);
+    return box;
+}
+
+function renderWorktrees(items) {
+    const list = $("wt-list");
+    const drafts = new Map();
+    for (const [name, card] of ui.worktrees.cards) {
+        drafts.set(name, { prompt: card.prompt.value, yes: card.yes.checked, plan: card.plan.checked });
+    }
+    list.innerHTML = "";
+    ui.worktrees.cards.clear();
+    if (!items.length) {
+        gitMessage(list, "Aucun worktree. Crée-en un ci-dessus, puis donne une demande à son agent.");
+        return;
+    }
+    for (const item of items) {
+        const name = item.name;
+        if (item.agent) ui.worktrees.agents.set(name, item.agent);
+
+        const el = document.createElement("div");
+        el.className = "wt-card";
+
+        const head = document.createElement("div");
+        head.className = "wt-head";
+        const title = document.createElement("span");
+        title.className = "wt-name";
+        title.textContent = name;
+        title.title = item.path;
+        const branch = document.createElement("span");
+        branch.className = "wt-branch";
+        branch.textContent = item.branch || (item.detached ? "(détachée)" : "");
+        head.append(title, branch);
+
+        const status = document.createElement("div");
+        const prompt = document.createElement("textarea");
+        prompt.className = "git-input";
+        prompt.rows = 2;
+        prompt.placeholder = "Demande pour l'agent de ce worktree (Ctrl/Cmd+Entrée pour lancer)";
+        prompt.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) {
+                ev.preventDefault();
+                wtStart(name);
+            }
+        });
+
+        const options = document.createElement("div");
+        options.className = "wt-options";
+        const yes = wtCheck("écritures auto", "Autorise l'agent à écrire et à lancer des commandes sans confirmation (--yes). Sans cette option, il ne peut rien modifier.", options);
+        const plan = wtCheck("lecture seule", "Mode plan : l'agent analyse sans rien modifier.", options);
+
+        const output = document.createElement("pre");
+        output.className = "wt-output hidden";
+        const diff = document.createElement("div");
+        diff.className = "wt-diff hidden";
+
+        const card = { el, status, prompt, yes, plan, output, diff };
+        card.start = wtButton("Lancer", "Lancer l'agent dans ce worktree", () => wtStart(name), true);
+        card.stop = wtButton("Arrêter", "Arrêter l'agent en cours", () => wtStop(name));
+        card.diffBtn = wtButton("Diff", "Afficher les modifications du worktree", () => wtToggleDiff(name));
+        card.remove = wtButton("Supprimer", "Supprimer le worktree (la branche est conservée)", () => wtRemove(name));
+        const actions = document.createElement("div");
+        actions.className = "wt-actions";
+        actions.append(card.start, card.stop, card.diffBtn, card.remove);
+
+        const draft = drafts.get(name);
+        if (draft) {
+            prompt.value = draft.prompt;
+            yes.checked = draft.yes;
+            plan.checked = draft.plan;
+        }
+
+        el.append(head, status, prompt, options, actions, output, diff);
+        list.appendChild(el);
+        ui.worktrees.cards.set(name, card);
+        wtApplyCard(name);
+    }
+}
+
+async function refreshWorktrees() {
+    if (ui.worktrees.busy) return;
+    ui.worktrees.busy = true;
+    try {
+        const data = await api.worktreeList();
+        $("wt-root").textContent = data.root ? `Dossier : ${data.root}` : "Ouvre un projet Git pour utiliser les worktrees.";
+        for (const agent of data.agents || []) ui.worktrees.agents.set(agent.name, agent);
+        renderWorktrees((data.worktrees || []).filter((w) => w.managed && w.name));
+    } catch (error) {
+        gitMessage($("wt-list"), `Worktrees indisponibles : ${gitErrorText(error)}`);
+    } finally {
+        ui.worktrees.busy = false;
+        updateWorktreeBadge();
+    }
+}
+
+async function wtCreate() {
+    const nameInput = $("wt-name");
+    const name = nameInput.value.trim();
+    const base = $("wt-base").value.trim() || "HEAD";
+    if (!name) {
+        wtMessage("Donne un nom au worktree (lettres, chiffres, . _ -).", "error");
+        nameInput.focus();
+        return;
+    }
+    $("btn-wt-create").disabled = true;
+    try {
+        const made = await api.worktreeCreate(name, base);
+        nameInput.value = "";
+        wtMessage(`Worktree ${made.name} créé sur la branche ${made.branch} (depuis ${made.base}).`, "ok");
+        await refreshWorktrees();
+        const card = ui.worktrees.cards.get(made.name);
+        if (card) card.prompt.focus();
+    } catch (error) {
+        wtMessage(gitErrorText(error), "error");
+    } finally {
+        $("btn-wt-create").disabled = false;
+    }
+}
+
+async function wtStart(name) {
+    const card = ui.worktrees.cards.get(name);
+    if (!card) return;
+    const prompt = card.prompt.value.trim();
+    if (!prompt) {
+        wtMessage("Écris d'abord une demande pour l'agent.", "error");
+        card.prompt.focus();
+        return;
+    }
+    try {
+        const agent = await api.worktreeStart(name, prompt, { yes: card.yes.checked, readOnly: card.plan.checked });
+        card.prompt.value = "";
+        wtUpdateAgent(agent);
+        wtMessage(`Agent lancé dans ${name} (branche ${agent.branch}).`, "ok");
+    } catch (error) {
+        wtMessage(gitErrorText(error), "error");
+    }
+}
+
+async function wtStop(name) {
+    try {
+        wtUpdateAgent(await api.worktreeStop(name));
+        wtMessage(`Agent ${name} arrêté.`, "ok");
+    } catch (error) {
+        wtMessage(gitErrorText(error), "error");
+    }
+}
+
+async function wtToggleDiff(name) {
+    const card = ui.worktrees.cards.get(name);
+    if (!card) return;
+    if (!card.diff.classList.contains("hidden")) {
+        card.diff.classList.add("hidden");
+        card.diff.innerHTML = "";
+        return;
+    }
+    card.diff.classList.remove("hidden");
+    card.diff.textContent = "Chargement du diff…";
+    try {
+        const changes = await api.worktreeChanges(name);
+        card.diff.innerHTML = "";
+        const status = String(changes.status || "").trim();
+        const summary = document.createElement("pre");
+        summary.className = "wt-output";
+        summary.textContent = status || "Aucune modification non validée dans ce worktree.";
+        card.diff.appendChild(summary);
+        const lines = gitDiffLines(changes.diff);
+        if (lines.length) {
+            card.diff.appendChild(buildDiffCard({ path: `${name} (${changes.branch})`, lines, ...gitCountChanges(lines) }));
+        }
+    } catch (error) {
+        card.diff.textContent = `Diff impossible : ${gitErrorText(error)}`;
+    }
+}
+
+async function wtRemove(name) {
+    if (!window.confirm(`Supprimer le worktree ${name} ?\nLa branche frst/${name} est conservée.`)) return;
+    try {
+        await api.worktreeRemove(name, false);
+    } catch (error) {
+        const reason = gitErrorText(error);
+        if (!window.confirm(`Suppression refusée : ${reason}\n\nForcer la suppression ? Les modifications non validées du worktree seront perdues.`)) {
+            wtMessage(reason, "error");
+            return;
+        }
+        try {
+            await api.worktreeRemove(name, true);
+        } catch (forced) {
+            wtMessage(gitErrorText(forced), "error");
+            return;
+        }
+    }
+    ui.worktrees.agents.delete(name);
+    wtMessage(`Worktree ${name} supprimé (branche frst/${name} conservée).`, "ok");
+    refreshWorktrees();
+}
+
+$("btn-wt-create").onclick = wtCreate;
+$("btn-wt-refresh").onclick = refreshWorktrees;
+$("wt-name").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+        ev.preventDefault();
+        wtCreate();
+    }
+});
+
+api.onEvent((channel, data) => {
+    if (channel === "worktreeAgent") wtUpdateAgent(data);
+});
+"use strict";
+
+/* LSP (typescript-language-server) : complétion, survol et diagnostics pour les fichiers JS/TS de l'éditeur. */
+
+const LSP_FILE_RE = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
+const lspDiagnosticsByPath = new Map();
+let lspSyncTimer = null;
+let lspWarned = false;
+
+function lspEnabledFor(rel) {
+    return Boolean(rel) && LSP_FILE_RE.test(String(rel)) && Boolean(api && api.lspSync);
+}
+
+function lspActivePath() {
+    const tab = currentTab();
+    return tab ? (tab.path || tab.rel || "") : "";
+}
+
+function lspWarn(err) {
+    if (lspWarned) return;
+    lspWarned = true;
+    const detail = err && err.message ? err.message : String(err || "erreur inconnue");
+    renderEntry({ type: "warn", text: `LSP indisponible : ${detail}` });
+}
+
+function lspCompletionOptions(result) {
+    const items = Array.isArray(result) ? result : (result && Array.isArray(result.items) ? result.items : []);
+    return items.slice(0, 300).map((item) => ({
+        label: item.label,
+        type: item.type || undefined,
+        detail: item.detail || undefined,
+        info: item.documentation || undefined,
+        boost: 0,
+        apply: item.insertText && item.insertText !== item.label ? item.insertText : undefined
+    }));
+}
+
+function lspHoverString(result) {
+    if (!result) return "";
+    const raw = typeof result === "string" ? result : String(result.text || result.contents || "");
+    /* Le serveur renvoie du Markdown : on retire les lignes de clôture ``` pour un affichage texte brut. */
+    return raw.replace(/^```[\w-]*$\n?/gm, "");
+}
+
+function lspExtension(kind) {
+    if (kind !== "js" && kind !== "ts") return [];
+    const CM = window.CM;
+    if (!CM || !CM.hoverTooltip || !CM.lintGutter || !CM.EditorState) return [];
+    const source = async (context) => {
+        const rel = lspActivePath();
+        if (!lspEnabledFor(rel) || !api.lspCompletion) return null;
+        const word = context.matchBefore(/[\w$]*/);
+        const before = context.state.sliceDoc(Math.max(0, context.pos - 1), context.pos);
+        if (!context.explicit && (!word || word.from === word.to) && before !== ".") return null;
+        const line = context.state.doc.lineAt(context.pos);
+        let result;
+        try {
+            result = await api.lspCompletion(rel, context.state.doc.toString(), line.number - 1, context.pos - line.from);
+        } catch (err) {
+            lspWarn(err);
+            return null;
+        }
+        if (context.aborted) return null;
+        const options = lspCompletionOptions(result);
+        if (!options.length) return null;
+        return { from: word ? word.from : context.pos, options, validFor: /^[\w$]*$/ };
+    };
+    const hover = CM.hoverTooltip(async (view, pos) => {
+        const rel = lspActivePath();
+        if (!lspEnabledFor(rel) || !api.lspHover) return null;
+        const line = view.state.doc.lineAt(pos);
+        const result = await api.lspHover(rel, view.state.doc.toString(), line.number - 1, pos - line.from).catch(() => null);
+        const text = lspHoverString(result).trim();
+        if (!text) return null;
+        return {
+            pos,
+            above: true,
+            create() {
+                const dom = document.createElement("div");
+                dom.className = "cm-lsp-hover";
+                dom.style.whiteSpace = "pre-wrap";
+                dom.style.maxWidth = "560px";
+                dom.style.padding = "4px 8px";
+                dom.style.fontFamily = "var(--mono, monospace)";
+                dom.textContent = text;
+                return { dom };
+            }
+        };
+    });
+    return [
+        CM.EditorState.languageData.of(() => [{ autocomplete: source }]),
+        hover,
+        CM.lintGutter(),
+        lspEditingExtension()
+    ];
+}
+
+function lspApplyDiagnostics(diagnostics) {
+    const CM = window.CM;
+    if (!CM || !CM.setDiagnostics || !code.view) return;
+    const view = code.view;
+    const doc = view.state.doc;
+    const toPos = (p) => {
+        const lineNo = Math.max(1, Math.min(doc.lines, (Number(p && p.line) || 0) + 1));
+        const line = doc.line(lineNo);
+        return Math.min(line.to, line.from + Math.max(0, Number(p && p.character) || 0));
+    };
+    const list = (Array.isArray(diagnostics) ? diagnostics : []).map((d) => {
+        const from = toPos(d.from);
+        const to = Math.max(from, toPos(d.to || d.from));
+        const severity = d.severity === "error" || d.severity === "warning" ? d.severity : "info";
+        const origin = [d.source, d.code].filter((x) => x !== undefined && x !== null && x !== "").join(" ");
+        return { from, to, severity, message: String(d.message || ""), source: origin || undefined };
+    });
+    try {
+        view.dispatch(CM.setDiagnostics(view.state, list));
+    } catch (err) {
+        lspWarn(err);
+    }
+}
+
+function lspSyncActive() {
+    const tab = currentTab();
+    const rel = lspActivePath();
+    if (!tab || !lspEnabledFor(rel)) return;
+    const text = typeof tab.content === "string" ? tab.content : code.value;
+    Promise.resolve(api.lspSync(rel, text)).catch(lspWarn);
+}
+
+function lspScheduleSync() {
+    if (!lspEnabledFor(lspActivePath())) return;
+    clearTimeout(lspSyncTimer);
+    lspSyncTimer = setTimeout(lspSyncActive, 400);
+}
+
+function lspOnActivate() {
+    const rel = lspActivePath();
+    if (!lspEnabledFor(rel)) return;
+    lspSyncActive();
+    lspApplyDiagnostics(lspDiagnosticsByPath.get(rel) || []);
+}
+
+function lspOnClose(rel) {
+    if (!rel) return;
+    lspDiagnosticsByPath.delete(rel);
+    if (lspEnabledFor(rel) && api.lspClose) Promise.resolve(api.lspClose(rel)).catch(() => {});
+}
+
+/* ---------- Navigation, renommage, signature, actions de code, formatage ---------- */
+
+function lspOffset(doc, p) {
+    const lineNo = Math.max(1, Math.min(doc.lines, (Number(p && p.line) || 0) + 1));
+    const line = doc.line(lineNo);
+    return Math.min(line.to, line.from + Math.max(0, Number(p && p.character) || 0));
+}
+
+function lspCursor() {
+    const rel = lspActivePath();
+    if (!lspEnabledFor(rel) || !code.view) return null;
+    const view = code.view;
+    const pos = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(pos);
+    return { rel, view, pos, text: view.state.doc.toString(), line: line.number - 1, character: pos - line.from };
+}
+
+function lspNotice(text) {
+    renderEntry({ type: "warn", text });
+}
+
+function lspStatus(text) {
+    const el = $("st-file");
+    if (el) el.textContent = text;
+}
+
+function lspSyncTabFromEditor(tab) {
+    if (!tab) return;
+    tab.content = code.value;
+    tab.dirty = tab.content !== tab.saved;
+}
+
+function lspLocationLabel(loc) {
+    const label = `${loc.rel}:${loc.line + 1}:${loc.character + 1}`;
+    const tab = ui.tabs.find((t) => t.path === loc.rel);
+    const lineText = tab && typeof tab.content === "string" ? tab.content.split("\n")[loc.line] : "";
+    return { label, detail: lineText ? lineText.trim().slice(0, 120) : "" };
+}
+
+/** Liste de choix modale ; renvoie l'index choisi ou null. */
+function lspPick(title, items) {
+    return new Promise((resolve) => {
+        const overlay = document.createElement("div");
+        overlay.className = "modal-overlay";
+        const box = document.createElement("div");
+        box.className = "modal";
+        const heading = document.createElement("div");
+        heading.className = "modal-title";
+        heading.textContent = title;
+        const list = document.createElement("div");
+        list.style.maxHeight = "50vh";
+        list.style.overflowY = "auto";
+        list.style.display = "flex";
+        list.style.flexDirection = "column";
+        list.style.gap = "2px";
+        const close = (result) => {
+            overlay.remove();
+            resolve(result);
+        };
+        items.forEach((item, i) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.style.textAlign = "left";
+            btn.style.whiteSpace = "pre";
+            btn.style.overflow = "hidden";
+            btn.style.textOverflow = "ellipsis";
+            btn.textContent = item.detail ? `${item.label}   ${item.detail}` : item.label;
+            btn.title = btn.textContent;
+            btn.onclick = () => close(i);
+            list.appendChild(btn);
+        });
+        const buttons = document.createElement("div");
+        buttons.className = "buttons";
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.textContent = "Annuler";
+        cancel.onclick = () => close(null);
+        buttons.appendChild(cancel);
+        box.append(heading, list, buttons);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+        overlay.addEventListener("mousedown", (ev) => {
+            if (ev.target === overlay) close(null);
+        });
+        overlay.addEventListener("keydown", (ev) => {
+            const choices = [...list.querySelectorAll("button")];
+            const index = choices.indexOf(document.activeElement);
+            if (ev.key === "Escape") {
+                ev.preventDefault();
+                ev.stopPropagation();
+                close(null);
+            } else if (ev.key === "ArrowDown" && choices.length) {
+                ev.preventDefault();
+                choices[Math.min(choices.length - 1, index + 1)].focus();
+            } else if (ev.key === "ArrowUp" && choices.length) {
+                ev.preventDefault();
+                choices[Math.max(0, index - 1)].focus();
+            }
+        });
+        setTimeout(() => {
+            const first = list.querySelector("button") || cancel;
+            first.focus();
+        }, 0);
+    });
+}
+
+async function lspReveal(loc) {
+    if (!loc || !loc.rel) return;
+    if (lspActivePath() !== loc.rel) await openFile(loc.rel);
+    if (lspActivePath() !== loc.rel || !code.view) return;
+    /* activate() rétablit le défilement à l'image suivante : on place la sélection après. */
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const view = code.view;
+    const doc = view.state.doc;
+    const anchor = lspOffset(doc, { line: loc.line, character: loc.character });
+    const head = Math.max(anchor, lspOffset(doc, { line: loc.endLine, character: loc.endCharacter }));
+    view.dispatch({ selection: { anchor, head }, scrollIntoView: true });
+    code.focus();
+}
+
+async function lspGoToDefinition() {
+    const at = lspCursor();
+    if (!at) {
+        lspNotice("Aller à la définition : disponible pour les fichiers JS/TS.");
+        return;
+    }
+    let locations;
+    try {
+        locations = await api.lspDefinition(at.rel, at.text, at.line, at.character);
+    } catch (err) {
+        lspNotice(`Définition introuvable : ${err.message}`);
+        return;
+    }
+    if (!Array.isArray(locations) || !locations.length) {
+        lspStatus("Aucune définition trouvée dans le projet.");
+        return;
+    }
+    if (locations.length === 1) {
+        await lspReveal(locations[0]);
+        return;
+    }
+    const index = await lspPick("Définitions", locations.map(lspLocationLabel));
+    if (index !== null) await lspReveal(locations[index]);
+}
+
+async function lspFindReferences() {
+    const at = lspCursor();
+    if (!at) {
+        lspNotice("Références : disponible pour les fichiers JS/TS.");
+        return;
+    }
+    let refs;
+    try {
+        refs = await api.lspReferences(at.rel, at.text, at.line, at.character);
+    } catch (err) {
+        lspNotice(`Références introuvables : ${err.message}`);
+        return;
+    }
+    if (!Array.isArray(refs) || !refs.length) {
+        lspStatus("Aucune référence trouvée.");
+        return;
+    }
+    const index = await lspPick(`${refs.length} référence(s)`, refs.map(lspLocationLabel));
+    if (index !== null) await lspReveal(refs[index]);
+}
+
+/** Applique des TextEdit LSP à un texte (normalisé en \n). */
+function lspApplyEditsToText(text, edits) {
+    const source = String(text ?? "");
+    const starts = [0];
+    for (let i = 0; i < source.length; i++) if (source[i] === "\n") starts.push(i + 1);
+    const offset = (p) => {
+        const line = Math.max(0, Number(p && p.line) || 0);
+        if (line >= starts.length) return source.length;
+        const end = line + 1 < starts.length ? starts[line + 1] - 1 : source.length;
+        return Math.min(starts[line] + Math.max(0, Number(p && p.character) || 0), end);
+    };
+    const sorted = edits
+        .map((e, index) => ({ from: offset(e.range.start), to: offset(e.range.end), insert: String(e.newText ?? ""), index }))
+        .sort((a, b) => b.from - a.from || b.index - a.index);
+    let out = source;
+    for (const e of sorted) out = out.slice(0, e.from) + e.insert + out.slice(Math.max(e.from, e.to));
+    return out;
+}
+
+/**
+ * Applique une modification multi-fichiers : onglet actif via CodeMirror (annulable),
+ * autres onglets ouverts en mémoire (à enregistrer), fichiers fermés directement sur disque.
+ */
+async function lspApplyWorkspaceEdit(edit, expected) {
+    const files = edit && Array.isArray(edit.files) ? edit.files : [];
+    const failures = [];
+    let changed = 0;
+    for (const file of files) {
+        const edits = (file.edits || []).filter((e) => e && e.range);
+        if (!edits.length) continue;
+        const tab = ui.tabs.find((t) => t.path === file.rel);
+        try {
+            if (tab && tab.path === ui.active && code.view) {
+                const view = code.view;
+                if (expected && file.rel === expected.rel && view.state.doc.toString() !== expected.text) {
+                    throw new Error("le fichier a changé pendant la requête");
+                }
+                const doc = view.state.doc;
+                const changes = edits
+                    .map((e) => {
+                        const from = lspOffset(doc, e.range.start);
+                        return { from, to: Math.max(from, lspOffset(doc, e.range.end)), insert: String(e.newText ?? "") };
+                    })
+                    .sort((a, b) => a.from - b.from);
+                view.dispatch({ changes, userEvent: "input.lsp" });
+                lspSyncTabFromEditor(tab);
+            } else if (tab) {
+                tab.content = lspApplyEditsToText(tab.content, edits);
+                tab.dirty = tab.content !== tab.saved;
+                tab.cmState = null;
+            } else {
+                const data = await api.readFile(file.rel);
+                const eol = data.content.includes("\r\n") ? "\r\n" : "\n";
+                const next = lspApplyEditsToText(normalize(data.content), edits);
+                await api.writeFile(file.rel, eol === "\r\n" ? next.split("\n").join("\r\n") : next);
+            }
+            changed++;
+        } catch (err) {
+            failures.push(`${file.rel} : ${err.message}`);
+        }
+    }
+    renderTabs();
+    lspScheduleSync();
+    if (changed) scheduleGitRefresh();
+    return { changed, failures };
+}
+
+function lspReportEdit(label, edit, result) {
+    const skipped = edit && edit.skipped ? ` (${edit.skipped} modification(s) hors projet ignorée(s))` : "";
+    if (result.failures.length) {
+        lspNotice(`${label} : ${result.changed} fichier(s) modifié(s), échecs :\n${result.failures.join("\n")}${skipped}`);
+    } else {
+        lspStatus(`${label} : ${result.changed} fichier(s) modifié(s)${skipped}`);
+    }
+}
+
+async function lspRenameSymbol() {
+    const at = lspCursor();
+    if (!at) {
+        lspNotice("Renommer : disponible pour les fichiers JS/TS.");
+        return;
+    }
+    const word = at.view.state.wordAt(at.pos);
+    const current = word ? at.view.state.sliceDoc(word.from, word.to) : "";
+    const name = await inputDialog("Renommer le symbole", current);
+    if (!name || name === current) return;
+    let edit;
+    try {
+        edit = await api.lspRename(at.rel, at.text, at.line, at.character, name);
+    } catch (err) {
+        lspNotice(`Renommage impossible : ${err.message}`);
+        return;
+    }
+    if (!edit || !Array.isArray(edit.files) || !edit.files.length) {
+        lspNotice("Renommage impossible : ce symbole ne peut pas être renommé ici.");
+        return;
+    }
+    lspReportEdit(`Renommé en ${name}`, edit, await lspApplyWorkspaceEdit(edit, { rel: at.rel, text: at.text }));
+}
+
+async function lspShowCodeActions() {
+    const at = lspCursor();
+    if (!at) {
+        lspNotice("Actions de code : disponibles pour les fichiers JS/TS.");
+        return;
+    }
+    const sel = at.view.state.selection.main;
+    const doc = at.view.state.doc;
+    const a = doc.lineAt(sel.from);
+    const b = doc.lineAt(sel.to);
+    let actions;
+    try {
+        actions = await api.lspCodeActions(at.rel, at.text, {
+            fromLine: a.number - 1,
+            fromChar: sel.from - a.from,
+            toLine: b.number - 1,
+            toChar: sel.to - b.from
+        });
+    } catch (err) {
+        lspNotice(`Actions de code indisponibles : ${err.message}`);
+        return;
+    }
+    if (!Array.isArray(actions) || !actions.length) {
+        lspStatus("Aucune action de code disponible ici.");
+        return;
+    }
+    actions = [...actions].sort((x, y) => Number(Boolean(y.preferred)) - Number(Boolean(x.preferred)));
+    const index = await lspPick("Actions de code", actions.map((x) => ({ label: (x.preferred ? "★ " : "") + x.title, detail: x.kind })));
+    if (index === null) return;
+    const chosen = actions[index];
+    lspReportEdit(chosen.title, chosen.edit, await lspApplyWorkspaceEdit(chosen.edit, { rel: at.rel, text: at.text }));
+}
+
+async function lspFormatDocument() {
+    const at = lspCursor();
+    if (!at) {
+        lspNotice("Formatage : disponible pour les fichiers JS/TS.");
+        return;
+    }
+    const CM = window.CM;
+    const unit = CM && CM.indentUnit ? at.view.state.facet(CM.indentUnit) : "    ";
+    const tabSize = unit === "\t" ? 4 : unit.length || 4;
+    let result;
+    try {
+        result = await api.lspFormat(at.rel, at.text, tabSize);
+    } catch (err) {
+        lspNotice(`Formatage impossible : ${err.message}`);
+        return;
+    }
+    if (!result || !result.changed || result.text === at.text) {
+        lspStatus(`${at.rel} : déjà formaté`);
+        return;
+    }
+    const view = code.view;
+    if (lspActivePath() !== at.rel || !view || view.state.doc.toString() !== at.text) {
+        lspNotice("Formatage annulé : le fichier a changé pendant la requête.");
+        return;
+    }
+    const before = at.text;
+    const after = String(result.text);
+    let start = 0;
+    while (start < before.length && start < after.length && before[start] === after[start]) start++;
+    let endA = before.length;
+    let endB = after.length;
+    while (endA > start && endB > start && before[endA - 1] === after[endB - 1]) {
+        endA--;
+        endB--;
+    }
+    view.dispatch({ changes: { from: start, to: endA, insert: after.slice(start, endB) }, userEvent: "input.format" });
+    lspSyncTabFromEditor(currentTab());
+    renderTabs();
+    lspScheduleSync();
+}
+
+/* Aide à la signature : champ d'état + infobulle (créés à la demande, window.CM étant chargé avant). */
+function lspSignatureState() {
+    if (lspSignatureState.cache) return lspSignatureState.cache;
+    const CM = window.CM;
+    if (!CM || !CM.StateField || !CM.StateEffect || !CM.showTooltip) return null;
+    const set = CM.StateEffect.define();
+    const field = CM.StateField.define({
+        create: () => null,
+        update(value, tr) {
+            for (const e of tr.effects) if (e.is(set)) return e.value;
+            if (!value) return value;
+            let next = value;
+            if (tr.docChanged) next = { ...value, pos: tr.changes.mapPos(value.pos) };
+            if (tr.selection) {
+                const doc = tr.state.doc;
+                const head = tr.state.selection.main.head;
+                if (doc.lineAt(head).number !== doc.lineAt(Math.min(next.pos, doc.length)).number) return null;
+            }
+            return next;
+        },
+        provide: (f) => CM.showTooltip.from(f)
+    });
+    lspSignatureState.cache = { set, field };
+    return lspSignatureState.cache;
+}
+
+function lspSignatureTooltip(pos, sig) {
+    return {
+        pos,
+        above: true,
+        create() {
+            const dom = document.createElement("div");
+            dom.className = "cm-lsp-signature";
+            dom.style.maxWidth = "560px";
+            dom.style.padding = "4px 8px";
+            dom.style.fontFamily = "var(--mono, monospace)";
+            dom.style.whiteSpace = "pre-wrap";
+            const head = document.createElement("div");
+            const param = sig.parameters && sig.parameters[sig.activeParameter];
+            if (param && param.to > param.from) {
+                const strong = document.createElement("b");
+                strong.textContent = sig.label.slice(param.from, param.to);
+                strong.style.textDecoration = "underline";
+                head.append(sig.label.slice(0, param.from), strong, sig.label.slice(param.to));
+            } else {
+                head.textContent = sig.label;
+            }
+            if (sig.count > 1) head.append(`  (${sig.index + 1}/${sig.count})`);
+            dom.appendChild(head);
+            if (sig.documentation) {
+                const doc = document.createElement("div");
+                doc.style.opacity = "0.8";
+                doc.style.marginTop = "4px";
+                doc.textContent = sig.documentation;
+                dom.appendChild(doc);
+            }
+            return { dom };
+        }
+    };
+}
+
+function lspCloseSignature(view) {
+    const parts = lspSignatureState();
+    if (!parts || !view || !view.state.field(parts.field, false)) return false;
+    view.dispatch({ effects: parts.set.of(null) });
+    return true;
+}
+
+async function lspShowSignature(view = code.view, explicit = true) {
+    const parts = lspSignatureState();
+    const rel = lspActivePath();
+    if (!parts || !view || !lspEnabledFor(rel) || !api.lspSignatureHelp) return;
+    const pos = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(pos);
+    const text = view.state.doc.toString();
+    let sig = null;
+    try {
+        sig = await api.lspSignatureHelp(rel, text, line.number - 1, pos - line.from);
+    } catch (err) {
+        if (explicit) lspNotice(`Aide à la signature indisponible : ${err.message}`);
+    }
+    if (lspActivePath() !== rel || view.state.doc.toString() !== text) return;
+    if (!sig) {
+        lspCloseSignature(view);
+        if (explicit) lspStatus("Aucune signature à afficher ici.");
+        return;
+    }
+    view.dispatch({ effects: parts.set.of(lspSignatureTooltip(pos, sig)) });
+}
+
+/** Raccourcis LSP (fichiers JS/TS) et déclenchement automatique de l'aide à la signature. */
+function lspEditingExtension() {
+    const CM = window.CM;
+    if (!CM || !CM.keymap || !CM.Prec || !CM.EditorView) return [];
+    const parts = lspSignatureState();
+    const run = (fn) => () => {
+        Promise.resolve()
+            .then(fn)
+            .catch((err) => lspNotice(`LSP : ${err && err.message ? err.message : err}`));
+        return true;
+    };
+    const keys = CM.Prec.high(CM.keymap.of([
+        { key: "F12", run: run(lspGoToDefinition) },
+        { key: "Shift-F12", run: run(lspFindReferences) },
+        { key: "F2", run: run(lspRenameSymbol) },
+        { key: "Ctrl-Shift-Space", run: run(() => lspShowSignature(code.view, true)) },
+        { key: "Mod-.", run: run(lspShowCodeActions) },
+        { key: "Shift-Alt-f", run: run(lspFormatDocument) },
+        { key: "Escape", run: (view) => lspCloseSignature(view) }
+    ]));
+    const trigger = CM.EditorView.updateListener.of((update) => {
+        if (!update.docChanged || !parts) return;
+        const head = update.state.selection.main.head;
+        const before = update.state.sliceDoc(Math.max(0, head - 1), head);
+        const open = Boolean(update.state.field(parts.field, false));
+        clearTimeout(lspShowSignature.timer);
+        if (before === ")" && open) {
+            lspShowSignature.timer = setTimeout(() => lspCloseSignature(update.view), 0);
+        } else if (before === "(" || before === "," || open) {
+            lspShowSignature.timer = setTimeout(() => lspShowSignature(update.view, false), 150);
+        }
+    });
+    return parts ? [keys, parts.field, trigger] : [keys];
+}
+
+code.addEventListener("input", lspScheduleSync);
+
+api.onEvent((channel, data) => {
+    if (channel !== "lspDiagnostics" || !data || !data.path) return;
+    const diagnostics = Array.isArray(data.diagnostics) ? data.diagnostics : [];
+    lspDiagnosticsByPath.set(data.path, diagnostics);
+    if (data.path === lspActivePath()) lspApplyDiagnostics(diagnostics);
+});
+"use strict";
+
+/*
+ * Modification IA de la sélection (style Cmd+K) : Ctrl/Cmd+K ouvre une consigne, l'IA réécrit la
+ * sélection (ou la ligne courante si rien n'est sélectionné), puis un diff permet d'accepter ou de rejeter.
+ * inlineEditExtension est appelée par createCodeEditor (00-base) avant l'exécution de ce module :
+ * elle ne doit donc utiliser aucune constante de haut niveau de ce fichier.
+ */
+
+function inlineEditExtension() {
+    const CM = window.CM;
+    if (!CM || !CM.keymap || !CM.Prec) return [];
+    return CM.Prec.highest(CM.keymap.of([
+        {
+            key: "Mod-k",
+            run: () => {
+                inlineEditStart().catch((err) => renderEntry({ type: "error", text: `Modification IA : ${err.message}` }));
+                return true;
+            }
+        }
+    ]));
+}
+
+function inlineEditRange(view) {
+    const sel = view.state.selection.main;
+    if (!sel.empty) return { from: sel.from, to: sel.to };
+    const line = view.state.doc.lineAt(sel.head);
+    return { from: line.from, to: line.to };
+}
+
+/** Modale de diff : renvoie true (accepter) ou false (rejeter). */
+function inlineEditReview(title, before, after) {
+    return new Promise((resolve) => {
+        const overlay = document.createElement("div");
+        overlay.className = "modal-overlay";
+        const box = document.createElement("div");
+        box.className = "modal";
+        box.style.width = "900px";
+        box.style.maxWidth = "90vw";
+        const heading = document.createElement("div");
+        heading.className = "modal-title";
+        heading.textContent = title;
+        const diff = document.createElement("div");
+        diff.className = "inline-edit-diff";
+        diff.style.maxHeight = "60vh";
+        diff.style.overflow = "auto";
+        diff.style.fontFamily = "var(--mono, monospace)";
+        diff.style.fontSize = "12px";
+        diff.style.whiteSpace = "pre";
+        for (const op of undoLineDiff(before, after, 1000000)) {
+            const row = document.createElement("div");
+            row.className = "diff-line" + (op.t === "+" ? " add" : op.t === "-" ? " del" : "");
+            if (op.t === "+") row.style.background = "rgba(46, 160, 67, 0.25)";
+            if (op.t === "-") row.style.background = "rgba(248, 81, 73, 0.25)";
+            row.textContent = `${op.t} ${op.s}`;
+            diff.appendChild(row);
+        }
+        const buttons = document.createElement("div");
+        buttons.className = "buttons";
+        const accept = document.createElement("button");
+        accept.type = "button";
+        accept.className = "primary undo-btn accept";
+        accept.textContent = "Accepter";
+        const reject = document.createElement("button");
+        reject.type = "button";
+        reject.className = "undo-btn reject";
+        reject.textContent = "Rejeter";
+        buttons.append(accept, reject);
+        box.append(heading, diff, buttons);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+        const close = (result) => {
+            overlay.remove();
+            resolve(result);
+        };
+        accept.onclick = () => close(true);
+        reject.onclick = () => close(false);
+        overlay.addEventListener("mousedown", (ev) => {
+            if (ev.target === overlay) close(false);
+        });
+        overlay.addEventListener("keydown", (ev) => {
+            if (ev.key === "Escape") {
+                ev.preventDefault();
+                ev.stopPropagation();
+                close(false);
+            } else if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) {
+                ev.preventDefault();
+                close(true);
+            }
+        });
+        setTimeout(() => accept.focus(), 0);
+    });
+}
+
+async function inlineEditStart() {
+    const tab = currentTab();
+    const view = code.view;
+    if (!tab || !view) {
+        renderEntry({ type: "warn", text: "Modification IA : ouvre d'abord un fichier." });
+        return;
+    }
+    if (!api.inlineEdit) {
+        renderEntry({ type: "warn", text: "Modification IA indisponible dans cette version." });
+        return;
+    }
+    const { from, to } = inlineEditRange(view);
+    const doc = view.state.doc;
+    const selection = doc.sliceString(from, to);
+    const instruction = await inputDialog(
+        selection.trim() ? "Modifier la sélection avec l'IA : consigne" : "Générer du code ici avec l'IA : consigne"
+    );
+    if (!instruction) return;
+    const rel = tab.path;
+    $("st-file").textContent = `${rel} — modification IA en cours…`;
+    let result;
+    try {
+        result = await api.inlineEdit({
+            path: rel,
+            language: extKind(rel),
+            instruction,
+            selection,
+            prefix: doc.sliceString(Math.max(0, from - 3000), from),
+            suffix: doc.sliceString(to, Math.min(doc.length, to + 1500))
+        });
+    } catch (err) {
+        $("st-file").textContent = rel;
+        renderEntry({ type: "error", text: `Modification IA : ${err.message}` });
+        return;
+    }
+    $("st-file").textContent = rel;
+    const replacement = String(result ?? "");
+    if (replacement === selection) {
+        renderEntry({ type: "warn", text: "Modification IA : aucune modification proposée." });
+        return;
+    }
+    const accepted = await inlineEditReview(`Modification IA — ${rel}`, selection, replacement);
+    if (!accepted) return;
+    if (currentTab() !== tab || code.view !== view || view.state.doc.sliceString(from, to) !== selection) {
+        renderEntry({ type: "warn", text: "Modification IA annulée : le fichier a changé entre-temps." });
+        return;
+    }
+    view.dispatch({
+        changes: { from, to, insert: replacement },
+        selection: { anchor: from, head: from + replacement.length },
+        userEvent: "input.ai"
+    });
+    code.focus();
+}
 /* ---------- Démarrage ---------- */
 
 (async () => {

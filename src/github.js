@@ -108,7 +108,7 @@ async function request(method, url, { token, body, fetchImpl } = {}) {
     if (body !== undefined) headers["Content-Type"] = "application/json";
     const res = await f(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     const text = await res.text();
-    let data = null;
+    let data;
     try {
         data = text ? JSON.parse(text) : null;
     } catch {
@@ -359,6 +359,7 @@ module.exports = {
     pollDeviceFlow,
     createRepo,
     parseGithubRemote,
+    request,
     runGit,
     remoteUrl,
     setRemote,

@@ -44,6 +44,10 @@
                 <svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7"/><path d="M18 10.5c0 4-6 3-115.5"/></svg>
                 <span id="git-count" class="activity-badge hidden"></span>
             </button>
+            <button class="activity" data-view="worktrees" title="Worktrees : agents parallèles (Ctrl+Maj+W)">
+                <svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 7.5v9"/><path d="M8.5 5.5c5 0 7.5 2 7.5 4.5"/><path d="M8.5 18.5c5 0 7.5-2 7.5-4.5"/></svg>
+                <span id="wt-count" class="activity-badge hidden"></span>
+            </button>
             <button class="activity" data-view="extensions" title="Extensions : serveurs MCP et skills">
                 <svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M17.5 14v7M14 17.5h7"/></svg>
             </button>
@@ -130,6 +134,28 @@
                 <div class="ext-section">
                     <div class="ext-section-head"><span>Historique</span></div>
                     <div id="git-log" class="ext-list"></div>
+                </div>
+            </div>
+            <div id="wt-view" class="ext-view git-view">
+                <div class="sidebar-header">
+                    <span>Worktrees</span>
+                    <div class="sidebar-actions">
+                        <button id="btn-wt-refresh" title="Actualiser la liste des worktrees">
+                            <svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="settings-note">Chaque agent travaille dans son propre worktree (branche frst/&lt;nom&gt;), en parallèle, sans toucher au projet ouvert. Rien n'est fusionné ni poussé automatiquement.</div>
+                <div id="wt-root" class="settings-note"></div>
+                <div id="wt-msg" class="git-action-msg"></div>
+                <div class="git-form-row">
+                    <input id="wt-name" class="git-input" type="text" spellcheck="false" placeholder="Nom du worktree (ex. fix-login)">
+                    <input id="wt-base" class="git-input wt-base" type="text" spellcheck="false" placeholder="Base (HEAD)">
+                    <button id="btn-wt-create" class="git-btn">Créer</button>
+                </div>
+                <div class="ext-section">
+                    <div class="ext-section-head"><span>Agents</span></div>
+                    <div id="wt-list" class="ext-list"></div>
                 </div>
             </div>
             <div id="ext-view" class="ext-view">

@@ -45,6 +45,7 @@ window.addEventListener("keydown", (ev) => {
     else if (key === "e" && ev.shiftKey) action = () => toggleSideView("explorer");
     else if (key === "j" && !ev.shiftKey) action = () => togglePanel();
     else if (key === "g" && ev.shiftKey) action = () => toggleSideView("git");
+    else if (key === "w" && ev.shiftKey) action = () => toggleSideView("worktrees");
     else if (key === "g" && !ev.shiftKey) action = askGoToLine;
     else if (key === "n" && !ev.shiftKey) action = () => newEntry("file", ".");
     else if (key === "b" && !ev.shiftKey) action = () => toggleSideView(ui.sideView || "explorer");
