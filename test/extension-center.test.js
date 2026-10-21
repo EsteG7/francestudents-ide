@@ -72,4 +72,10 @@ test("préférences : validation atomique et budgets appliqués au moteur", () =
     assert.equal(require("../src/config").CONFIG.contextMaxFiles, 3000);
     assert.throws(() => preferences.save({...saved, contextMaxFiles:500000}), /entre/);
     assert.equal(preferences.get().contextMaxFiles, 3000);
+    const modelOnly = preferences.save({defaultModel:-1004});
+    assert.equal(modelOnly.defaultModel,-1004);
+    assert.equal(modelOnly.contextMaxFiles,3000);
+    preferences.save({contextMaxFiles:2000});
+    assert.equal(preferences.get().defaultModel,-1004);
+    assert.equal(JSON.parse(require("node:fs").readFileSync(settings.file(),"utf8")).defaultModel,-1004);
 });

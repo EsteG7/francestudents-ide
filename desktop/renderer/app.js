@@ -6515,7 +6515,23 @@ $("preferences-save").onclick = async () => {
     try { showPreferences(await api.preferences("save", values)); $("settings-message").textContent = "Réglages enregistrés. Le contexte sera utilisé à la prochaine indexation et le modèle au prochain démarrage."; }
     catch (error) { $("settings-message").textContent = error.message; }
 };
-$("settings-default-model").onchange = () => { $("settings-message").textContent = "Clique sur Enregistrer ces réglages pour conserver ce modèle au démarrage."; };
+const defaultModelStatus = document.createElement("p");
+defaultModelStatus.id = "settings-default-model-status";
+defaultModelStatus.className = "settings-help";
+defaultModelStatus.setAttribute("role", "status");
+$("settings-default-model").after(defaultModelStatus);
+$("settings-default-model").onchange = async () => {
+    const select = $("settings-default-model");
+    select.disabled = true;
+    defaultModelStatus.textContent = "Enregistrement du modèle…";
+    try {
+        await api.preferences("save", { defaultModel: select.value });
+        defaultModelStatus.textContent = "Modèle enregistré automatiquement pour les prochains démarrages.";
+    } catch (error) {
+        defaultModelStatus.textContent = `Modèle non enregistré : ${error.message}`;
+        try { const saved = await api.preferences(); select.value = saved.defaultModel == null ? "" : String(saved.defaultModel); } catch { /* keep visible error */ }
+    } finally { select.disabled = false; }
+};
 $("settings-search").oninput = () => {
     const query = $("settings-search").value.toLocaleLowerCase("fr").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
     let visible = 0;

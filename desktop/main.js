@@ -58,6 +58,7 @@ async function marketplaceKey() {
 const marketplace = require("./marketplace").createMarketplace({getKey:marketplaceKey});
 const projectStudio = require("./project-studio").createProjectStudio({workspace:()=>require("../src/state").state.workspace,onEvent:data=>send("projectTask",data)});
 const previewServer = require("./preview-server").createPreviewServer();
+const localBrowser = require("./local-browser").createLocalBrowser({getWindow:()=>win,onState:data=>send("localBrowser",data)});
 let updates=null;
 const webResearch=require("../src/tools/web-research").manager;
 webResearch.subscribe(data=>send("webResearch",data));
@@ -756,6 +757,7 @@ async function logoutAccount() {
 }
 
 function registerIpc() {
+    handle("localBrowser", (action,payload)=>localBrowser.action(String(action),payload||{}));
     handle("inspectFile",rel=>require("./file-assets").inspectFile(require("../src/state").state.workspace,String(rel)));
     handle("openFileInApp",async rel=>{
         const file=String(rel);
@@ -819,7 +821,7 @@ function registerIpc() {
     handle("mcpManage", (action, payload) => extensionCenter.mcpAction(action, payload));
     handle("preferences", (action, payload) => {
         if (action !== "save") return preferences.get();
-        if (busy) throw new Error("Attends la fin de la tâche pour modifier le contexte.");
+        if (busy && Object.keys(payload || {}).some(key => key !== "defaultModel")) throw new Error("Attends la fin de la tâche pour modifier le contexte.");
         return preferences.save(payload || {});
     });
     handle("bootstrap", bootstrap);
@@ -1129,6 +1131,7 @@ function createWindow() {
     win.webContents.on("will-navigate", (event) => event.preventDefault());
     win.loadFile(path.join(__dirname, "renderer", "index.html"));
     win.on("closed", () => {
+        localBrowser.destroy();
         win = null;
     });
 }

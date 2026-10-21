@@ -16,6 +16,7 @@ function apply() {
     return values;
 }
 function save(input) {
+    input = { ...get(), ...input };
     const values = {};
     for (const key of Object.keys(defaults)) {
         const value = Number(input[key]);
