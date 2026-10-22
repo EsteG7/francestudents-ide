@@ -55,7 +55,7 @@ async function marketplaceKey() {
     if (process.env.SKILLSMP_API_KEY) return process.env.SKILLSMP_API_KEY;
     try { return safeStorage.decryptString(await fs.readFile(marketplaceKeyFile)); } catch { return ""; }
 }
-const marketplace = require("./marketplace").createMarketplace({getKey:marketplaceKey});
+const marketplace = require("./marketplace").createMarketplace({getKey:marketplaceKey, onProgress:data => send("marketplaceDownload", data)});
 const projectStudio = require("./project-studio").createProjectStudio({workspace:()=>require("../src/state").state.workspace,onEvent:data=>send("projectTask",data)});
 const previewServer = require("./preview-server").createPreviewServer();
 const conversationImporter = require("./conversation-import").createConversationImporter();
@@ -788,6 +788,7 @@ function registerIpc() {
     });
     handle("projectStudio", (action,payload)=>projectStudio.action(action,payload));
     handle("serverHint", (text) => require("./server-hints").parseServerHint(String(text || "")));
+    handle("cancelAction", id => require("../src/tools/action-control").cancel(id));
     handle("environmentDiagnostics", ()=>require("./project-studio").environmentDiagnostics());
     handle("formatDocument", payload=>require("./formatter").formatDocument(payload||{}));
     handle("localPreview", (action,payload={})=>{
@@ -809,6 +810,7 @@ function registerIpc() {
     handle("marketplace", async (action, payload = {}) => {
         if (action === "search") return marketplace.search(payload);
         if (action === "preview") return marketplace.preview(payload);
+        if (action === "cancel") return marketplace.cancel(payload.requestId);
         if (action === "install") return extensionCenter.action("import", {name:payload.name, scope:payload.scope, content:marketplace.takePreview(payload.url)});
         throw new Error("Action de marketplace inconnue.");
     });
@@ -1008,6 +1010,21 @@ function registerIpc() {
     handle("githubPush", ghSafe(() => gh().push(ghWs(), {})));
     handle("githubPull", ghSafe(() => gh().pull(ghWs(), {})));
     handle("githubFetch", ghSafe(() => gh().fetchRemote(ghWs(), {})));
+    handle("githubConnector", ghSafe(async (args = {}) => {
+        const connector = require("../src/github-connector");
+        if (busy && !connector.READ_ACTIONS.has(args.action)) throw new Error("Attends la fin de la tâche avant de modifier GitHub depuis cette fenêtre.");
+        return connector.execute(ghWs(), args);
+    }));
+    handle("githubUploadAsset", ghSafe(async (id) => {
+        if (busy) throw new Error("Attends la fin de la tâche avant de transférer un fichier.");
+        const workspace = ghWs();
+        if (!workspace) throw new Error("Ouvre le projet du dépôt.");
+        const chosen = await dialog.showOpenDialog(win, { title: "Ajouter un fichier au brouillon GitHub", defaultPath: workspace, properties: ["openFile"] });
+        if (chosen.canceled || !chosen.filePaths.length) return { canceled: true };
+        if (workspace !== ghWs()) throw new Error("Le projet ouvert a changé.");
+        const rel = path.relative(workspace, chosen.filePaths[0]);
+        return require("../src/github-connector").execute(workspace, { action: "upload_asset", id, path: rel });
+    }));
 
     // Agents parallèles dans des worktrees Git (même module que /worktree du CLI).
     const wt = () => require("../src/agent/worktrees");

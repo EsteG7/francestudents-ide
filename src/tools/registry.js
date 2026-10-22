@@ -68,7 +68,8 @@ const MODULES = [
     require("../agent/subagent"),
     require("./browse"),
     require("./diagnostics"),
-    require("./semantic-search")
+    require("./semantic-search"),
+    require("./github")
 ];
 
 const TOOLS = {};

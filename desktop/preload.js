@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld("frst", {
     importConversation: (action, payload) => call("importConversation", String(action), payload || {}),
     setEcoMode: (enabled) => call("setEcoMode", enabled === true),
     serverHint: (text) => call("serverHint", String(text || "")),
+    cancelAction: id => call("cancelAction", String(id || "")),
     backgroundJobs: (action, id) => call("backgroundJobs", String(action || "list"), id),
     checkpoints: (action, id) => call("checkpoints", String(action || "list"), id),
     resolvePrompt: (id, value) => call("resolvePrompt", id, value),
@@ -92,6 +93,8 @@ contextBridge.exposeInMainWorld("frst", {
     githubPush: () => call("githubPush"),
     githubPull: () => call("githubPull"),
     githubFetch: () => call("githubFetch"),
+    githubConnector: args => call("githubConnector", args || {}),
+    githubUploadAsset: id => call("githubUploadAsset", Number(id)),
     worktreeList: () => call("worktreeList"),
     worktreeCreate: (name, base) => call("worktreeCreate", String(name ?? ""), String(base || "HEAD")),
     worktreeStart: (name, prompt, options) => call("worktreeStart", String(name ?? ""), String(prompt ?? ""), {

@@ -2,6 +2,16 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
+## [1.1.7] — 22 octobre 2026 · Interface harmonisée et connecteur GitHub bêta
+
+- Refonte visuelle de l’espace de travail : couleurs, espacements, boutons, navigation, accueil, chat, cartes, dialogues et panneaux cohérents. Meilleure adaptation aux petites fenêtres.
+- Catégories dans les paramètres, recherche dans toutes les sections et focus clavier visible.
+- Désinstallation accessible depuis la bibliothèque et les skills installés, avec confirmation et conservation dans `.trash`. Les connexions MCP peuvent être retirées ; leur programme externe n’est pas désinstallé.
+- Téléchargements de skills : progression réelle en octets, annulation et nouvelle tentative. Les instructions restent consultables avant installation, désactivées par défaut pour les skills communautaires.
+- Connecteur GitHub **Bêta** : consultation des dépôts, issues, PR et releases ; brouillons de release, ajout de fichiers et publication explicite. L’agent peut lire et modifier des fichiers distants, créer des commits avec une liste de fichiers, pousser, créer des PR et des issues selon les permissions du token.
+- Full accès : bouton d’annulation par action, sans nouvelle confirmation systématique et sans arrêter toute la tâche. Annulation des modifications suivies disponible après l’action ; les effets de commandes ou opérations distantes déjà terminées ne sont pas automatiquement réversibles.
+- Images conservées dans les requêtes suivantes de la même conversation, du même modèle et du même projet, jusqu’à quatre images récentes. Les envois en lots conservent les observations visuelles et joignent les quatre dernières images à la demande finale. La vision reste dépendante du modèle et du fournisseur ; renvoyer les images peut consommer du quota.
+
 ## [1.1.6] — 22 octobre 2026 · Boutons et suivi de consommation
 
 - Boutons de conversation redessinés : icônes cohérentes, badge Bêta séparé, état du mode Éco et disposition adaptée à la largeur du panneau.

@@ -31,11 +31,16 @@ L’application est distribuée pour **Windows 64 bits**. Aucun Node.js ni aucun
 - Suivre le travail de l’IA, ajouter une demande à la suite ou arrêter une tâche.
 - Retrouver tes conversations et exporter leur contenu.
 
-### Les nouveautés de la version 1.1.4
+### Ce que ce fork ajoute
 
-La version 1.1.4 ajoute aussi le **mode Éco**, un avertissement de quota pour les nombreux fichiers, davantage de formats de documents, l’**import de conversation Codex en bêta** et les boutons pour démarrer et arrêter un serveur depuis une réponse.
+- Une interface harmonisée, des réglages par catégorie et un onglet Usage pour suivre ton quota.
+- Plus de formats de fichiers, le glisser-déposer et l’envoi des pièces jointes en lots.
+- Un mode Éco et un avertissement avant d’envoyer beaucoup de fichiers.
+- L’import de conversations Codex et un connecteur GitHub, tous deux en **bêta**.
+- Des boutons pour lancer les sites locaux et annuler une action de l’agent en Full accès.
+- Une bibliothèque de skills avec installation, désinstallation et suivi des téléchargements.
 
-Installe la [version 1.1.6](https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.6) pour en profiter, avec les boutons redessinés, la jauge de quota et l’onglet Usage. Le correctif d’import des liens Codex est inclus. Les [notes de version](CHANGELOG.md) détaillent les changements et leurs limites.
+La [version 1.1.7](https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.7) regroupe ces améliorations. Les [notes de version](CHANGELOG.md) précisent les changements et leurs limites.
 
 ## Garder le contrôle
 

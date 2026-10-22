@@ -81,7 +81,9 @@ function renderLibrary() {
         actions.append(centerButton("Voir les instructions", () => openSkillEditor({ kind: "library", item })));
         const installed = centerData.skills.some(skill => skill.key === `${scope}:${item.id}`);
         const install = centerButton(installed ? "Installé" : "Installer", () => changeExtension("install", {id:item.id, scope}, `${item.title} installé. Tu peux le désactiver dans Mes skills.`), true);
-        install.disabled = installed; actions.append(install); card.append(actions); list.append(card);
+        install.disabled = installed; actions.append(install);
+        if (installed) actions.append(centerButton("Désinstaller", () => uninstallCenterSkill(centerData.skills.find(skill => skill.key === `${scope}:${item.id}`))));
+        card.append(actions); list.append(card);
     }
     if (!list.children.length) list.append(centerNode("p", "ext-empty", "Aucun skill ne correspond. Essaie un autre mot ou une autre catégorie."));
 }
@@ -98,10 +100,7 @@ function renderInstalledSkills() {
         const favorite = centerButton(skill.favorite ? "★" : "☆", () => changeExtension("favorite", {key:skill.key}));
         favorite.setAttribute("aria-label", `${skill.favorite ? "Retirer des" : "Ajouter aux"} favoris : ${skill.name}`);
         favorite.setAttribute("aria-pressed", String(skill.favorite));
-        actions.append(favorite, centerButton("Ouvrir", async () => openSkillEditor({kind:"edit", item:await api.extensionAction("read", {key:skill.key}), key:skill.key})), centerButton("Retirer", async () => {
-            if (!window.confirm(`Retirer « ${skill.name} » ? Son dossier sera conservé dans .trash, dans le dossier de ses skills.`)) return;
-            await changeExtension("remove", {key:skill.key}, "Skill retiré. Son dossier reste récupérable dans .trash.");
-        }));
+        actions.append(favorite, centerButton("Ouvrir", async () => openSkillEditor({kind:"edit", item:await api.extensionAction("read", {key:skill.key}), key:skill.key})), centerButton("Désinstaller", () => uninstallCenterSkill(skill)));
         const label = centerNode("label", "skill-enabled");
         const toggle = document.createElement("input"); toggle.type = "checkbox"; toggle.checked = !skill.disabled; toggle.setAttribute("role", "switch"); toggle.setAttribute("aria-label", `Activer ${skill.name}`);
         toggle.onchange = async () => {
@@ -184,7 +183,7 @@ function renderMcpCard(server, sub) {
     const actions = centerNode("div", "center-card-actions");
     actions.append(centerButton(server.status === "disabled" ? "Activer" : "Désactiver", async () => {
         await api.mcpManage("toggle", {name:server.name, disabled:server.status !== "disabled"}); await refreshMcp();
-    }), centerButton("Retirer", async () => {
+    }), centerButton("Retirer la connexion", async () => {
         if (!window.confirm(`Retirer le serveur « ${server.name} » de mcp.json ? La configuration précédente reste dans mcp.json.backup.`)) return;
         await api.mcpManage("remove", {name:server.name}); await refreshMcp();
     }));
@@ -300,8 +299,7 @@ async function searchMarketplace(page = 1) {
             card.append(centerNode("span", "ext-tag", `★ ${item.stars.toLocaleString("fr-FR")}`), centerNode("h3", "", item.name), centerNode("p", "", `par ${item.author}`), centerNode("p", "", item.description));
             const actions = centerNode("div", "center-card-actions");
             actions.append(centerButton("Voir le dépôt", () => api.openExternal(item.githubUrl)), centerButton("Lire et installer", async () => {
-                const preview = await api.marketplace("preview", {githubUrl:item.githubUrl});
-                openSkillEditor({kind:"remote", item:{...item, ...preview}});
+                await downloadSkillPreview(item);
             }, true));
             card.append(actions); list.append(card);
         }

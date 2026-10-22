@@ -9,6 +9,24 @@ const { requestModel, MAX_REQUEST_FAILURES } = require("../src/api/api");
 
 const originalFetch = global.fetch;
 
+test("images remain attached on later turns but do not leak into a new conversation", async () => {
+    prepareAuth();
+    const image = "11111111-2222-3333-4444-123456789012", bodies = [];
+    state.chatIds.agent = null; state.pendingImages = [image]; state.pendingFiles = [];
+    global.fetch = async (_, init) => {
+        bodies.push(JSON.parse(init.body));
+        return new Response('event: response.output_text.delta\ndata: {"chat_id":"visual-retention-chat","delta":"ok"}\n\ndata: [DONE]\n\n', { headers: { "content-type": "text/event-stream" } });
+    };
+    try {
+        await requestModel("Analyse le design", { conversationMode: "agent" });
+        await requestModel("Suite après lecture des fichiers", { conversationMode: "agent" });
+        assert.deepEqual(bodies[0].images, [image]); assert.deepEqual(bodies[1].images, [image]);
+        state.chatIds.agent = null;
+        await requestModel("Nouvelle tâche sans image", { conversationMode: "agent" });
+        assert.deepEqual(bodies[2].images, []);
+    } finally { global.fetch = originalFetch; state.pendingImages = []; state.pendingFiles = []; state.chatIds.agent = null; }
+});
+
 test.after(() => {
     global.fetch = originalFetch;
 });

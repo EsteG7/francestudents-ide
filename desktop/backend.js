@@ -77,6 +77,7 @@ function createDesktopBackend(send) {
         },
 
         activity() { return run ? structuredClone(run) : null; },
+        actionControl(data) { send("actionControl", data); },
         banner() {
             // Pas d'encadré d'accueil dans le panneau agent : le modèle, le projet et le mode
             // sont déjà affichés dans la barre d'état.
@@ -227,8 +228,10 @@ function createDesktopBackend(send) {
         },
 
         onInterrupt(handler) {
+            const detachAction = require("../src/tools/action-control").onCancel(handler);
             interrupts.push(handler);
             return () => {
+                detachAction();
                 const index = interrupts.lastIndexOf(handler);
                 if (index !== -1) interrupts.splice(index, 1);
             };

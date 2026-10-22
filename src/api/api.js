@@ -10,6 +10,9 @@ const { createLocalToolCalls } = require("./local-tool-calls");
 
 const fmt = n => Number(n).toLocaleString("fr-FR");
 const MAX_REQUEST_FAILURES = 2;
+// The backend may retain text history without retaining the provider's pixels.
+// Keep only upload IDs, isolated by conversation/model/workspace, never raw data.
+const visualContexts = new Map();
 
 // Volume réellement envoyé (chaque tentative HTTP compte, relances comprises).
 const usage = { requests: 0, chars: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, reported: 0 };
@@ -233,6 +236,10 @@ async function requestModel(message, options = {}) {
     };
     let attachmentPlan = null;
     if (!options.fresh) {
+        const previousImages = visualContexts.get(mode);
+        if (!state.pendingImages?.length && previousImages?.chatId && previousImages.chatId === state.chatIds[mode] && previousImages.model === state.model && previousImages.workspace === state.workspace) {
+            state.pendingImages = [...previousImages.images];
+        }
         await resolvePendingImages();
         const fileText = await resolvePendingFiles();
         const files = state.pendingFiles.filter(item => typeof item === "string");
@@ -289,11 +296,12 @@ async function requestModel(message, options = {}) {
             }
             let measured = null;
             const requestOptions = { ...options, onUsage: value => { measured = value; } };
-            if (attachmentPlan) requestOptions.attachmentBatch = { images: [], files: [] };
+            if (attachmentPlan) requestOptions.attachmentBatch = { images: state.pendingImages.slice(-API_ATTACHMENT_LIMIT), files: [] };
             const answer = await requestModelOnce(message, requestOptions);
-            // Images et fichiers joints : envoyés une seule fois (première réponse réussie).
+            // Clear pending files; retain recent image IDs for this conversation only.
             if (!options.fresh) {
                 compactor.record(mode, state.chatIds[mode], message, answer, measured);
+                if (state.pendingImages.length && state.chatIds[mode]) visualContexts.set(mode, { chatId: state.chatIds[mode], model: state.model, workspace: state.workspace, images: state.pendingImages.slice(-API_ATTACHMENT_LIMIT) });
                 state.pendingImages = [];
                 state.pendingFiles = [];
             }

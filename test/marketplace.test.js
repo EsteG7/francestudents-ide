@@ -36,3 +36,28 @@ test("limites réseau : réponses trop grandes et quota donnent des erreurs util
     const large = createMarketplace({fetchFn:async () => new Response("x".repeat(250001))});
     await assert.rejects(large.preview({githubUrl:"https://github.com/a/b/tree/main/qa"}), /taille/);
 });
+
+test("community preview reports real received bytes and cancels its own network request", async () => {
+    const events = [];
+    let reached;
+    const started = new Promise(resolve => { reached = resolve; });
+    const market = createMarketplace({onProgress:data => events.push(data), fetchFn:async (_url, {signal}) => {
+        return new Response(new ReadableStream({start(controller) {
+            controller.enqueue(new TextEncoder().encode("---\nname: example\n---\n"));
+            signal.addEventListener("abort", () => controller.error(signal.reason), {once:true});
+            reached();
+        }}));
+    }});
+    const pending = market.preview({githubUrl:"https://github.com/a/b/tree/main/qa", requestId:"cancel-me"});
+    await started;
+    // Let the stream deliver its first chunk before requesting cancellation.
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(events[0].requestId, "cancel-me");
+    assert.equal(events[0].total, null);
+    assert.equal(events[0].received, Buffer.byteLength("---\nname: example\n---\n"));
+    assert.equal(market.cancel("unrelated"), false);
+    assert.equal(market.cancel("cancel-me"), true);
+    await assert.rejects(pending, /annulé/);
+    assert.equal(market.cancel("cancel-me"), false);
+    assert.throws(() => market.takePreview("https://raw.githubusercontent.com/a/b/main/qa/SKILL.md"), /instructions/);
+});

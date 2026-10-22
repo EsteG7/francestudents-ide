@@ -36,8 +36,10 @@ function setup() {
     const clock = fakeClock();
     const backend = createTuiBackend(store, clock);
     const previousAuto = state.autoApprove;
+    const previousFull = state.fullAccess;
+    state.fullAccess = false;
     state.autoApprove = false;
-    return { store, clock, backend, restore: () => { state.autoApprove = previousAuto; } };
+    return { store, clock, backend, restore: () => { state.autoApprove = previousAuto; state.fullAccess = previousFull; } };
 }
 
 test("adaptateur : implémente toutes les méthodes du port", () => {
