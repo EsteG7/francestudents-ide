@@ -2,7 +2,9 @@
 
 Ouvre le dossier de ton projet existant dans FranceStudent IDE, puis clique sur **Importer Codex · Bêta**, près du bouton d’export de conversation.
 
-Colle un lien de partage accessible, sélectionne un export Markdown, JSON ou JSONL, ou colle directement la conversation. Vérifie l’aperçu, choisis le modèle et le mode, puis clique sur **Préparer la reprise**. Le contexte complet devient une pièce jointe du brouillon ; tu peux modifier ta demande avant de cliquer sur **Envoyer**.
+Colle un lien de partage accessible (notamment `https://chatgpt.com/s/cx_…`), sélectionne un export Markdown, JSON ou JSONL, ou colle directement la conversation. Vérifie l’aperçu, choisis le modèle et le mode, puis clique sur **Préparer la reprise**. Le contexte complet devient une pièce jointe du brouillon ; tu peux modifier ta demande avant de cliquer sur **Envoyer**.
+
+Les liens Codex `/s/cx_…` sont lus via l’instantané public utilisé par la page de partage, dont les messages sont chargés séparément du HTML. Les messages utilisateur et les réponses/commentaires de l’agent sont repris dans l’ordre. Les différences de fichiers et les résumés internes ne sont pas importés.
 
 L’import concerne uniquement la conversation : aucun fichier de projet n’est copié ou modifié. Les commandes et résultats de l’ancien historique ne prouvent pas l’état du projet ouvert. Les images et pièces jointes d’origine doivent être ajoutées séparément si elles sont nécessaires.
 

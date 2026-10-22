@@ -66,3 +66,31 @@ test("preview tokens preserve full context, expire, and can only be applied once
     now = 31 * 60000;
     assert.throws(() => importer.get(expired.token), /expiré/);
 });
+
+test("Codex /s/cx_ links fetch the public snapshot and preserve ordered user/agent messages", async () => {
+    const url = "https://chatgpt.com/s/cx_0123456789abcdef0123456789abcdef";
+    const snapshot = { version: 1, title: "Projet partagé", turns: [{ items: [
+        { type: "userMessage", content: [{ type: "text", text: "Continue le projet" }, { type: "image", url: "codex:shared-asset/asset-1" }] },
+        { type: "agentMessage", text: "Je regarde les fichiers.", phase: "commentary" },
+        { type: "reasoning", summary: "Internal summary" },
+        { type: "fileChange", status: "completed", changes: [{ path: "index.js", diff: "NEVER IMPORT THIS PATCH" }] },
+        { type: "agentMessage", text: "La suite reste à faire.", phase: "final_answer" },
+    ] }] };
+    let requested;
+    const importer = createConversationImporter({ fetcher: async (address, options) => {
+        requested = address;
+        assert.equal(options.credentials, "omit");
+        return Response.json(snapshot);
+    } });
+    const result = await importer.preview({ url });
+    assert.equal(requested, "https://chatgpt.com/backend-api/wham/shared_threads/cx_0123456789abcdef0123456789abcdef");
+    assert.equal(result.source, url);
+    assert.equal(result.title, snapshot.title);
+    assert.deepEqual(result.excerpt.map(m => m.role), ["user", "assistant", "assistant"]);
+    const body = importer.get(result.token).body;
+    assert.doesNotMatch(body, /NEVER IMPORT THIS PATCH|Internal summary|codex:shared-asset/);
+    assert.match(body, /Continue le projet[\s\S]*Je regarde[\s\S]*La suite/);
+    for (const path of ["/s/cx_bad", "/s/other_0123456789abcdef0123456789abcdef", "/backend-api/wham/shared_threads/cx_0123456789abcdef0123456789abcdef"]) {
+        assert.throws(() => shareUrl("https://chatgpt.com" + path));
+    }
+});

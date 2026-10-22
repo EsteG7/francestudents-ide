@@ -2,6 +2,13 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
+## [1.1.5] — 22 octobre 2026 · Liens partagés Codex
+
+- Reconnaissance du format de partage Codex `https://chatgpt.com/s/cx_…`.
+- Lecture de l’instantané public chargé par la page, au lieu de rechercher la conversation dans un HTML vide.
+- Import des messages utilisateur, commentaires et réponses de l’agent dans l’ordre, sans appliquer les différences de fichiers ni importer les résumés internes.
+- Exemple de lien et documentation de l’import actualisés. Correction vérifiée sur un lien réel et couverte par un test de régression.
+
 ## [1.1.4] — 22 octobre 2026 · Fichiers, mode Éco et reprise de conversation
 
 - Prise en charge élargie des fichiers : PDF, SVG, documents Office, présentations, tableaux, archives et extraction de contenu avec signalement des limites.
@@ -119,5 +126,6 @@ L’historique du [projet de EsteG7](https://github.com/EsteG7/francestudents-id
 
 [1.1.1]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.1
 [1.1.2]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.2
+[1.1.5]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.5
 [1.1.4]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.4
 [1.1.3]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.3

@@ -11,7 +11,7 @@ function shareUrl(raw) {
     try { url = new URL(String(raw).trim()); } catch { throw new Error("Lien Codex invalide."); }
     if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443") ||
         !["chatgpt.com", "chat.openai.com"].includes(url.hostname) ||
-        !/^\/(?:share\/|codex\/(?:share|s)\/)[a-zA-Z0-9_-]{6,200}\/?$/.test(url.pathname)) {
+        !/^\/(?:s\/cx_[0-9a-f]{32}|(?:share\/|codex\/(?:share|s)\/)[a-zA-Z0-9_-]{6,200})\/?$/.test(url.pathname)) {
         throw new Error("Ce lien n’est pas un lien de partage pris en charge. Les liens de conversation privés ne donnent pas accès à leur contenu. " + LINK_HELP);
     }
     url.hash = "";
@@ -22,8 +22,12 @@ async function fetchShare(raw, fetcher = fetch) {
     let url = shareUrl(raw);
     const signal = AbortSignal.timeout(20000);
     for (let redirects = 0; redirects <= 4; redirects++) {
-        const response = await fetcher(url.href, { redirect: "manual", credentials: "omit", signal,
-            headers: { Accept: "text/html, application/json, text/plain" } });
+        // Codex /s/cx_ pages are client-rendered shells. Read the same public
+        // snapshot endpoint as the viewer, without executing its scripts.
+        const codexId = /^\/s\/(cx_[0-9a-f]{32})\/?$/.exec(url.pathname)?.[1];
+        const requestUrl = codexId ? new URL(`/backend-api/wham/shared_threads/${codexId}`, url).href : url.href;
+        const response = await fetcher(requestUrl, { redirect: "manual", credentials: "omit", signal,
+            headers: { Accept: codexId ? "application/json" : "text/html, application/json, text/plain" } });
         if ([301, 302, 303, 307, 308].includes(response.status)) {
             const location = response.headers.get("location");
             await response.body?.cancel();
@@ -61,6 +65,9 @@ function contentText(value) {
 }
 
 function structuredMessages(data, warnings) {
+    if (data?.version === 1 && Array.isArray(data.turns)) {
+        warnings.push("Instantané Codex : seuls les messages visibles sont repris ; les modifications de fichiers, résumés de raisonnement et médias restent dans l’original.");
+    }
     if (Array.isArray(data) && data.length > 1 && data.every(item => item?.mapping || (item?.title && item?.messages))) {
         throw new Error("Cet export contient plusieurs conversations. Exporte ou colle uniquement celle à reprendre.");
     }
@@ -77,6 +84,9 @@ function structuredMessages(data, warnings) {
         if (!value || typeof value !== "object" || visited.has(value)) return;
         if (depth > 60 || ++scanned > 200000) throw new Error("Structure de conversation trop complexe.");
         visited.add(value);
+        if (value.type === "userMessage") { add("user", value.content); return; }
+        if (value.type === "agentMessage") { add("assistant", value.text); return; }
+        if (["fileChange", "reasoning", "imageView", "imageGeneration"].includes(value.type)) return;
         if (value.mapping && typeof value.mapping === "object") {
             const nodes = value.mapping;
             let leaf = value.current_node ?? value.currentNode;
