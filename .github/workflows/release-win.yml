@@ -17,7 +17,7 @@ jobs:
       - run: npm install
       - run: npm test
       - name: Construire le .exe portable et l'installeur NSIS pour Windows (x64)
-        run: npm run dist:win
+        run: npm run dist:win -- --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - uses: actions/upload-artifact@v4
