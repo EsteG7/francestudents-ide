@@ -18,7 +18,7 @@ async function send(input, { onDelta } = {}) {
     // Premier message d'une conversation dans un projet : on y joint le contexte.
     const context =
         state.workspace && !state.chatId
-            ? projectContext.promptContext(150_000)
+            ? projectContext.promptContext(state.ecoMode ? 20_000 : 150_000)
             : "";
 
     // Premier message d'une conversation : pré-prompt utilisateur/projet et faits appris.

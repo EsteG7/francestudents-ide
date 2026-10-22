@@ -1,118 +1,57 @@
 <div align="center">
 
-<img src="desktop/icon.png" width="80" alt="FranceStudent Code" />
+<img src="desktop/icon.png" width="80" alt="FranceStudent IDE" />
 
 # FranceStudent IDE
 
-**Un espace pour coder, piloter son agent et suivre son projet.**
+**Crée et améliore tes projets avec une IA, dans une application en français.**
 
-Fork amélioré · Interface en français · Windows x64
-
-[![Version](https://img.shields.io/github/v/release/extraopaa/francestudents-ide?color=007acc&label=version)](https://github.com/extraopaa/francestudents-ide/releases/latest)
-[![Windows](https://img.shields.io/badge/Windows-x64-007acc)](https://github.com/extraopaa/francestudents-ide/releases/latest)
-[![Projet original](https://img.shields.io/badge/Projet_original-EsteG7-8257e5?logo=github)](https://github.com/EsteG7/francestudents-ide)
-
-[Télécharger](https://github.com/extraopaa/francestudents-ide/releases/latest) · [Guide](docs/guide-utilisation.md) · [Nouveautés](CHANGELOG.md) · [Projet original](https://github.com/EsteG7/francestudents-ide)
+[Télécharger pour Windows](https://github.com/extraopaa/francestudents-ide/releases/latest) · [Guide d’utilisation](docs/guide-utilisation.md) · [Guide avancé](docs/avance.md)
 
 </div>
 
-> [!IMPORTANT]
-> **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7).** Ce dépôt est uniquement un **fork d’amélioration**, maintenu par [extraopaa](https://github.com/extraopaa). Il prolonge le travail d’origine avec des fonctionnalités et des améliorations d’interface. Le crédit de la création revient à EsteG7 et aux contributeurs du [dépôt original](https://github.com/EsteG7/francestudents-ide).
+![L’éditeur et l’assistant FranceStudent](docs/images/cockpit.png)
 
-![Cockpit du projet et agent dans le thème d’origine](docs/images/cockpit.png)
+## Commencer
 
-## Télécharger et démarrer
+1. [Télécharge la dernière version](https://github.com/extraopaa/francestudents-ide/releases/latest) et ouvre le fichier **setup.exe** pour l’installer.
+2. Lance l’application et suis le guide pour te connecter à ton **compte FranceStudent**.
+3. Clique sur **Ouvrir un dossier** pour choisir ton projet, puis explique à l’IA ce que tu veux faire.
 
-Version **1.1.3 pour Windows x64**. Aucun Node.js ni npm n’est nécessaire pour utiliser l’installateur.
+Par exemple : « Crée une page pour présenter mon association » ou « Aide-moi à comprendre ce projet ».
 
-| Version | Usage | Téléchargement |
-| --- | --- | --- |
-| **Installateur** | Installation classique et prise en charge des futures mises à jour | [Setup Windows](https://github.com/extraopaa/francestudents-ide/releases/download/v1.1.3/FranceStudentCode-1.1.3-setup.exe) |
+L’application est distribuée pour **Windows 64 bits**. Aucun Node.js ni aucune clé API ne sont nécessaires pour la connexion au chat. Certains projets peuvent demander leurs propres outils pour fonctionner.
 
-Les versions portables restent uniquement locales et ne sont plus publiées sur GitHub.
+## Ce que tu peux faire
 
-1. Ferme une ancienne version éventuelle, puis lance le setup.
-2. Suis le guide avec ton **compte FranceStudent**. Aucune clé API n’est demandée pour le chat.
-3. Ouvre ton dossier de projet et décris ce que tu veux réaliser.
+- Discuter avec l’IA et choisir ton modèle.
+- Créer, comprendre et modifier les fichiers de ton projet.
+- Joindre des documents ou des images, y compris par glisser-déposer.
+- Modifier ton code dans l’éditeur et voir ton site dans le navigateur intégré.
+- Suivre le travail de l’IA, ajouter une demande à la suite ou arrêter une tâche.
+- Retrouver tes conversations et exporter leur contenu.
 
-Le compte et les limites d’utilisation de FranceStudent restent nécessaires. Les exécutables ne disposent pas d’une signature d’éditeur reconnue ; Windows peut afficher un avertissement. Les empreintes SHA-256 sont fournies dans la release.
+### Les nouveautés du code source
 
-## Un agent intégré à ton travail
+Le code disponible ici ajoute aussi le **mode Éco**, un avertissement de quota pour les nombreux fichiers, davantage de formats de documents, l’**import de conversation Codex en bêta** et les boutons pour démarrer et arrêter un serveur depuis une réponse.
 
-| Espace | Fonctionnalités |
-| --- | --- |
-| **Agent** | Conversation, activité, plan de travail, mode Plan sans modification et arrêt des tâches |
-| **Demandes en continu** | Entrée pendant une tâche empile les prompts au-dessus de la saisie ; édition, suppression, ordre et **Orienter** |
-| **Contexte** | Instructions `AGENTS.md`, fichiers ouverts, budgets réglables et compaction automatique |
-| **Éditeur** | Onglets, recherche, symboles, diagnostics JS/TS, Prettier et comparaison |
-| **Cockpit** | Scripts, commandes personnalisées, sorties en direct, arrêt, relance et diagnostics |
-| **Web** | Recherche autonome ou en arrière-plan, lecture de sources et captures de pages |
-| **Extensions** | Skills embarqués, profils, import de `SKILL.md`, SkillsMP et serveurs MCP stdio |
-| **Confort** | Paramètres recherchables, thèmes, favoris, brouillons et export Markdown |
-| **Fichiers** | Texte UTF-8/UTF-16, aperçus d’images et médias, inspection des autres formats |
-| **Compte** | Guide de connexion, déconnexion et conservation des fichiers et conversations |
+Ces nouveautés peuvent ne pas encore être incluses dans l’installateur publié. Consulte les [notes de version](CHANGELOG.md) et la page de téléchargement pour savoir ce que contient ta version.
 
-L’éditeur, le terminal intégré et les vues Git du projet original restent le socle de cette version. Le [changelog](CHANGELOG.md) décrit les améliorations regroupées dans ce fork.
+## Garder le contrôle
 
-### Une conversation qui continue
+Les réponses et les fichiers joints utilisent le quota de ton compte FranceStudent. Le mode Éco vise à réduire cette consommation, avec des capacités limitées ; il ne garantit pas une économie précise.
 
-À l’approche du budget de contexte, l’agent résume les échanges et reprend automatiquement sa tâche dans une nouvelle conversation serveur. Les consignes, décisions, fichiers et actions restantes servent de relais ; le fil affiché et les prompts en attente restent visibles.
+Pour commencer, garde les demandes de confirmation activées et vérifie les modifications proposées. Le mode **Full accès** permet à l’IA d’agir sans confirmation, y compris sur les fichiers et les commandes : réserve-le aux projets et outils auxquels tu fais confiance.
 
-Le seuil repose sur une estimation prudente : le service ne fournit pas la fenêtre exacte de chaque modèle. Une erreur explicite de contexte trop long déclenche aussi une tentative de compaction. La lecture d’images dépend du modèle sélectionné. [Détails et limites](docs/studio.md).
+Windows peut afficher un avertissement pour un exécutable sans signature d’éditeur reconnue. Télécharge l’application depuis les releases de ce dépôt.
 
-### Un espace de travail cohérent
+## Besoin d’aide ?
 
-<details>
-<summary><strong>Aperçu Markdown et comparaison de code</strong></summary>
+- [Guide d’utilisation](docs/guide-utilisation.md) : connexion, interface et premiers usages.
+- [Guide avancé](docs/avance.md) : réglages, formats, limites, extensions et installation depuis les sources.
+- [Signaler un problème](https://github.com/extraopaa/francestudents-ide/issues) : indique ta version et les étapes pour reproduire le souci, sans partager tes identifiants.
+- [Nouveautés](CHANGELOG.md) · [Contribuer](CONTRIBUTING.md) · [Crédits](CREDITS.md).
 
-![Aperçu Markdown](docs/images/markdown.png)
+## Origine du projet
 
-![Comparaison de code](docs/images/comparaison.png)
-
-Captures réalisées sur un projet de démonstration.
-
-</details>
-
-## Choisir son niveau d’autonomie
-
-Choisis **Demander** pour garder les confirmations, ou configure les autorisations dans les paramètres.
-
-> [!WARNING]
-> **Full accès permet d’agir sans confirmation** : écriture ou suppression de fichiers, commandes PowerShell et transmission de données sur Internet, parfois hors du projet. Active ce mode uniquement avec des projets et outils de confiance. Il utilise les droits du compte qui lance l’application, sans accorder automatiquement les droits administrateur.
-
-Les permissions de capture sont réglables séparément. Un serveur MCP lance un programme local ; un skill apporte des instructions : examine leur contenu avant activation.
-
-## Documentation
-
-- [Guide d’utilisation complet](docs/guide-utilisation.md) — connexion, interface, commandes et raccourcis.
-- [Cockpit, formats, contexte et mises à jour](docs/studio.md).
-- [Intégration GitHub](docs/github.md).
-- [Changelog](CHANGELOG.md) · [Crédits](CREDITS.md) · [Contribuer](CONTRIBUTING.md).
-
-## Développer à partir des sources
-
-Prérequis : **Node.js 22+**, npm et Git. Les scripts nécessitent leurs propres outils installés.
-
-```powershell
-git clone https://github.com/extraopaa/francestudents-ide.git
-cd francestudents-ide
-npm install
-npm run desktop
-```
-
-| Commande | Usage |
-| --- | --- |
-| `npm run desktop` | Reconstruire l’interface et lancer l’application |
-| `npm run lint` | Vérifier le code |
-| `npm test` | Exécuter les tests unitaires |
-| `npm run test:e2e` | Vérifier les parcours Electron |
-| `npm run dist:win` | Générer le portable et l’installateur Windows |
-| `npm run dist:mac` | Construire pour macOS Intel depuis un environnement adapté |
-
-Cette release distribue uniquement les exécutables Windows x64 vérifiés. Aucun build macOS n’est fourni dans cette release.
-
-## Origine et crédits
-
-**Projet original : [EsteG7/francestudents-ide](https://github.com/EsteG7/francestudents-ide), créé par EsteG7.** Merci pour le travail qui rend ce fork possible. Les améliorations sont maintenues par **extraopaa** ; elles ne remplacent pas l’attribution d’origine et ne constituent pas une version officielle du dépôt amont.
-
-Le champ `author` historique du paquet (**Hecone**) est conservé. Le `package.json` déclare ISC ; aucun fichier `LICENSE` autonome n’est actuellement présent. Ce fork ne réattribue pas les droits du projet d’origine. Les composants tiers conservent leurs licences, consultables dans l’application et dans le [guide](docs/studio.md#composants-open-source).
+**FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** Ce dépôt est un fork d’amélioration maintenu par [extraopaa](https://github.com/extraopaa), et non une version officielle du dépôt d’origine. Le crédit de la création revient à EsteG7 et aux contributeurs du projet original.

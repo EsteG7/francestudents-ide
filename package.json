@@ -14,7 +14,7 @@
     "dist"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "start": "node index.js",
@@ -48,22 +48,39 @@
   "author": "Hecone",
   "license": "ISC",
   "dependencies": {
+    "@kenjiuno/msgreader": "1.29.0",
+    "@napi-rs/canvas": "0.1.100",
+    "@xmldom/xmldom": "0.9.12",
+    "7z-wasm": "1.2.0",
+    "cheerio": "1.2.0",
     "dompurify": "3.4.17",
     "electron-updater": "6.8.9",
+    "fflate": "0.8.3",
     "fuse.js": "7.5.0",
     "ink": "^8.0.0",
     "ink-markdown": "^1.0.4",
     "ink-select-input": "^6.2.0",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
+    "mailparser": "3.12.2",
     "marked": "9.1.6",
+    "mediainfo.js": "0.3.8",
     "node-pty": "^1.1.0",
+    "officeparser": "8.2.0",
+    "pdfjs-dist": "5.4.624",
     "playwright-core": "^1.64.1",
     "prettier": "3.9.10",
     "react": "^19.3.1",
     "sharp": "0.35.5",
+    "tar-stream": "3.1.7",
     "typescript": "^5.9.3",
-    "typescript-language-server": "^4.4.1"
+    "typescript-language-server": "^4.4.1",
+    "word-extractor": "1.0.4",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "yauzl": "3.4.0"
+  },
+  "overrides": {
+    "@napi-rs/canvas": "$@napi-rs/canvas"
   },
   "devDependencies": {
     "@codemirror/commands": "^6.11.1",

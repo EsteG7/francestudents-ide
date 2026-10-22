@@ -99,11 +99,11 @@ test("extractPdfText tronque les textes trop longs", () => {
     assert.match(result.text, /^Bonjo\n\[… tronqué\]$/);
 });
 
-test("403Files v2 : le texte du PDF est extrait et ajouté au message", { concurrency: false }, async () => {
+test("PDF converti en images sans appel Files v2", { concurrency: false }, async () => {
     prepareAuth();
     let streamBody = null;
     global.fetch = async (url, init) => {
-        if (String(url).endsWith("/filesv2")) return forbidden();
+        if (String(url).endsWith("/files/upload")) return Response.json({uuid:"11111111-2222-3333-4444-555555555555"});
         streamBody = JSON.parse(init.body);
         return successfulResponse();
     };
@@ -114,22 +114,25 @@ test("403Files v2 : le texte du PDF est extrait et ajouté au message", { concur
     assert.deepEqual(streamBody.files, []);
     assert.match(streamBody.initialContent, /^résume ce PDF/);
     assert.match(streamBody.initialContent, /Fichier joint : cours\.pdf/);
-    assert.match(streamBody.initialContent, /Bonjour le monde/);
+    assert.deepEqual(streamBody.images, ["11111111-2222-3333-4444-555555555555"]);
     assert.deepEqual(state.pendingFiles, []);
 });
 
-test("403 Files v2 : un fichier non PDF garde l'erreur d'origine", { concurrency: false }, async () => {
+test("DOCX invalide : diagnostic partiel sans bloquer les autres pièces jointes", { concurrency: false }, async () => {
     prepareAuth();
     global.fetch = async () => forbidden();
     state.pendingFiles = [{ name: "cours.docx", dataUrl: "data:application/octet-stream;base64,UEsDBA==" }];
 
-    await assert.rejects(resolvePendingFiles(), (e) => e.status === 403 && /pas activé pour ce compte/.test(e.message));
+    const result = await resolvePendingFiles();
+    assert.match(result, /LECTURE PARTIELLE/);
+    assert.match(result, /cours\.docx/);
 });
 
-test("403 Files v2 : PDF sans texte -> erreur explicite", { concurrency: false }, async () => {
+test("PDF sans texte : rendu en image", { concurrency: false }, async () => {
     prepareAuth();
-    global.fetch = async () => forbidden();
+    global.fetch = async () => Response.json({uuid:"11111111-2222-3333-4444-555555555555"});
     state.pendingFiles = [{ name: "scan.pdf", dataUrl: dataUrl(makePdf("q Q")) }];
 
-    await assert.rejects(resolvePendingFiles(), (e) => e.status === 403 && /scan\.pdf/.test(e.message) && /aucun texte/.test(e.message));
+    await resolvePendingFiles();
+    assert.equal(state.pendingImages.length, 1);
 });

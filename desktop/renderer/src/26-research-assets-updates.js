@@ -91,24 +91,67 @@ for(const [index,button] of [...document.querySelectorAll(".starter-prompts butt
 /* A bounded startup check; downloads continue without blocking the editor. */
 async function runStartupUpdateCheck() {
     const overlay=$("startup-loading"),message=$("startup-message"),appRoot=$("app");
-    let finished=false,deadline=null,finishTimer=null;
+    const primary=$("startup-update-now"),progress=$("startup-update-progress"),later=$("startup-continue"),openButton=$("startup-update-open");
+    let finished=false,deadline=null,finishTimer=null,current=null,off=null;
     appRoot.inert=true;
     const close=()=>{if(finished)return;finished=true;clearTimeout(deadline);clearTimeout(finishTimer);overlay.hidden=true;appRoot.inert=false;if(overlay.contains(document.activeElement))input.focus();};
-    $("startup-continue").onclick=close;
-    $("startup-continue").focus();
+    const offer=data=>{
+        current=data;
+        const available=["available","downloading","downloaded"].includes(data.status);
+        openButton.classList.toggle("hidden",!available);
+        if(finished)return;
+        overlay.querySelector(".startup-track").classList.toggle("hidden",data.status!=="checking");
+        if(available){
+            clearTimeout(deadline);clearTimeout(finishTimer);
+            $("startup-heading").textContent=data.status==="downloaded"?"La mise à jour est prête.":`Nouvelle version ${data.availableVersion||"disponible"}`;
+            later.textContent="Plus tard";
+            primary.classList.remove("hidden");
+            primary.textContent=data.canInstall===false?"Télécharger l’installateur":data.status==="downloaded"?"Redémarrer et installer":data.status==="downloading"?"Téléchargement en cours…":"Mettre à jour maintenant";
+            primary.disabled=data.status==="downloading";
+            progress.classList.toggle("hidden",data.status!=="downloading");progress.value=data.progress||0;
+            message.textContent=data.status==="downloading"?`Téléchargement : ${Math.round(data.progress||0)} %`:
+                data.status==="downloaded"?"Enregistre ton travail pour redémarrer et installer la nouvelle version.":data.canInstall===false?"Cette version portable ne s’installe pas automatiquement. Télécharge l’installateur Windows pour passer à la nouvelle version.":"La nouvelle version est disponible. Tu peux l’installer maintenant ou continuer dans l’IDE.";
+        }else if(data.status==="error"){
+            message.textContent=data.message;progress.classList.add("hidden");primary.classList.remove("hidden");primary.disabled=false;primary.textContent="Réessayer";later.textContent="Ouvrir l’IDE";
+        }else if(["current","unavailable"].includes(data.status)){
+            message.textContent=data.message;primary.classList.add("hidden");progress.classList.add("hidden");
+            clearTimeout(finishTimer);finishTimer=setTimeout(close,650);
+        }
+    };
+    later.onclick=close;later.focus();
+    openButton.onclick=()=>{finished=false;overlay.hidden=false;appRoot.inert=true;offer(current);primary.focus();};
+    off=api.onEvent((channel,data)=>{if(channel==="appUpdate")offer(data);});
+    window.addEventListener("unload",()=>off?.(),{once:true});
+    primary.onclick=async()=>{
+        primary.disabled=true;
+        try{
+            if(current?.canInstall===false){await api.openExternal("https://github.com/extraopaa/francestudents-ide/releases/latest");close();return;}
+            if(current?.status==="downloaded"){
+                await saveAllStudioFiles();
+                if(ui.tabs.some(tab=>tab.dirty))throw new Error("Enregistre tes fichiers avant de redémarrer.");
+                await api.updates("install");return;
+            }
+            if(current?.status==="error"){offer(await api.updates("check",{startup:true}));return;}
+            offer(await api.updates("download"));
+        }catch(error){message.textContent=error.message;}
+        finally{primary.disabled=current?.status==="downloading";}
+    };
     const start=Date.now();
     try {
         const result=await Promise.race([
-            api.updates("check"),
+            api.updates("check",{startup:true}),
             new Promise(resolve=>{deadline=setTimeout(()=>resolve({status:"timeout",message:"La vérification continue en arrière-plan. Ouverture de l’IDE…"}),8000);})
         ]);
         if(finished)return;
+        if(["available","downloading","downloaded"].includes(current?.status))return;
+        if(["available","downloading","downloaded"].includes(result.status)){offer(result);return;}
+        current=result;
         message.textContent=result.status==="unavailable"?"Mode développement : ouverture de l’IDE…":result.message;
     } catch {
         if(!finished)message.textContent="Vérification indisponible. Ouverture de l’IDE…";
     } finally {
         clearTimeout(deadline);
-        if(!finished)finishTimer=setTimeout(close,Math.max(650,1100-(Date.now()-start)));
+        if(!finished&&!["available","downloading","downloaded"].includes(current?.status))finishTimer=setTimeout(close,Math.max(650,1100-(Date.now()-start)));
     }
 }
 runStartupUpdateCheck().catch(()=>{$("startup-loading").hidden=true;$("app").inert=false;});

@@ -457,6 +457,7 @@ async function runAgent(task, options = {}) {
     const usageBefore = { ...api.usage };
 
     const observations = [];
+    let recoveredUnsupportedTool = false;
     const changesBefore = memory.sessionChanges();
 
     // Point de reprise : /rewind peut annuler d'un coup tout ce que cette demande a modifié.
@@ -573,12 +574,16 @@ async function runAgent(task, options = {}) {
 
     await preloadContext(task, observations);
 
-    // Aucune limite de tours : l'agent continue jusqu'à final (ou interruption, ou garde-fou anti-boucle).
-    // maxTurns = 0 : aucun avertissement de fin de tours n'est envoyé au modèle.
-    const maxTurns = 0;
+    // Mode normal sans plafond ; Éco borne le travail automatique à quatre tours.
+    const maxTurns = state.ecoMode ? 4 : 0;
     let deferredSteering = [];
 
     for (let turn = 1; ; turn++) {
+        if (maxTurns && turn > maxTurns) {
+            const message = "Limite du mode Éco atteinte (4 tours). Le travail peut être incomplet ; les modifications déjà effectuées sont conservées. Désactive le mode Éco ou envoie une nouvelle demande pour continuer.";
+            await finish(message);
+            return { completed: false, message };
+        }
         if (options.shouldStop?.()) {
             await finish("Tâche interrompue. Les tâches suivantes restent en attente.");
             return { completed: false, message: "Tâche interrompue." };
@@ -596,7 +601,7 @@ async function runAgent(task, options = {}) {
         const spin = ui.spinner(turn === 1 ? "Réflexion" : `Réflexion (tour ${turn})`);
 
         try {
-            for (let attempt = 1; attempt <= CONFIG.maxProtocolAttempts; attempt++) {
+            for (let attempt = 1; attempt <= (state.ecoMode ? 1 : CONFIG.maxProtocolAttempts); attempt++) {
                 // Message complet : instructions, projet, demande, résultats d'outils.
                 const fullPrompt = withProject => fitPrompt({
                     workspace: state.workspace,
@@ -604,7 +609,7 @@ async function runAgent(task, options = {}) {
                     task,
                     history: state.history.slice(-6),
                     memorySummary: memory.summary(),
-                    projectContext: withProject ? projectText : "",
+                    projectContext: withProject ? (state.ecoMode && projectText.length > 20000 ? projectText.slice(0, 20000) + "\n[Mode Éco : contexte projet réduit. Lire les fichiers nécessaires avec les outils.]" : projectText) : "",
                     projectOmitted: !withProject,
                     instructions,
                     preprompt,
@@ -664,6 +669,11 @@ async function runAgent(task, options = {}) {
             return { completed: false, message: "Tâche interrompue." };
         }
         if (!action) {
+            if (state.ecoMode) {
+                const message = "Mode Éco : réponse d’outil invalide, arrêt sans nouvelle tentative pour limiter le quota. Désactive ce mode pour réessayer avec les reprises automatiques.";
+                await finish(message);
+                return { completed: false, message };
+            }
             record("user", task);
             await fallbackPlainAnswer(task, observations);
             await saveConversation();
@@ -672,6 +682,13 @@ async function runAgent(task, options = {}) {
         }
 
         if (action.type === "final") {
+            if (!recoveredUnsupportedTool && /Unsupported tool ignored by the backend/i.test(action.message) &&
+                !observations.some(o => ["write_file", "run_command"].includes(o.tool) && (!o.ok || o.result?.denied))) {
+                recoveredUnsupportedTool = true;
+                observations.push({ tool: "local_tool_protocol", ok: false,
+                    error: "Le backend n’exécute pas les outils locaux. Aucun échec local de write_file ou run_command n’a été reçu. Reprends la tâche : renvoie dans le TEXTE un objet JSON {\"type\":\"tool\",\"name\":\"write_file\",\"args\":{\"path\":\"...\",\"content\":\"...\"},\"reason\":\"...\"}, ou un autre outil du catalogue. N’utilise pas les appels natifs du fournisseur. L’application validera puis exécutera l’outil avec les permissions existantes. Ne prétends pas avoir créé un fichier avant le résultat local." });
+                continue;
+            }
             const lateSteering = options.drainSteering?.() || [];
             if (lateSteering.length) {
                 deferredSteering = lateSteering;
@@ -681,6 +698,11 @@ async function runAgent(task, options = {}) {
             return { completed: action.completed !== false, message: action.message };
         }
 
+        if (state.ecoMode && action.name === "task") {
+            const message = "Le mode Éco ne lance pas de sous-agents pour limiter les appels IA. Désactive-le pour poursuivre cette exploration.";
+            await finish(message);
+            return { completed: false, message };
+        }
         if (action.plan?.length && !planShown) {
             state.agentPlan = action.plan.map(step => ({ step, status: "pending" }));
             ui.plan(action.plan);

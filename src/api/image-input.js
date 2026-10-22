@@ -12,9 +12,9 @@ async function prepareImageInput(dataUrl){
     let metadata;
     try{metadata=await sharp(original,{limitInputPixels:100000000}).metadata();}
     catch(error){throw new Error("Impossible de décoder l’image jointe.",{cause:error});}
-    if(!["png","jpeg","webp","gif"].includes(metadata.format)||!metadata.width||!metadata.height)throw new Error("Format d’image non pris en charge : PNG, JPEG, WebP ou GIF attendu.");
+    if(!metadata.width||!metadata.height)throw new Error("Impossible de lire les dimensions de l’image jointe.");
     const mime={png:"image/png",jpeg:"image/jpeg",webp:"image/webp",gif:"image/gif"}[metadata.format];
-    if(metadata.width<=MAX_IMAGE_SIDE&&metadata.height<=MAX_IMAGE_SIDE&&original.length<=MAX_IMAGE_BYTES){return {bytes:original,type:mime,width:metadata.width,height:metadata.height,originalWidth:metadata.width,originalHeight:metadata.height,resized:false};}
+    if(["png","jpeg","webp"].includes(metadata.format)&&metadata.width<=MAX_IMAGE_SIDE&&metadata.height<=MAX_IMAGE_SIDE&&original.length<=MAX_IMAGE_BYTES){return {bytes:original,type:mime,width:metadata.width,height:metadata.height,originalWidth:metadata.width,originalHeight:metadata.height,resized:false};}
     // Resize the outgoing copy only. Never modify the screenshot on disk.
     let pipeline=sharp(original,{limitInputPixels:100000000,animated:false}).rotate().resize({width:MAX_IMAGE_SIDE,height:MAX_IMAGE_SIDE,fit:"inside",withoutEnlargement:true});
     let result=await pipeline.clone().png().toBuffer({resolveWithObject:true});

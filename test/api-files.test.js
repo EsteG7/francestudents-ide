@@ -38,7 +38,7 @@ function successfulResponse() {
     return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
 }
 
-const PDF_BYTES = Buffer.from("%PDF-1.4\n\u0000\u0001binaire\n%%EOF", "latin1");
+const PDF_BYTES = Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF", "latin1");
 const PDF_DATA_URL = `data:application/pdf;base64,${PDF_BYTES.toString("base64")}`;
 
 test("uploadFile envoie un PDF sur /filesv2 avec son nom et son type MIME", { concurrency: false }, async () => {
@@ -106,23 +106,24 @@ test("uploadFile explique le 403 du feature flag Files v2", { concurrency: false
 test("resolvePendingFiles garde les ID déjà envoyés", { concurrency: false }, async () => {
     prepareAuth();
     let calls = 0;
-    global.fetch = async () => { calls++; return new Response(JSON.stringify({ id: "file-new" }), { status: 200 }); };
+    global.fetch = async () => { calls++; return new Response(JSON.stringify({ uuid: "11111111-2222-3333-4444-555555555555" }), { status: 200 }); };
     state.pendingFiles = ["file-old", { name: "a.pdf", dataUrl: PDF_DATA_URL }];
 
     await resolvePendingFiles();
 
-    assert.deepEqual(state.pendingFiles, ["file-old", "file-new"]);
+    assert.equal(state.pendingFiles[0], "file-old");
+    assert.deepEqual(state.pendingImages, ["11111111-2222-3333-4444-555555555555"]);
     assert.equal(calls, 1);
 });
 
-test("requestModel envoie les fichiers joints puis passe leurs ID dans files", { concurrency: false }, async () => {
+test("requestModel transmet le PDF via les images natives", { concurrency: false }, async () => {
     prepareAuth();
     const urls = [];
     let streamBody = null;
     global.fetch = async (url, init) => {
         urls.push(String(url));
-        if (String(url).endsWith("/filesv2")) {
-            return new Response(JSON.stringify({ id: "file-xyz" }), { status: 200 });
+        if (String(url).endsWith("/files/upload")) {
+            return new Response(JSON.stringify({ uuid: "11111111-2222-3333-4444-555555555555" }), { status: 200 });
         }
         streamBody = JSON.parse(init.body);
         return successfulResponse();
@@ -132,10 +133,10 @@ test("requestModel envoie les fichiers joints puis passe leurs ID dans files", {
     assert.equal(await requestModel("résume ce PDF"), "ok");
 
     assert.equal(urls.length, 2);
-    assert.ok(urls[0].endsWith("/filesv2"));
+    assert.ok(urls[0].endsWith("/files/upload"));
     assert.ok(urls[1].endsWith("/chats/stream"));
-    assert.deepEqual(streamBody.files, ["file-xyz"]);
-    assert.deepEqual(streamBody.images, []);
+    assert.deepEqual(streamBody.files, []);
+    assert.deepEqual(streamBody.images, ["11111111-2222-3333-4444-555555555555"]);
     assert.deepEqual(state.pendingFiles, []);
 });
 

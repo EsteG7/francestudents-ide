@@ -51,6 +51,78 @@ test("sans champ usage, les compteurs de tokens ne bougent pas", { concurrency: 
     assert.equal(usage.inputTokens, before.inputTokens);
 });
 
+test("usage is counted once per stream and context excludes retry billing totals", async () => {
+    prepareAuth();
+    const { usage } = require("../src/api/api");
+    const { AutoCompact } = require("../src/agent/auto-compact");
+    requestModel.compactor = new AutoCompact();
+    const before = { ...usage };
+    let calls = 0;
+    const metrics = { input_tokens: 12000, output_tokens: 500 };
+    global.fetch = async () => {
+        calls++;
+        const events = 'event: response.output_text.delta\ndata: {"delta":"ok"}\n\n' +
+            `event: response.completed\ndata: ${JSON.stringify({ response: { usage: metrics } })}\n\n`;
+        if (calls === 1) return new Response(events + 'event: error\ndata: {"message":"temporary network failure"}\n\n');
+        return new Response(events + `event: completed\ndata: ${JSON.stringify({ usage: metrics })}\n\n`);
+    };
+    assert.equal(await requestModel("continue"), "ok");
+    assert.equal(calls, 2);
+    assert.equal(usage.inputTokens - before.inputTokens, 24000);
+    assert.equal(usage.reported - before.reported, 2);
+    assert.equal(requestModel.compactor.get("chat", "chat-1").tokens, 12500);
+    requestModel.compactor = new AutoCompact();
+});
+
+test("Anthropic cache reads and writes occupy context without accumulating past request counts", async () => {
+    prepareAuth();
+    const { AutoCompact } = require("../src/agent/auto-compact");
+    requestModel.compactor = new AutoCompact();
+    global.fetch = async () => new Response('event: response.output_text.delta\ndata: {"delta":"ok"}\n\n' +
+        'event: completed\ndata: {"usage":{"input_tokens":100,"cache_read_input_tokens":20000,"cache_creation_input_tokens":3000,"output_tokens":500}}\n\n');
+    await requestModel("continue");
+    assert.equal(requestModel.compactor.get("chat", "chat-1").tokens, 23600);
+    requestModel.compactor = new AutoCompact();
+});
+
+test("large-window model does not compact at the old 100k limit", async () => {
+    prepareAuth();
+    const { AutoCompact } = require("../src/agent/auto-compact");
+    requestModel.compactor = new AutoCompact();
+    requestModel.compactor.record("chat", "chat-1", "requirements", "answer", 150000);
+    let calls = 0;
+    global.fetch = async (url, init) => {
+        calls++;
+        assert.ok(String(url).endsWith("/chats/stream"));
+        assert.equal(JSON.parse(init.body).chatId, "chat-1");
+        return successfulResponse();
+    };
+    assert.equal(await requestModel("continue"), "ok");
+    assert.equal(calls, 1);
+    requestModel.compactor = new AutoCompact();
+});
+
+test("actual server occupancy cancels a premature estimated compaction", async () => {
+    prepareAuth();
+    const { AutoCompact } = require("../src/agent/auto-compact");
+    requestModel.compactor = new AutoCompact();
+    requestModel.compactor.record("chat", "chat-1", "requirements", "answer", 1000000);
+    let streams = 0, lookups = 0;
+    global.fetch = async (url, init) => {
+        if (String(url).endsWith("/usage")) {
+            lookups++;
+            return Response.json({ contextUsagePercent: 12 });
+        }
+        streams++;
+        assert.equal(JSON.parse(init.body).chatId, "chat-1");
+        return successfulResponse();
+    };
+    assert.equal(await requestModel("continue"), "ok");
+    assert.equal(lookups, 1);
+    assert.equal(streams, 1);
+    requestModel.compactor = new AutoCompact();
+});
+
 function successfulResponse() {
     const body = new ReadableStream({
         start(controller) {
@@ -103,7 +175,7 @@ test("automatic compaction opens a fresh conversation and resumes the agent task
     prepareAuth();
     const { AutoCompact } = require("../src/agent/auto-compact");
     requestModel.compactor = new AutoCompact();
-    requestModel.compactor.record("chat", "chat-1", "Original user requirements", "Work in progress", 100000);
+    requestModel.compactor.record("chat", "chat-1", "Original user requirements", "Work in progress", 1000000);
     const requests = [];
     global.fetch = async (_url, options) => {
         requests.push(JSON.parse(options.body));

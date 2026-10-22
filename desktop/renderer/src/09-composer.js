@@ -2,11 +2,16 @@
 
 /* ---------- Pièces jointes (fichiers / images) ---------- */
 
-const MAX_ATTACHMENTS = 10;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const MAX_TEXT_BYTES = 1024 * 1024;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const ATTACHMENT_QUOTA_WARNING_COUNT = 5;
 let pendingAttachments = [];
+const attachmentQuotaWarning = document.createElement("p");
+attachmentQuotaWarning.id = "attachment-quota-warning";
+attachmentQuotaWarning.className = "attachment-quota-warning hidden";
+attachmentQuotaWarning.setAttribute("role", "status");
+attachmentQuotaWarning.setAttribute("aria-live", "polite");
+$("attachments").after(attachmentQuotaWarning);
 
 /* Extensions binaires connues -> type MIME (utilisé si le navigateur n'en fournit pas). */
 const BINARY_TYPES = {
@@ -48,15 +53,6 @@ function fileExtension(name) {
     return match ? match[1].toLowerCase() : "";
 }
 
-/** true pour les PDF, documents Office, archives, médias… (à ne pas lire comme du texte). */
-function isBinaryFile(file, name) {
-    if (Object.prototype.hasOwnProperty.call(BINARY_TYPES, fileExtension(name))) return true;
-    const type = String(file.type || "").toLowerCase();
-    if (!type || type.startsWith("text/")) return false;
-    if (/(json|xml|javascript|ecmascript|x-sh|x-python|yaml|toml|sql|csv)/.test(type)) return false;
-    return /^(application|audio|video|font|image)\//.test(type);
-}
-
 /** Fichier quelconque -> pièce jointe { kind: "file" } en data URL base64 avec un type MIME. */
 async function prepareFile(file, name) {
     if (file.size > MAX_FILE_BYTES) {
@@ -92,6 +88,11 @@ function readAsDataUrl(file) {
 
 function renderAttachments() {
     const box = $("attachments");
+    const manyFiles = pendingAttachments.length >= ATTACHMENT_QUOTA_WARNING_COUNT;
+    attachmentQuotaWarning.classList.toggle("hidden", !manyFiles);
+    attachmentQuotaWarning.textContent = manyFiles
+        ? `⚠ ${pendingAttachments.length} fichiers joints : leur analyse risque de consommer énormément de quota, notamment si les documents contiennent beaucoup de pages ou nécessitent plusieurs envois. Retire les fichiers inutiles avant d’envoyer.`
+        : "";
     box.replaceChildren();
     box.classList.toggle("hidden", pendingAttachments.length === 0);
     pendingAttachments.forEach((item, index) => {
@@ -190,16 +191,14 @@ async function prepareImage(file,details={}) {
 
 async function addAttachments(fileList) {
     for (const file of Array.from(fileList || [])) {
-        if (pendingAttachments.length >= MAX_ATTACHMENTS) {
-            renderEntry({ type: "error", text: `Maximum ${MAX_ATTACHMENTS} pièces jointes par message.` });
-            break;
-        }
         const name = file.name || (file.type.startsWith("image/") ? "image-collée.png" : "fichier");
         // Même fichier ajouté deux fois (double glisser-déposer, re-sélection) : ignoré.
         if (pendingAttachments.some((a) => a.name === name && a.size === file.size)) continue;
         try {
             if (file.size === 0) throw new Error("fichier vide");
-            if (file.type.startsWith("image/")) {
+            // Keep SVG source as well as its raster preview. Decode document
+            // encodings in the backend instead of losing bytes with File.text().
+            if (file.type.startsWith("image/") && !["image/svg+xml", "image/gif", "image/tiff"].includes(file.type) && !["svg", "gif", "tif", "tiff"].includes(fileExtension(name))) {
                 try {
                     const details={};
                     const data=await prepareImage(file,details);
@@ -212,14 +211,8 @@ async function addAttachments(fileList) {
                 pendingAttachments.push(await prepareFile(file, name));
                 continue;
             }
-            if (!isBinaryFile(file, name) && file.size <= MAX_TEXT_BYTES) {
-                const data = await file.text();
-                if (!data.includes("\u0000")) {
-                    pendingAttachments.push({ name, kind: "text", size: file.size, data });
-                    continue;
-                }
-            }
-            // PDF, Office, archives, autres binaires : envoyés tels quels (Files v2).
+            // Documents are converted locally when sending, via the same path
+            // for file selection, paste, drag and drop, and queued requests.
             pendingAttachments.push(await prepareFile(file, name));
         } catch (err) {
             renderEntry({ type: "error", text: `${name} : ${err.message || err}` });
@@ -392,23 +385,63 @@ input.addEventListener("paste", (ev) => {
     ev.preventDefault();
     addAttachments(files);
 });
-$("composer").addEventListener("dragover", (ev) => {
-    if (!ev.dataTransfer || !Array.from(ev.dataTransfer.types || []).includes("Files")) return;
+const attachmentDropZone = $("agent");
+const attachmentDropHint = document.createElement("div");
+attachmentDropHint.className = "attachment-drop-hint hidden";
+attachmentDropHint.setAttribute("role", "status");
+attachmentDropHint.textContent = "Déposez vos fichiers pour les joindre";
+attachmentDropZone.appendChild(attachmentDropHint);
+
+function isFileDrag(ev) {
+    return Array.from(ev.dataTransfer?.types || []).includes("Files") || Boolean(ev.dataTransfer?.files?.length);
+}
+function showAttachmentDrop(active) {
+    attachmentDropZone.classList.toggle("drag-over", active);
+    $("composer").classList.toggle("drag-over", active);
+    attachmentDropHint.classList.toggle("hidden", !active);
+}
+attachmentDropZone.addEventListener("dragenter", (ev) => {
+    if (!isFileDrag(ev)) return;
     ev.preventDefault();
-    $("composer").classList.add("drag-over");
+    showAttachmentDrop(true);
 });
-$("composer").addEventListener("dragleave", (ev) => {
-    // Ignorer les passages d'un enfant à l'autre du composer (sinon la surbrillance clignote).
-    if (ev.relatedTarget && $("composer").contains(ev.relatedTarget)) return;
-    $("composer").classList.remove("drag-over");
-});
-$("composer").addEventListener("drop", (ev) => {
-    $("composer").classList.remove("drag-over");
-    const files = ev.dataTransfer?.files;
-    if (!files || !files.length) return;
+attachmentDropZone.addEventListener("dragover", (ev) => {
+    if (!isFileDrag(ev)) return;
     ev.preventDefault();
-    addAttachments(files);
+    ev.dataTransfer.dropEffect = "copy";
+    showAttachmentDrop(true);
 });
+attachmentDropZone.addEventListener("dragleave", (ev) => {
+    if (ev.relatedTarget && attachmentDropZone.contains(ev.relatedTarget)) return;
+    showAttachmentDrop(false);
+});
+attachmentDropZone.addEventListener("drop", async (ev) => {
+    showAttachmentDrop(false);
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    const files = Array.from(ev.dataTransfer.files || []);
+    if (!files.length) return;
+    await addAttachments(files);
+    input.focus();
+});
+// Prevent Chromium from navigating to a file dropped outside the conversation.
+document.addEventListener("dragover", (ev) => {
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    if (!attachmentDropZone.contains(ev.target)) {
+        ev.dataTransfer.dropEffect = "none";
+        showAttachmentDrop(false);
+    }
+});
+document.addEventListener("drop", (ev) => {
+    if (isFileDrag(ev)) ev.preventDefault();
+    showAttachmentDrop(false);
+});
+document.addEventListener("dragleave", (ev) => {
+    if (!ev.relatedTarget) showAttachmentDrop(false);
+});
+document.addEventListener("dragend", () => showAttachmentDrop(false));
+window.addEventListener("blur", () => showAttachmentDrop(false));
 
 /* ---------- Contexte choisi par l'utilisateur : @fichier épinglé ---------- */
 

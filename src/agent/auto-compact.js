@@ -2,8 +2,9 @@
 
 const { buildCompactPrompt, cleanSummary } = require("./compact");
 
-// The service does not advertise model windows. Use a conservative configurable
-// budget, and also recover from explicit context overflow responses.
+const estimateTokens = text => Math.ceil(Buffer.byteLength(String(text || ""), "utf8") / 4);
+const USAGE_TTL_MS = 30000;
+
 class AutoCompact {
     constructor() { this.sessions = new Map(); }
 
@@ -12,10 +13,21 @@ class AutoCompact {
         return value?.id === id && id ? value : null;
     }
 
-    record(mode, id, message, answer, inputTokens = 0) {
+    record(mode, id, message, answer, measured = null) {
         if (!id) return;
         const session = this.get(mode, id) || { id, tokens: 0, history: [] };
-        session.tokens = Math.max(session.tokens + Math.ceil(message.length / 3), inputTokens) + Math.ceil(answer.length / 3);
+        const input = typeof measured === "number" ? measured : measured?.inputTokens;
+        const output = typeof measured === "object" ? measured?.outputTokens : null;
+        // Request input already contains the conversation history. Replace the
+        // previous estimate; never add cumulative billing totals or retry usage.
+        const previousTokens = session.tokens;
+        session.tokens = Number.isFinite(input) && input > 0
+            ? input + (Number.isFinite(output) ? output : estimateTokens(answer))
+            : session.tokens + estimateTokens(message) + (Number.isFinite(output) ? output : estimateTokens(answer));
+        if (session.tokens < previousTokens) {
+            delete session.serverUsage;
+            session.checkedAt = 0;
+        }
         session.history.push({ role: "user", content: message }, { role: "assistant", content: answer });
         // Keep the initial instructions and recent tool results in bounded memory.
         let chars = session.history.reduce((sum, item) => sum + item.content.length, 0);
@@ -26,9 +38,42 @@ class AutoCompact {
         this.sessions.set(mode, session);
     }
 
-    shouldCompact(mode, id, message, limit) {
+    shouldCompact(mode, id, message, policy) {
         const session = this.get(mode, id);
-        return Boolean(session && session.tokens + Math.ceil(message.length / 3) >= limit * 0.8);
+        if (!session) return false;
+        const contextWindow = typeof policy === "number" ? policy : policy?.contextWindowTokens;
+        const override = typeof policy === "object" ? policy?.overrideTokens : null;
+        const limit = override > 0 ? Math.min(override, contextWindow || override) : contextWindow;
+        const reserve = Math.min(8192, (limit || 0) * 0.02, policy?.maxOutputTokens || 8192);
+        const upcoming = estimateTokens(message) + reserve;
+        const sample = session.serverUsage;
+        if (sample && sample.model === policy?.model && Date.now() - sample.at <= USAGE_TTL_MS) {
+            const delta = Math.max(0, session.tokens - sample.tokens) + upcoming;
+            if (contextWindow) return sample.percent / 100 * contextWindow + delta >= limit * 0.95;
+            return sample.percent >= 95;
+        }
+        // Unknown models are never assigned an invented small context window.
+        return Boolean(limit && session.tokens + upcoming >= limit * 0.95);
+    }
+
+    async check(mode, id, message, policy, fetchUsage) {
+        const session = this.get(mode, id);
+        if (!session) return false;
+        const candidate = this.shouldCompact(mode, id, message, policy);
+        const unknown = !policy?.contextWindowTokens;
+        if ((candidate || unknown) &&
+            (session.checkedModel !== policy?.model || !session.checkedAt || Date.now() - session.checkedAt >= USAGE_TTL_MS)) {
+            session.checkedAt = Date.now();
+            session.checkedModel = policy?.model;
+            try {
+                const dto = await fetchUsage(id);
+                const percent = dto?.contextUsagePercent;
+                if (typeof percent === "number" && Number.isFinite(percent) && percent >= 0 && percent <= 100) {
+                    session.serverUsage = { percent, tokens: session.tokens, at: Date.now(), model: policy?.model };
+                }
+            } catch { /* Offline or unavailable: retain the model-specific estimate. */ }
+        }
+        return this.shouldCompact(mode, id, message, policy);
     }
 
     async prepare(mode, id, message, freshMessage, summarize) {

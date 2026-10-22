@@ -49,11 +49,11 @@ async function discover(workspace) {
 }
 function createProjectStudio({workspace = () => null, onEvent = () => {}} = {}) {
     const runs = new Map(); let nextId = 1; let mutation = Promise.resolve();
-    const snapshot = job => ({id:job.id,taskId:job.taskId,name:job.name,command:job.command,workspace:job.workspace,status:job.status,startedAt:job.startedAt,endedAt:job.endedAt,exitCode:job.exitCode,output:job.output,truncated:job.truncated});
+    const snapshot = job => ({id:job.id,taskId:job.taskId,name:job.name,command:job.command,workspace:job.workspace,server:job.server,status:job.status,startedAt:job.startedAt,endedAt:job.endedAt,exitCode:job.exitCode,output:job.output,truncated:job.truncated});
     const emit = job => onEvent(snapshot(job));
-    async function start(id) {
+    async function start(id, hint = null) {
         const current = workspace();
-        const task = (await discover(current)).tasks.find(task => task.id === id);
+        const task = hint ? { ...await require("./server-hints").validateServerHint(current, hint), id, name: "Serveur web local", server: hint } : (await discover(current)).tasks.find(task => task.id === id);
         if (!task) throw new Error("Tâche introuvable. Actualise le projet.");
         if ([...runs.values()].filter(job => job.status === "running").length >= 4) throw new Error("Quatre tâches tournent déjà. Arrête une tâche avant d’en lancer une autre.");
         if ([...runs.values()].some(job => job.workspace === current && job.taskId === id && job.status === "running")) throw new Error("Cette tâche tourne déjà.");
@@ -62,9 +62,10 @@ function createProjectStudio({workspace = () => null, onEvent = () => {}} = {}) 
             if (!oldest) break; runs.delete(oldest.id);
         }
         const command = task.program ? programCommand(task.program,task.args) : shellCommand(task.command);
-        const child = spawn(command.file,command.args,{cwd:current,env:{...process.env,FORCE_COLOR:"0"},windowsHide:true,detached:process.platform !== "win32",stdio:["ignore","pipe","pipe"]});
+        const child = spawn(command.file,command.args,{cwd:task.cwd || current,env:{...process.env,FORCE_COLOR:"0"},windowsHide:true,detached:process.platform !== "win32",stdio:["ignore","pipe","pipe"]});
         const job = {id:nextId++,taskId:id,name:task.name,command:task.command,workspace:current,child,status:"running",startedAt:Date.now(),endedAt:null,exitCode:null,output:"",truncated:false};
         runs.set(job.id,job);
+        job.server = task.server || null;
         let outputTimer=null;
         const append = chunk => {
             job.output += String(chunk).replace(/\x1b\[[0-9;]*[A-Za-z]/g,"");
@@ -112,6 +113,12 @@ function createProjectStudio({workspace = () => null, onEvent = () => {}} = {}) 
         if(type === "overview")return {...await discover(workspace()),runs:[...runs.values()].filter(job=>job.workspace===workspace()).map(snapshot)};
         if(type === "runs")return [...runs.values()].filter(job=>job.workspace===workspace()).map(snapshot);
         if(type === "start")return start(payload.id);
+        if(type === "serverStart") {
+            const hint = require("./server-hints").parseServerHint(String(payload.text || ""));
+            if (!hint) throw new Error("Commande ou adresse locale ambiguë : utilise les Exécutions du projet.");
+            if(payload.workspace !== workspace()) throw new Error("Le projet ouvert a changé. Reviens au projet de cette réponse.");
+            return start("server:" + hint.key, hint);
+        }
         if(type === "stop")return stop(payload.id);
         if(type === "add"||type === "remove") {const op=mutation.then(()=>addTask(payload,type==="remove"));mutation=op.catch(()=>{});return op;}
         if(type === "clear") {for(const [id,job]of runs)if(job.status!=="running"&&job.workspace===workspace())runs.delete(id);return true;}

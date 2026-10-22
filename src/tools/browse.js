@@ -131,6 +131,12 @@ async function browse(args, deps = {}) {
     const browser = await launch();
     activeBrowsers.add(browser);
     const consoleMessages = [];
+    const networkErrors = [];
+    let networkErrorsTruncated = false;
+    const noteNetwork = entry => {
+        if (networkErrors.length < MAX_CONSOLE) networkErrors.push(entry);
+        else networkErrorsTruncated = true;
+    };
 
     const note = text => {
         if (consoleMessages.length < MAX_CONSOLE) consoleMessages.push(String(text).slice(0, 500));
@@ -142,9 +148,22 @@ async function browse(args, deps = {}) {
 
         page.on("console", message => {
             const type = message.type();
-            if (type === "error" || type === "warning") note(`[${type}] ${message.text()}`);
+            if (type === "error" || type === "warning") {
+                const location = message.location?.();
+                const source = location?.url ? ` (${location.url}:${(location.lineNumber ?? 0) + 1})` : "";
+                note(`[${type}] ${message.text()}${source}`);
+            }
         });
         page.on("pageerror", error => note(`[exception] ${firstLine(error.message)}`));
+        page.on("response", response => {
+            if (response.status() < 400) return;
+            const request = response.request();
+            noteNetwork({ url: response.url(), status: response.status(), method: request.method(), resource_type: request.resourceType() });
+        });
+        page.on("requestfailed", request => noteNetwork({
+            url: request.url(), method: request.method(), resource_type: request.resourceType(),
+            error: request.failure()?.errorText || "Requête interrompue"
+        }));
 
         let response;
         try {
@@ -180,6 +199,8 @@ async function browse(args, deps = {}) {
             content,
             truncated,
             console: consoleMessages,
+            network_errors: networkErrors,
+            network_errors_truncated: networkErrorsTruncated,
             changed: false,
             files_changed: [shot],
             message: `Capture enregistrée : ${shot}` +

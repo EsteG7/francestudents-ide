@@ -9,6 +9,7 @@ const state = {
     conversationSettings: { chat: null, agent: null },
     model: CONFIG.defaultAgentId,
     webSearch: false,
+    ecoMode: settings.load().ecoMode === true,
     automaticWeb: settings.load().automaticWeb !== false,
     agentPlan: [],
     private: true,

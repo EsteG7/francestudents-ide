@@ -1,5 +1,22 @@
 # Outils de l'agent (src/tools/)
 
+Les outils du catalogue sont exécutés dans l’application, via le registre local,
+avec les validations et permissions habituelles. Le protocole normal demande au
+modèle une action JSON dans le texte de sa réponse. Si le fournisseur émet malgré
+tout un appel natif (`function_call`), `src/api/local-tool-calls.js` reconstitue
+ses arguments et convertit le premier appel complet et valide en action JSON.
+Les outils inconnus et les appels incomplets ne sont jamais exécutés. Un rejet
+du dispatch serveur (« Unsupported tool ignored by the backend ») peut ainsi être
+récupéré sans contourner la validation locale. Si le modèle rapporte uniquement
+ce rejet dans sa réponse finale, l’agent lui rappelle le protocole une fois et
+reprend la tâche, sauf si un véritable refus ou échec local a déjà été reçu.
+
+`browse` fournit `network_errors` : URL, statut HTTP ou erreur réseau, méthode et
+type de ressource pour les requêtes en échec. La liste est limitée à 20 entrées ;
+`network_errors_truncated` signale un dépassement. Les erreurs console incluent
+leur URL source lorsqu’elle est disponible. Une 404 ne doit être attribuée au
+favicon que si l’URL observée le confirme.
+
 ## Organisation
 
 - `tools.js` : façade. Elle réexporte TOOLS, validateToolCall et describeCall, et définit summarizeResult, setProject, unsetProject et undoLast.

@@ -72,6 +72,7 @@ function renderEntry(e) {
             copy.type = "button"; copy.textContent = "Copier";
             copy.onclick = () => api.copyText(e.text).then(() => { copy.textContent = "Copié ✓"; }).catch(error => studioFeedback(error.message));
             actions.appendChild(copy); message.appendChild(actions);
+            attachServerControls(message, e.text);
             return message;
         }
         case "reason": {
@@ -131,6 +132,7 @@ function liveAppend(text) {
 }
 
 function liveEnd() {
+    if (ui.live && ui.liveText) attachServerControls(ui.live, ui.liveText);
     ui.live = null;
     ui.liveText = "";
 }

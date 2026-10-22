@@ -4,6 +4,13 @@ function applyStatus(s) {
     if (!s || typeof s !== "object") return;
     const wasBusy = Boolean(ui.status.busy);
     ui.status = s;
+    const ecoButton = $("eco-mode-toggle");
+    if (ecoButton) {
+        ecoButton.disabled = Boolean(s.busy);
+        ecoButton.setAttribute("aria-pressed", String(Boolean(s.ecoMode)));
+        ecoButton.textContent = s.ecoMode ? "Éco activé" : "Mode Éco";
+        ecoButton.title = s.ecoMode ? "Désactiver le mode Éco" : "Réduire la consommation avec des capacités limitées";
+    }
     const busy = Boolean(s.busy);
     $("settings-logout").disabled = !s.booted || busy;
     $("settings-account-status").textContent = !s.booted ? "Non connecté." : busy ? "Connecté · arrête la tâche avant de te déconnecter." : "Connecté à FranceStudent.";
@@ -107,14 +114,49 @@ function hideModelMenu() {
 
 function positionModelMenu(anchor) {
     const rect = anchor.getBoundingClientRect();
-    const width = Math.max(300, rect.width);
-    modelMenuEl.style.minWidth = `${width}px`;
+    const width = Math.min(modelMenuEl.dataset.kind === "history" ? 520 : Math.max(300, rect.width), window.innerWidth - 16);
+    modelMenuEl.style.minWidth = "0";
+    modelMenuEl.style.width = `${width}px`;
+    modelMenuEl.style.maxHeight = `${Math.max(0, window.innerHeight - 16)}px`;
     modelMenuEl.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
     modelMenuEl.style.top = `${rect.bottom + 6}px`;
     const menuRect = modelMenuEl.getBoundingClientRect();
     if (menuRect.bottom > window.innerHeight - 8) {
-        modelMenuEl.style.top = `${Math.max(8, rect.top - menuRect.height - 6)}px`;
+        modelMenuEl.style.top = `${Math.max(8, Math.min(rect.top - menuRect.height - 6, window.innerHeight - menuRect.height - 8))}px`;
     }
+}
+
+window.addEventListener("resize", () => {
+    if (!modelMenuEl.classList.contains("hidden")) positionModelMenu($(modelMenuEl.dataset.kind === "history" ? "btn-history" : "btn-model"));
+});
+
+const HISTORY_DELETE_CONFIRM_KEY = "frst.history.confirm-delete";
+function historyDeletionConfirmationEnabled() {
+    try { return localStorage.getItem(HISTORY_DELETE_CONFIRM_KEY) !== "off"; } catch { return true; }
+}
+
+function confirmHistoryDeletion(item) {
+    if (!historyDeletionConfirmationEnabled()) return Promise.resolve(true);
+    return new Promise(resolve => {
+        const dialog = document.createElement("dialog");
+        dialog.id = "history-delete-dialog";
+        dialog.className = "history-delete-dialog";
+        dialog.innerHTML = '<h2>Supprimer cette conversation ?</h2><p class="history-delete-title"></p><p>Elle sera retirée de l’historique local. Les fichiers du projet sont conservés.</p><label><input type="checkbox"> Ne plus demander avant de supprimer une conversation</label><div class="studio-actions"><button type="button" data-action="cancel">Annuler</button><button type="button" data-action="delete" class="danger">Supprimer</button></div>';
+        dialog.querySelector(".history-delete-title").textContent = item.title;
+        let confirmed = false;
+        dialog.querySelector('[data-action="cancel"]').onclick = () => dialog.close();
+        dialog.querySelector('[data-action="delete"]').onclick = () => {
+            confirmed = true;
+            if (dialog.querySelector("input").checked) {
+                try { localStorage.setItem(HISTORY_DELETE_CONFIRM_KEY, "off"); } catch { /* Confirmation remains enabled when storage is unavailable. */ }
+            }
+            dialog.close();
+        };
+        dialog.addEventListener("close", () => { dialog.remove(); resolve(confirmed); }, { once: true });
+        document.body.appendChild(dialog);
+        dialog.showModal();
+        dialog.querySelector('[data-action="cancel"]').focus();
+    });
 }
 
 /** Fournisseur d'un modèle d'après provider / nom / modèle : "claude", "gpt", "gemini" ou null. */
@@ -308,6 +350,16 @@ function renderHistoryMenu(items) {
 
     tools.append(search, label);
     modelMenuEl.appendChild(tools);
+    const confirmation = document.createElement("label");
+    confirmation.className = "history-confirm-setting";
+    const confirmationInput = document.createElement("input");
+    confirmationInput.type = "checkbox";
+    confirmationInput.checked = historyDeletionConfirmationEnabled();
+    confirmationInput.onchange = () => {
+        try { localStorage.setItem(HISTORY_DELETE_CONFIRM_KEY, confirmationInput.checked ? "on" : "off"); } catch { confirmationInput.checked = true; }
+    };
+    confirmation.append(confirmationInput, document.createTextNode(" Confirmer avant de supprimer"));
+    modelMenuEl.appendChild(confirmation);
 
     const list = document.createElement("div");
     list.className = "history-list";
@@ -385,22 +437,9 @@ function renderHistoryRow(item) {
     removeBtn.setAttribute("aria-label", "Supprimer la conversation de l'historique");
     removeBtn.onclick = async (e) => {
         e.stopPropagation();
-        if (removeBtn.dataset.confirm !== "1") {
-            // Deux clics pour supprimer : évite les suppressions accidentelles.
-            removeBtn.dataset.confirm = "1";
-            removeBtn.textContent = "Supprimer ?";
-            removeBtn.classList.add("danger");
-            setTimeout(() => {
-                if (removeBtn.isConnected && removeBtn.dataset.confirm === "1") {
-                    removeBtn.dataset.confirm = "";
-                    removeBtn.textContent = "✕";
-                    removeBtn.classList.remove("danger");
-                }
-            }, 3000);
-            return;
-        }
         removeBtn.disabled = true;
         try {
+            if (!await confirmHistoryDeletion(item)) { removeBtn.disabled = false; return; }
             await api.conversationsRemove(item.id);
             ui.historyItems = (ui.historyItems || []).filter((x) => x.id !== item.id);
             ui.historyItems.forEach((x, i) => {

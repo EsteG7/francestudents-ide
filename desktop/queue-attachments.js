@@ -4,7 +4,7 @@ function createAttachmentStore(queueFile){
     const directory=queueFile+".attachments";
     const target=id=>{if(!/^[a-f0-9-]{36}$/i.test(id))throw new Error("Identifiant de tâche invalide.");return path.join(directory,id+".json");};
     function write(id,list){
-        if(!Array.isArray(list)||list.length>10)throw new Error("Maximum 10 pièces jointes par demande.");
+        if(!Array.isArray(list))throw new Error("Liste de fichiers invalide.");
         const attachments=list.map(item=>{
             if(!item||!["image","file","text"].includes(item.kind)||typeof item.data!=="string")throw new Error("Pièce jointe invalide.");
             const size=Buffer.byteLength(item.data,"utf8");

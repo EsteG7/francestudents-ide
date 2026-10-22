@@ -48,7 +48,7 @@ Pour les pièces jointes du chat, une forte réduction ou compression affiche un
 
 Le suivi du travail passe par `update_plan`, visible dans Activité. Le contexte du projet, les onglets ouverts, les instructions de dépôt et `/compact` sont déjà disponibles. Les actions **Voir le contexte** et **Compacter la conversation** préparent les commandes correspondantes dans la saisie.
 
-La conversation se compacte également automatiquement entre deux appels au modèle, sans confirmation : un résumé conserve les consignes, décisions, fichiers, vérifications et travail restant, puis l’agent poursuit sa demande dans une nouvelle conversation serveur. Le fil affiché et les prompts en attente restent en place. Le service ne fournit pas la fenêtre exacte de chaque modèle : le seuil prudent est 80 % d’un budget estimé de 100 000 tokens (`FS_AUTO_COMPACT_TOKENS` pour l’ajuster). Les tokens d’entrée réels sont pris en compte lorsqu’ils sont fournis. Un refus explicite pour contexte trop long déclenche aussi une tentative de compaction. Si le résumé échoue, la conversation existante est conservée. Le suivi du volume est propre à la session de l’application ; `/compact` reste disponible manuellement.
+La conversation se compacte également automatiquement entre deux appels au modèle, sans confirmation : un résumé conserve les consignes, décisions, fichiers, vérifications et travail restant, puis l’agent poursuit sa demande dans une nouvelle conversation serveur. Le fil affiché et les prompts en attente restent en place. Le seuil s’adapte à la fenêtre du modèle sélectionné : environ 95 %, prochain message et réserve de réponse compris. Avant une compaction estimée, le pourcentage d’occupation réel fourni par le service est vérifié et peut annuler le déclenchement. Les tokens de contexte ne cumulent pas les coûts des relances ou des lots. `FS_AUTO_COMPACT_TOKENS` permet toujours de fixer un plafond explicite (par défaut : automatique). Les capacités des modèles et le fonctionnement sont détaillés dans [model-context.md](model-context.md). Un refus explicite pour contexte trop long déclenche aussi une tentative de compaction. Si le résumé échoue, la conversation existante est conservée. Le suivi du volume est propre à la session de l’application ; `/compact` reste disponible manuellement.
 
 ## Mises à jour de l’application installée
 
@@ -67,6 +67,8 @@ Pour une future livraison Windows :
 5. Vérifier une mise à jour réelle depuis une installation de la version précédente.
 
 Les métadonnées et le téléchargement réel n’ont pas été testés sur une release publique pendant ce développement ; les états du contrôleur sont testés avec un fournisseur simulé.
+
+Au démarrage, une version disponible reste affichée avec **Mettre à jour maintenant** et **Plus tard**. Le téléchargement ne démarre pas automatiquement pendant cette proposition. Après téléchargement, **Redémarrer et installer** enregistre les fichiers ouverts et demande l’installation ; les tâches en cours empêchent le redémarrage. Si tu continues dans l’IDE, le bouton **Mise à jour** de la barre supérieure permet de rouvrir cette proposition. En version portable, ce bouton dirige vers l’installateur de la release, sans tenter de remplacer le portable.
 
 ## Composants open source
 

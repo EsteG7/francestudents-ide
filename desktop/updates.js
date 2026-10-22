@@ -5,7 +5,7 @@ function createUpdateController({updater,enabled=false,version="",getPreference=
     const publish=patch=>{Object.assign(state,patch);onChange({...state});};
     state.canInstall=enabled;
     if(checkRelease){state.status="idle";state.message="Vérification des versions publiées disponible. Les mises à jour de la version portable restent manuelles.";}
-    let checking=null;
+    let checking=null,downloading=null;
     if(enabled&&updater){
         updater.autoDownload=state.automatic;updater.autoInstallOnAppQuit=state.automatic;
         updater.on("checking-for-update",()=>publish({status:"checking",message:"Recherche d’une nouvelle version…"}));
@@ -24,11 +24,15 @@ function createUpdateController({updater,enabled=false,version="",getPreference=
         }
         if(!enabled||!updater)return {...state};
         if(type==="check"){
-            if(!checking)checking=Promise.resolve().then(()=>updater.checkForUpdates()).catch(()=>publish({status:"error",message:"Impossible de vérifier la version publiée. Vérifie la connexion ou réessaie plus tard."})).finally(()=>{checking=null;});
+            if(["downloading","downloaded"].includes(state.status))return {...state};
+            if(!checking)checking=Promise.resolve().then(()=>{if(payload.startup)updater.autoDownload=false;return updater.checkForUpdates();}).catch(()=>publish({status:"error",message:"Impossible de vérifier la version publiée. Vérifie la connexion ou réessaie plus tard."})).finally(()=>{updater.autoDownload=state.automatic;checking=null;});
             await checking;
         }else if(type==="download"){
+            if(downloading||state.status==="downloading"||state.status==="downloaded")return {...state};
             if(state.status!=="available")throw new Error("Aucune mise à jour disponible à télécharger.");
-            await updater.downloadUpdate();
+            publish({status:"downloading",progress:0,message:"Téléchargement de la mise à jour…"});
+            downloading=Promise.resolve().then(()=>updater.downloadUpdate()).catch(()=>publish({status:"error",message:"Le téléchargement a échoué. Réessaie ou continue sans mettre à jour."})).finally(()=>{downloading=null;});
+            await downloading;
         }else if(type==="install"){
             if(state.status!=="downloaded")throw new Error("Télécharge d’abord la mise à jour.");
             updater.quitAndInstall(false,true);

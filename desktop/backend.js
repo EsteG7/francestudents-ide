@@ -304,6 +304,7 @@ function createDesktopBackend(send) {
             }
             return {
                 mode: state.mode,
+                ecoMode: Boolean(state.ecoMode),
                 model: agentName(),
                 modelId: state.model,
                 workspace: state.workspace,

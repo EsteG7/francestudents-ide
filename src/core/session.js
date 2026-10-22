@@ -84,7 +84,7 @@ async function handleInput(rawInput, { onChatDelta, sendChat, preferAgent = fals
 
     const wantsAgent =
         (Boolean(state.workspace) && (forceAgent || (state.mode !== "chat" && preferAgent))) ||
-        (preferAgent && state.mode !== "chat" && state.automaticWeb);
+        (preferAgent && state.mode !== "chat" && state.automaticWeb && !state.ecoMode);
 
     if (wantsAgent || router.shouldUseAgent(input)) {
         const outcome = await agent.runAgent(input, { shouldStop, drainSteering });

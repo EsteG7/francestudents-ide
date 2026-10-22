@@ -8,7 +8,7 @@ const path = require("node:path");
 
 const browseTool = require("../src/tools/browse");
 
-function fakeBrowser({ text = "Bonjour\n\n\n\nMonde", status = 200, consoleErrors = [] } = {}) {
+function fakeBrowser({ text = "Bonjour\n\n\n\nMonde", status = 200, consoleErrors = [], consoleUrl = "", network = [] } = {}) {
     const calls = { closed: false, screenshot: null, viewport: null };
     const browser = {
         async newContext(options) {
@@ -20,7 +20,12 @@ function fakeBrowser({ text = "Bonjour\n\n\n\nMonde", status = 200, consoleError
                         on(event, handler) { handlers[event] = handler; },
                         async goto(url) {
                             for (const msg of consoleErrors) {
-                                handlers.console?.({ type: () => "error", text: () => msg });
+                                handlers.console?.({ type: () => "error", text: () => msg, location: () => ({ url: consoleUrl, lineNumber: 3 }) });
+                            }
+                            for (const entry of network) {
+                                const request = { url: () => entry.url, method: () => "GET", resourceType: () => "stylesheet", failure: () => ({ errorText: entry.error }) };
+                                if (entry.error) handlers.requestfailed?.(request);
+                                else handlers.response?.({ url: () => entry.url, status: () => entry.status, request: () => request });
                             }
                             this._url = url;
                             return { status: () => status };
@@ -131,4 +136,23 @@ test("launchBrowser essaie les navigateurs puis donne une erreur claire", async 
 
     const none = { async launch() { throw new Error("absent"); } };
     await assert.rejects(() => browseTool.launchBrowser(none, {}), /FS_BROWSER_PATH/);
+});
+
+test("browse identifies failing resource URLs instead of guessing favicon", async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "browse-network-"));
+    const { browser } = fakeBrowser({
+        consoleErrors: ["Failed to load resource: 404"], consoleUrl: "http://localhost:5173/style.css",
+        network: [{ url: "http://localhost:5173/style.css", status: 404 },
+            { url: "http://localhost:5173/working.js", status: 200 },
+            { url: "http://localhost:5173/api", error: "net::ERR_CONNECTION_RESET" }]
+    });
+    try {
+        const result = await browseTool.browse({ url: "http://localhost:5173" }, { workspace, confirm: async () => true, launch: async () => browser });
+        assert.match(result.console[0], /style\.css:4/);
+        assert.deepEqual(result.network_errors, [
+            { url: "http://localhost:5173/style.css", status: 404, method: "GET", resource_type: "stylesheet" },
+            { url: "http://localhost:5173/api", method: "GET", resource_type: "stylesheet", error: "net::ERR_CONNECTION_RESET" }
+        ]);
+        assert.equal(result.network_errors_truncated, false);
+    } finally { await fs.rm(workspace, { recursive: true, force: true }); }
 });

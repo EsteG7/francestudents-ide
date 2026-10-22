@@ -622,6 +622,7 @@ function renderEntry(e) {
             copy.type = "button"; copy.textContent = "Copier";
             copy.onclick = () => api.copyText(e.text).then(() => { copy.textContent = "Copié ✓"; }).catch(error => studioFeedback(error.message));
             actions.appendChild(copy); message.appendChild(actions);
+            attachServerControls(message, e.text);
             return message;
         }
         case "reason": {
@@ -681,6 +682,7 @@ function liveAppend(text) {
 }
 
 function liveEnd() {
+    if (ui.live && ui.liveText) attachServerControls(ui.live, ui.liveText);
     ui.live = null;
     ui.liveText = "";
 }
@@ -784,6 +786,13 @@ function applyStatus(s) {
     if (!s || typeof s !== "object") return;
     const wasBusy = Boolean(ui.status.busy);
     ui.status = s;
+    const ecoButton = $("eco-mode-toggle");
+    if (ecoButton) {
+        ecoButton.disabled = Boolean(s.busy);
+        ecoButton.setAttribute("aria-pressed", String(Boolean(s.ecoMode)));
+        ecoButton.textContent = s.ecoMode ? "Éco activé" : "Mode Éco";
+        ecoButton.title = s.ecoMode ? "Désactiver le mode Éco" : "Réduire la consommation avec des capacités limitées";
+    }
     const busy = Boolean(s.busy);
     $("settings-logout").disabled = !s.booted || busy;
     $("settings-account-status").textContent = !s.booted ? "Non connecté." : busy ? "Connecté · arrête la tâche avant de te déconnecter." : "Connecté à FranceStudent.";
@@ -887,14 +896,49 @@ function hideModelMenu() {
 
 function positionModelMenu(anchor) {
     const rect = anchor.getBoundingClientRect();
-    const width = Math.max(300, rect.width);
-    modelMenuEl.style.minWidth = `${width}px`;
+    const width = Math.min(modelMenuEl.dataset.kind === "history" ? 520 : Math.max(300, rect.width), window.innerWidth - 16);
+    modelMenuEl.style.minWidth = "0";
+    modelMenuEl.style.width = `${width}px`;
+    modelMenuEl.style.maxHeight = `${Math.max(0, window.innerHeight - 16)}px`;
     modelMenuEl.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
     modelMenuEl.style.top = `${rect.bottom + 6}px`;
     const menuRect = modelMenuEl.getBoundingClientRect();
     if (menuRect.bottom > window.innerHeight - 8) {
-        modelMenuEl.style.top = `${Math.max(8, rect.top - menuRect.height - 6)}px`;
+        modelMenuEl.style.top = `${Math.max(8, Math.min(rect.top - menuRect.height - 6, window.innerHeight - menuRect.height - 8))}px`;
     }
+}
+
+window.addEventListener("resize", () => {
+    if (!modelMenuEl.classList.contains("hidden")) positionModelMenu($(modelMenuEl.dataset.kind === "history" ? "btn-history" : "btn-model"));
+});
+
+const HISTORY_DELETE_CONFIRM_KEY = "frst.history.confirm-delete";
+function historyDeletionConfirmationEnabled() {
+    try { return localStorage.getItem(HISTORY_DELETE_CONFIRM_KEY) !== "off"; } catch { return true; }
+}
+
+function confirmHistoryDeletion(item) {
+    if (!historyDeletionConfirmationEnabled()) return Promise.resolve(true);
+    return new Promise(resolve => {
+        const dialog = document.createElement("dialog");
+        dialog.id = "history-delete-dialog";
+        dialog.className = "history-delete-dialog";
+        dialog.innerHTML = '<h2>Supprimer cette conversation ?</h2><p class="history-delete-title"></p><p>Elle sera retirée de l’historique local. Les fichiers du projet sont conservés.</p><label><input type="checkbox"> Ne plus demander avant de supprimer une conversation</label><div class="studio-actions"><button type="button" data-action="cancel">Annuler</button><button type="button" data-action="delete" class="danger">Supprimer</button></div>';
+        dialog.querySelector(".history-delete-title").textContent = item.title;
+        let confirmed = false;
+        dialog.querySelector('[data-action="cancel"]').onclick = () => dialog.close();
+        dialog.querySelector('[data-action="delete"]').onclick = () => {
+            confirmed = true;
+            if (dialog.querySelector("input").checked) {
+                try { localStorage.setItem(HISTORY_DELETE_CONFIRM_KEY, "off"); } catch { /* Confirmation remains enabled when storage is unavailable. */ }
+            }
+            dialog.close();
+        };
+        dialog.addEventListener("close", () => { dialog.remove(); resolve(confirmed); }, { once: true });
+        document.body.appendChild(dialog);
+        dialog.showModal();
+        dialog.querySelector('[data-action="cancel"]').focus();
+    });
 }
 
 /** Fournisseur d'un modèle d'après provider / nom / modèle : "claude", "gpt", "gemini" ou null. */
@@ -1088,6 +1132,16 @@ function renderHistoryMenu(items) {
 
     tools.append(search, label);
     modelMenuEl.appendChild(tools);
+    const confirmation = document.createElement("label");
+    confirmation.className = "history-confirm-setting";
+    const confirmationInput = document.createElement("input");
+    confirmationInput.type = "checkbox";
+    confirmationInput.checked = historyDeletionConfirmationEnabled();
+    confirmationInput.onchange = () => {
+        try { localStorage.setItem(HISTORY_DELETE_CONFIRM_KEY, confirmationInput.checked ? "on" : "off"); } catch { confirmationInput.checked = true; }
+    };
+    confirmation.append(confirmationInput, document.createTextNode(" Confirmer avant de supprimer"));
+    modelMenuEl.appendChild(confirmation);
 
     const list = document.createElement("div");
     list.className = "history-list";
@@ -1165,22 +1219,9 @@ function renderHistoryRow(item) {
     removeBtn.setAttribute("aria-label", "Supprimer la conversation de l'historique");
     removeBtn.onclick = async (e) => {
         e.stopPropagation();
-        if (removeBtn.dataset.confirm !== "1") {
-            // Deux clics pour supprimer : évite les suppressions accidentelles.
-            removeBtn.dataset.confirm = "1";
-            removeBtn.textContent = "Supprimer ?";
-            removeBtn.classList.add("danger");
-            setTimeout(() => {
-                if (removeBtn.isConnected && removeBtn.dataset.confirm === "1") {
-                    removeBtn.dataset.confirm = "";
-                    removeBtn.textContent = "✕";
-                    removeBtn.classList.remove("danger");
-                }
-            }, 3000);
-            return;
-        }
         removeBtn.disabled = true;
         try {
+            if (!await confirmHistoryDeletion(item)) { removeBtn.disabled = false; return; }
             await api.conversationsRemove(item.id);
             ui.historyItems = (ui.historyItems || []).filter((x) => x.id !== item.id);
             ui.historyItems.forEach((x, i) => {
@@ -2037,11 +2078,16 @@ code.addEventListener("input", () => {
 
 /* ---------- Pièces jointes (fichiers / images) ---------- */
 
-const MAX_ATTACHMENTS = 10;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const MAX_TEXT_BYTES = 1024 * 1024;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const ATTACHMENT_QUOTA_WARNING_COUNT = 5;
 let pendingAttachments = [];
+const attachmentQuotaWarning = document.createElement("p");
+attachmentQuotaWarning.id = "attachment-quota-warning";
+attachmentQuotaWarning.className = "attachment-quota-warning hidden";
+attachmentQuotaWarning.setAttribute("role", "status");
+attachmentQuotaWarning.setAttribute("aria-live", "polite");
+$("attachments").after(attachmentQuotaWarning);
 
 /* Extensions binaires connues -> type MIME (utilisé si le navigateur n'en fournit pas). */
 const BINARY_TYPES = {
@@ -2083,15 +2129,6 @@ function fileExtension(name) {
     return match ? match[1].toLowerCase() : "";
 }
 
-/** true pour les PDF, documents Office, archives, médias… (à ne pas lire comme du texte). */
-function isBinaryFile(file, name) {
-    if (Object.prototype.hasOwnProperty.call(BINARY_TYPES, fileExtension(name))) return true;
-    const type = String(file.type || "").toLowerCase();
-    if (!type || type.startsWith("text/")) return false;
-    if (/(json|xml|javascript|ecmascript|x-sh|x-python|yaml|toml|sql|csv)/.test(type)) return false;
-    return /^(application|audio|video|font|image)\//.test(type);
-}
-
 /** Fichier quelconque -> pièce jointe { kind: "file" } en data URL base64 avec un type MIME. */
 async function prepareFile(file, name) {
     if (file.size > MAX_FILE_BYTES) {
@@ -2127,6 +2164,11 @@ function readAsDataUrl(file) {
 
 function renderAttachments() {
     const box = $("attachments");
+    const manyFiles = pendingAttachments.length >= ATTACHMENT_QUOTA_WARNING_COUNT;
+    attachmentQuotaWarning.classList.toggle("hidden", !manyFiles);
+    attachmentQuotaWarning.textContent = manyFiles
+        ? `⚠ ${pendingAttachments.length} fichiers joints : leur analyse risque de consommer énormément de quota, notamment si les documents contiennent beaucoup de pages ou nécessitent plusieurs envois. Retire les fichiers inutiles avant d’envoyer.`
+        : "";
     box.replaceChildren();
     box.classList.toggle("hidden", pendingAttachments.length === 0);
     pendingAttachments.forEach((item, index) => {
@@ -2225,16 +2267,14 @@ async function prepareImage(file,details={}) {
 
 async function addAttachments(fileList) {
     for (const file of Array.from(fileList || [])) {
-        if (pendingAttachments.length >= MAX_ATTACHMENTS) {
-            renderEntry({ type: "error", text: `Maximum ${MAX_ATTACHMENTS} pièces jointes par message.` });
-            break;
-        }
         const name = file.name || (file.type.startsWith("image/") ? "image-collée.png" : "fichier");
         // Même fichier ajouté deux fois (double glisser-déposer, re-sélection) : ignoré.
         if (pendingAttachments.some((a) => a.name === name && a.size === file.size)) continue;
         try {
             if (file.size === 0) throw new Error("fichier vide");
-            if (file.type.startsWith("image/")) {
+            // Keep SVG source as well as its raster preview. Decode document
+            // encodings in the backend instead of losing bytes with File.text().
+            if (file.type.startsWith("image/") && !["image/svg+xml", "image/gif", "image/tiff"].includes(file.type) && !["svg", "gif", "tif", "tiff"].includes(fileExtension(name))) {
                 try {
                     const details={};
                     const data=await prepareImage(file,details);
@@ -2247,14 +2287,8 @@ async function addAttachments(fileList) {
                 pendingAttachments.push(await prepareFile(file, name));
                 continue;
             }
-            if (!isBinaryFile(file, name) && file.size <= MAX_TEXT_BYTES) {
-                const data = await file.text();
-                if (!data.includes("\u0000")) {
-                    pendingAttachments.push({ name, kind: "text", size: file.size, data });
-                    continue;
-                }
-            }
-            // PDF, Office, archives, autres binaires : envoyés tels quels (Files v2).
+            // Documents are converted locally when sending, via the same path
+            // for file selection, paste, drag and drop, and queued requests.
             pendingAttachments.push(await prepareFile(file, name));
         } catch (err) {
             renderEntry({ type: "error", text: `${name} : ${err.message || err}` });
@@ -2427,23 +2461,63 @@ input.addEventListener("paste", (ev) => {
     ev.preventDefault();
     addAttachments(files);
 });
-$("composer").addEventListener("dragover", (ev) => {
-    if (!ev.dataTransfer || !Array.from(ev.dataTransfer.types || []).includes("Files")) return;
+const attachmentDropZone = $("agent");
+const attachmentDropHint = document.createElement("div");
+attachmentDropHint.className = "attachment-drop-hint hidden";
+attachmentDropHint.setAttribute("role", "status");
+attachmentDropHint.textContent = "Déposez vos fichiers pour les joindre";
+attachmentDropZone.appendChild(attachmentDropHint);
+
+function isFileDrag(ev) {
+    return Array.from(ev.dataTransfer?.types || []).includes("Files") || Boolean(ev.dataTransfer?.files?.length);
+}
+function showAttachmentDrop(active) {
+    attachmentDropZone.classList.toggle("drag-over", active);
+    $("composer").classList.toggle("drag-over", active);
+    attachmentDropHint.classList.toggle("hidden", !active);
+}
+attachmentDropZone.addEventListener("dragenter", (ev) => {
+    if (!isFileDrag(ev)) return;
     ev.preventDefault();
-    $("composer").classList.add("drag-over");
+    showAttachmentDrop(true);
 });
-$("composer").addEventListener("dragleave", (ev) => {
-    // Ignorer les passages d'un enfant à l'autre du composer (sinon la surbrillance clignote).
-    if (ev.relatedTarget && $("composer").contains(ev.relatedTarget)) return;
-    $("composer").classList.remove("drag-over");
-});
-$("composer").addEventListener("drop", (ev) => {
-    $("composer").classList.remove("drag-over");
-    const files = ev.dataTransfer?.files;
-    if (!files || !files.length) return;
+attachmentDropZone.addEventListener("dragover", (ev) => {
+    if (!isFileDrag(ev)) return;
     ev.preventDefault();
-    addAttachments(files);
+    ev.dataTransfer.dropEffect = "copy";
+    showAttachmentDrop(true);
 });
+attachmentDropZone.addEventListener("dragleave", (ev) => {
+    if (ev.relatedTarget && attachmentDropZone.contains(ev.relatedTarget)) return;
+    showAttachmentDrop(false);
+});
+attachmentDropZone.addEventListener("drop", async (ev) => {
+    showAttachmentDrop(false);
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    const files = Array.from(ev.dataTransfer.files || []);
+    if (!files.length) return;
+    await addAttachments(files);
+    input.focus();
+});
+// Prevent Chromium from navigating to a file dropped outside the conversation.
+document.addEventListener("dragover", (ev) => {
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    if (!attachmentDropZone.contains(ev.target)) {
+        ev.dataTransfer.dropEffect = "none";
+        showAttachmentDrop(false);
+    }
+});
+document.addEventListener("drop", (ev) => {
+    if (isFileDrag(ev)) ev.preventDefault();
+    showAttachmentDrop(false);
+});
+document.addEventListener("dragleave", (ev) => {
+    if (!ev.relatedTarget) showAttachmentDrop(false);
+});
+document.addEventListener("dragend", () => showAttachmentDrop(false));
+window.addEventListener("blur", () => showAttachmentDrop(false));
 
 /* ---------- Contexte choisi par l'utilisateur : @fichier épinglé ---------- */
 
@@ -7104,24 +7178,67 @@ for(const [index,button] of [...document.querySelectorAll(".starter-prompts butt
 /* A bounded startup check; downloads continue without blocking the editor. */
 async function runStartupUpdateCheck() {
     const overlay=$("startup-loading"),message=$("startup-message"),appRoot=$("app");
-    let finished=false,deadline=null,finishTimer=null;
+    const primary=$("startup-update-now"),progress=$("startup-update-progress"),later=$("startup-continue"),openButton=$("startup-update-open");
+    let finished=false,deadline=null,finishTimer=null,current=null,off=null;
     appRoot.inert=true;
     const close=()=>{if(finished)return;finished=true;clearTimeout(deadline);clearTimeout(finishTimer);overlay.hidden=true;appRoot.inert=false;if(overlay.contains(document.activeElement))input.focus();};
-    $("startup-continue").onclick=close;
-    $("startup-continue").focus();
+    const offer=data=>{
+        current=data;
+        const available=["available","downloading","downloaded"].includes(data.status);
+        openButton.classList.toggle("hidden",!available);
+        if(finished)return;
+        overlay.querySelector(".startup-track").classList.toggle("hidden",data.status!=="checking");
+        if(available){
+            clearTimeout(deadline);clearTimeout(finishTimer);
+            $("startup-heading").textContent=data.status==="downloaded"?"La mise à jour est prête.":`Nouvelle version ${data.availableVersion||"disponible"}`;
+            later.textContent="Plus tard";
+            primary.classList.remove("hidden");
+            primary.textContent=data.canInstall===false?"Télécharger l’installateur":data.status==="downloaded"?"Redémarrer et installer":data.status==="downloading"?"Téléchargement en cours…":"Mettre à jour maintenant";
+            primary.disabled=data.status==="downloading";
+            progress.classList.toggle("hidden",data.status!=="downloading");progress.value=data.progress||0;
+            message.textContent=data.status==="downloading"?`Téléchargement : ${Math.round(data.progress||0)} %`:
+                data.status==="downloaded"?"Enregistre ton travail pour redémarrer et installer la nouvelle version.":data.canInstall===false?"Cette version portable ne s’installe pas automatiquement. Télécharge l’installateur Windows pour passer à la nouvelle version.":"La nouvelle version est disponible. Tu peux l’installer maintenant ou continuer dans l’IDE.";
+        }else if(data.status==="error"){
+            message.textContent=data.message;progress.classList.add("hidden");primary.classList.remove("hidden");primary.disabled=false;primary.textContent="Réessayer";later.textContent="Ouvrir l’IDE";
+        }else if(["current","unavailable"].includes(data.status)){
+            message.textContent=data.message;primary.classList.add("hidden");progress.classList.add("hidden");
+            clearTimeout(finishTimer);finishTimer=setTimeout(close,650);
+        }
+    };
+    later.onclick=close;later.focus();
+    openButton.onclick=()=>{finished=false;overlay.hidden=false;appRoot.inert=true;offer(current);primary.focus();};
+    off=api.onEvent((channel,data)=>{if(channel==="appUpdate")offer(data);});
+    window.addEventListener("unload",()=>off?.(),{once:true});
+    primary.onclick=async()=>{
+        primary.disabled=true;
+        try{
+            if(current?.canInstall===false){await api.openExternal("https://github.com/extraopaa/francestudents-ide/releases/latest");close();return;}
+            if(current?.status==="downloaded"){
+                await saveAllStudioFiles();
+                if(ui.tabs.some(tab=>tab.dirty))throw new Error("Enregistre tes fichiers avant de redémarrer.");
+                await api.updates("install");return;
+            }
+            if(current?.status==="error"){offer(await api.updates("check",{startup:true}));return;}
+            offer(await api.updates("download"));
+        }catch(error){message.textContent=error.message;}
+        finally{primary.disabled=current?.status==="downloading";}
+    };
     const start=Date.now();
     try {
         const result=await Promise.race([
-            api.updates("check"),
+            api.updates("check",{startup:true}),
             new Promise(resolve=>{deadline=setTimeout(()=>resolve({status:"timeout",message:"La vérification continue en arrière-plan. Ouverture de l’IDE…"}),8000);})
         ]);
         if(finished)return;
+        if(["available","downloading","downloaded"].includes(current?.status))return;
+        if(["available","downloading","downloaded"].includes(result.status)){offer(result);return;}
+        current=result;
         message.textContent=result.status==="unavailable"?"Mode développement : ouverture de l’IDE…":result.message;
     } catch {
         if(!finished)message.textContent="Vérification indisponible. Ouverture de l’IDE…";
     } finally {
         clearTimeout(deadline);
-        if(!finished)finishTimer=setTimeout(close,Math.max(650,1100-(Date.now()-start)));
+        if(!finished&&!["available","downloading","downloaded"].includes(current?.status))finishTimer=setTimeout(close,Math.max(650,1100-(Date.now()-start)));
     }
 }
 runStartupUpdateCheck().catch(()=>{$("startup-loading").hidden=true;$("app").inert=false;});
@@ -7195,6 +7312,222 @@ document.addEventListener("click",event=>{
     const link=event.target.closest("a[href]");if(!link)return;
     try{const url=new URL(link.href);if(["http:","https:"].includes(url.protocol)&&["localhost","127.0.0.1"].includes(url.hostname)){event.preventDefault();event.stopImmediatePropagation();openLocalBrowser(url.href);}}catch{/* not a URL */}
 },true);
+/* ---------- Reprise d’une conversation Codex · Bêta ---------- */
+const conversationImportButton = document.createElement("button");
+conversationImportButton.type = "button";
+conversationImportButton.id = "conversation-import";
+conversationImportButton.textContent = "Importer Codex · Bêta";
+conversationImportButton.title = "Continuer une conversation Codex avec une IA FranceStudent";
+$("conversation-export").after(conversationImportButton);
+
+const conversationImportDialog = document.createElement("dialog");
+conversationImportDialog.id = "conversation-import-dialog";
+conversationImportDialog.className = "conversation-import-dialog";
+conversationImportDialog.setAttribute("aria-labelledby", "conversation-import-title");
+conversationImportDialog.innerHTML = `<h2 id="conversation-import-title">Continuer une conversation Codex <small>Bêta</small></h2>
+<p>Ouvre le même projet dans FranceStudent, importe le contexte de ta conversation puis choisis l’IA avec laquelle continuer. Aucun fichier du projet n’est importé ou modifié.</p>
+<p id="conversation-import-project" class="settings-help"></p><button type="button" id="conversation-import-open-project">Ouvrir le dossier du projet</button>
+<label>Lien de partage Codex<input id="conversation-import-url" type="url" placeholder="https://chatgpt.com/share/…" autocomplete="off"></label>
+<p class="settings-help">Un lien privé peut être inaccessible. Tu peux aussi utiliser /export dans Codex, sélectionner un export Markdown, JSON ou JSONL, ou coller le texte.</p>
+<div class="studio-actions"><button type="button" id="conversation-import-file">Choisir un export…</button><span id="conversation-import-source" class="settings-help"></span></div>
+<label>Ou coller la conversation / l’export<textarea id="conversation-import-text" rows="5" placeholder="Colle ici le texte ou le JSON de la conversation…"></textarea></label>
+<div class="studio-actions"><button type="button" id="conversation-import-preview">Analyser la conversation</button></div>
+<p id="conversation-import-status" role="status"></p><ul id="conversation-import-warnings" class="settings-help"></ul>
+<details id="conversation-import-result" class="hidden"><summary>Aperçu du début et de la fin de la conversation</summary><pre id="conversation-import-excerpt"></pre></details>
+<div class="conversation-import-choices"><label>IA pour continuer<select id="conversation-import-model"></select></label><label>Mode<select id="conversation-import-mode"><option value="agent">Agent sur le projet ouvert</option><option value="chat">Discussion</option></select></label></div>
+<p class="settings-help">Préparer la reprise crée une nouvelle conversation et joint le contexte au brouillon. Tu peux modifier ta demande avant de l’envoyer. Les images et pièces jointes d’origine ne sont pas transférées automatiquement.</p>
+<div class="studio-actions"><button type="button" id="conversation-import-close">Annuler</button><button type="button" id="conversation-import-apply" class="primary" disabled>Préparer la reprise</button></div>`;
+document.body.appendChild(conversationImportDialog);
+let conversationImportPreview = null;
+let conversationImportSequence = 0;
+let conversationImportWorking = false;
+
+function conversationImportControls(working) {
+    conversationImportWorking = working;
+    for (const id of ["url", "text", "file", "preview", "model", "mode", "open-project"]) $("conversation-import-" + id).disabled = working;
+    $("conversation-import-apply").disabled = working || !conversationImportPreview || !$("conversation-import-model").value;
+}
+function invalidateConversationImport() {
+    conversationImportPreview = null;
+    $("conversation-import-result").classList.add("hidden");
+    $("conversation-import-warnings").replaceChildren();
+    $("conversation-import-status").textContent = "";
+    conversationImportControls(false);
+}
+function renderConversationImportPreview(result) {
+    conversationImportPreview = result;
+    $("conversation-import-source").textContent = result.source;
+    $("conversation-import-status").textContent = `${result.messageCount} message(s) · ${result.chars.toLocaleString("fr-FR")} caractères. Vérifie l’aperçu avant de préparer la reprise.`;
+    const warnings = $("conversation-import-warnings"); warnings.replaceChildren();
+    for (const warning of result.warnings) { const item = document.createElement("li"); item.textContent = warning; warnings.appendChild(item); }
+    $("conversation-import-excerpt").textContent = result.excerpt.map(message => `${message.role === "user" ? "Vous" : message.role === "assistant" ? "Codex" : "Contexte"}\n${message.text}`).join("\n\n──────────\n\n");
+    $("conversation-import-result").classList.remove("hidden");
+    $("conversation-import-result").open = true;
+}
+async function analyzeConversationImport(action, payload) {
+    if (conversationImportWorking) return;
+    const sequence = ++conversationImportSequence;
+    invalidateConversationImport(); conversationImportControls(true);
+    $("conversation-import-status").textContent = "Lecture de la conversation…";
+    try {
+        const result = await api.importConversation(action, payload);
+        if (sequence !== conversationImportSequence) return;
+        if (result.canceled) { $("conversation-import-status").textContent = "Sélection annulée."; return; }
+        if (action === "file") { $("conversation-import-url").value = ""; $("conversation-import-text").value = ""; }
+        renderConversationImportPreview(result);
+    } catch (error) {
+        if (sequence === conversationImportSequence) $("conversation-import-status").textContent = error.message;
+    } finally { if (sequence === conversationImportSequence) conversationImportControls(false); }
+}
+
+conversationImportButton.onclick = async () => {
+    if (ui.status.busy) { studioFeedback("Attends la fin de la tâche avant d’importer une conversation."); return; }
+    $("conversation-import-project").textContent = `Projet ouvert : ${ui.workspace || "aucun — ouvre le dossier correspondant pour poursuivre le code"}`;
+    $("conversation-import-mode").value = ui.status.mode === "chat" ? "chat" : "agent";
+    conversationImportDialog.showModal();
+    const sequence = ++conversationImportSequence;
+    conversationImportControls(true);
+    try {
+        const data = await api.models();
+        if (sequence !== conversationImportSequence) return;
+        const select = $("conversation-import-model"); select.replaceChildren();
+        for (const model of data.agents || []) { const option = document.createElement("option"); option.value = model.id; option.textContent = model.name; select.appendChild(option); }
+        select.value = String(ui.currentModelId ?? data.current);
+        if (!select.value && select.options.length) select.selectedIndex = 0;
+    } catch (error) { $("conversation-import-status").textContent = error.message; }
+    finally { if (sequence === conversationImportSequence) conversationImportControls(false); }
+};
+$("conversation-import-url").addEventListener("input", invalidateConversationImport);
+$("conversation-import-text").addEventListener("input", invalidateConversationImport);
+$("conversation-import-file").onclick = () => analyzeConversationImport("file");
+$("conversation-import-preview").onclick = () => {
+    const url = $("conversation-import-url").value.trim(), content = $("conversation-import-text").value.trim();
+    if (!url && !content) { $("conversation-import-status").textContent = "Colle un lien ou une conversation, ou choisis un export."; return; }
+    analyzeConversationImport("preview", url ? { url } : { content });
+};
+$("conversation-import-open-project").onclick = async () => {
+    try { const workspace = await api.openProject(); if (workspace) $("conversation-import-project").textContent = `Projet ouvert : ${workspace}`; }
+    catch (error) { $("conversation-import-status").textContent = error.message; }
+};
+$("conversation-import-close").onclick = () => conversationImportDialog.close();
+conversationImportDialog.addEventListener("close", () => { conversationImportSequence++; conversationImportControls(false); });
+$("conversation-import-apply").onclick = async () => {
+    if (!conversationImportPreview || conversationImportWorking) return;
+    conversationImportControls(true);
+    try {
+        const result = await api.importConversation("apply", { token: conversationImportPreview.token,
+            modelId: Number($("conversation-import-model").value), mode: $("conversation-import-mode").value });
+        pendingAttachments.push(result.attachment);
+        input.value = input.value.trim() ? input.value + "\n\n" + result.prompt : result.prompt;
+        renderAttachments(); saveStudioDraft(); autosizeInput(); setAgentTab("conversation");
+        conversationImportPreview = null;
+        conversationImportDialog.close();
+        input.focus();
+        studioFeedback("Conversation Codex importée. Modifie ta demande si nécessaire, puis clique sur Envoyer pour continuer.");
+    } catch (error) { $("conversation-import-status").textContent = error.message; }
+    finally { conversationImportControls(false); }
+};
+/* ---------- Mode Éco ---------- */
+const ecoModeButton = document.createElement("button");
+ecoModeButton.id = "eco-mode-toggle";
+ecoModeButton.type = "button";
+ecoModeButton.textContent = "Mode Éco";
+ecoModeButton.setAttribute("aria-pressed", "false");
+$("conversation-import").after(ecoModeButton);
+
+const ecoModeDialog = document.createElement("dialog");
+ecoModeDialog.id = "eco-mode-dialog";
+ecoModeDialog.className = "history-delete-dialog";
+ecoModeDialog.setAttribute("aria-labelledby", "eco-mode-title");
+ecoModeDialog.innerHTML = `<h2 id="eco-mode-title">Activer le mode Éco ?</h2>
+<p>Ce mode vise à réduire la consommation de quota, avec des capacités limitées :</p>
+<ul><li>Agent limité à 4 tours par demande : les tâches longues peuvent rester incomplètes.</li>
+<li>Contexte projet ajouté automatiquement limité à 20 000 caractères. L’IA peut manquer certains éléments et doit lire les fichiers nécessaires.</li>
+<li>Pas de sous-agents ni de nouvelle tentative automatique en cas de réponse d’outil invalide.</li>
+<li>Recherche web intégrée désactivée et réponses demandées plus concises.</li></ul>
+<p>Le modèle sélectionné reste le même. Ce mode ne garantit pas un quota fixe : l’historique existant, les fichiers, leurs pages et les relances réseau peuvent toujours coûter cher. Aucune pièce jointe n’est supprimée.</p>
+<p>Le choix est mémorisé pour les prochaines demandes. Tu peux le désactiver à tout moment hors exécution.</p>
+<p id="eco-mode-error" role="status"></p>
+<div class="studio-actions"><button type="button" id="eco-mode-cancel">Annuler</button><button type="button" id="eco-mode-enable">Activer avec ces limites</button></div>`;
+document.body.appendChild(ecoModeDialog);
+async function setEcoModeEnabled(enabled) {
+    ecoModeButton.disabled = true;
+    try { await api.setEcoMode(enabled); applyStatus(await api.status()); }
+    finally { ecoModeButton.disabled = Boolean(ui.status.busy); }
+}
+ecoModeButton.onclick = async () => {
+    if (ui.status.busy) return;
+    if (ui.status.ecoMode) {
+        try { await setEcoModeEnabled(false); }
+        catch (error) { studioFeedback(error.message); }
+        return;
+    }
+    $("eco-mode-error").textContent = "";
+    ecoModeDialog.showModal();
+    $("eco-mode-cancel").focus();
+};
+$("eco-mode-cancel").onclick = () => ecoModeDialog.close();
+$("eco-mode-enable").onclick = async () => {
+    $("eco-mode-enable").disabled = true;
+    try { await setEcoModeEnabled(true); ecoModeDialog.close(); }
+    catch (error) { $("eco-mode-error").textContent = error.message; }
+    finally { $("eco-mode-enable").disabled = false; }
+};
+/* ---------- Serveurs locaux proposés dans les réponses ---------- */
+async function attachServerControls(message, text) {
+    if (message.dataset.serverChecked || !/https?:\/\/(?:localhost|127\.0\.0\.1)/i.test(text || "")) return;
+    message.dataset.serverChecked = "1";
+    const workspace = ui.workspace || ui.status.workspace || null;
+    try {
+        const hint = await api.serverHint(text);
+        if (!hint || !message.isConnected) return;
+        const card = document.createElement("section");
+        card.className = "message-server-controls";
+        card.dataset.serverKey = hint.key;
+        card.serverWorkspace = workspace;
+        const title = document.createElement("b"); title.textContent = "Serveur web local";
+        const command = document.createElement("code"); command.textContent = `${hint.command} · dossier : ${hint.cwd}`;
+        const address = document.createElement("span"); address.textContent = hint.url;
+        const status = document.createElement("p"); status.className = "message-server-status"; status.setAttribute("role", "status");
+        status.textContent = "Lance cette commande dans le projet ouvert avec Démarrer.";
+        const actions = document.createElement("div"); actions.className = "studio-actions";
+        const start = document.createElement("button"); start.type = "button"; start.textContent = "Démarrer";
+        const stop = document.createElement("button"); stop.type = "button"; stop.textContent = "Arrêter"; stop.disabled = true;
+        const open = document.createElement("button"); open.type = "button"; open.textContent = "Ouvrir le site";
+        const details = document.createElement("details"), summary = document.createElement("summary"), output = document.createElement("pre");
+        summary.textContent = "Sortie du serveur"; details.append(summary, output); details.hidden = true;
+        card.updateServerRun = run => {
+            card.serverRun = run;
+            const running = run.status === "running";
+            start.disabled = running; stop.disabled = !running;
+            status.textContent = running ? "Processus en cours. Ouvre le site quand le serveur est prêt." : run.status === "stopped" ? "Serveur arrêté." : `Processus terminé${run.exitCode != null ? ` (code ${run.exitCode})` : ""}. Consulte la sortie si le site est inaccessible.`;
+            output.textContent = String(run.output || "").slice(-8000); details.hidden = !output.textContent;
+            if (run.status === "failed") details.open = true;
+        };
+        start.onclick = async () => {
+            start.disabled = true; status.textContent = "Démarrage…";
+            try { card.updateServerRun(await api.projectStudio("serverStart", { text, workspace })); }
+            catch (error) { status.textContent = error.message; start.disabled = false; }
+        };
+        stop.onclick = async () => {
+            stop.disabled = true;
+            try { await api.projectStudio("stop", { id: card.serverRun.id }); }
+            catch (error) { status.textContent = error.message; stop.disabled = false; }
+        };
+        open.onclick = () => openLocalBrowser(hint.url);
+        actions.append(start, stop, open); card.append(title, command, address, status, actions, details); message.appendChild(card);
+        const runs = await api.projectStudio("runs");
+        const run = [...runs].reverse().find(item => item.server?.key === hint.key && item.workspace === workspace);
+        if (run && card.isConnected) card.updateServerRun(run);
+    } catch { /* Ordinary messages remain readable when task controls are unavailable. */ }
+}
+
+api.onEvent((channel, run) => {
+    if (channel !== "projectTask" || !run.server) return;
+    for (const card of document.querySelectorAll(".message-server-controls")) {
+        if (card.dataset.serverKey === run.server.key && card.serverWorkspace === run.workspace) card.updateServerRun(run);
+    }
+});
 /* ---------- Démarrage ---------- */
 
 (async () => {

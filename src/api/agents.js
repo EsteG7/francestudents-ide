@@ -12,6 +12,7 @@
 
 const { KNOWN_MODELS } = require("../config");
 const account = require("./account");
+const { modelContext, OBSERVED_IDS } = require("./model-context");
 
 const TTL_MS = 5 * 60_000;
 let cache = null; // { agents, at }
@@ -20,6 +21,7 @@ function normalize(raw) {
     if (!raw || typeof raw !== "object") return null;
     const id = Number(raw.id);
     if (!Number.isInteger(id)) return null;
+    const { model: contextModel, ...context } = modelContext(raw);
     return {
         id,
         name: String(raw.name || raw.model || id),
@@ -27,7 +29,9 @@ function normalize(raw) {
         provider: raw.modelProvider ? String(raw.modelProvider) : "",
         description: raw.description ? String(raw.description) : "",
         isDefault: raw.isDefault === true,
-        isActive: raw.isActive !== false
+        isActive: raw.isActive !== false,
+        ...context,
+        contextModel
     };
 }
 
@@ -89,4 +93,10 @@ function resetCache() {
     cache = null;
 }
 
-module.exports = { fetchAgents, listAgents, resolveAgent, agentName, normalize, resetCache };
+function agentContext(id) {
+    const agent = cache?.agents.find(item => item.id === Number(id));
+    return agent ? { model: agent.contextModel, contextWindowTokens: agent.contextWindowTokens,
+        maxOutputTokens: agent.maxOutputTokens, source: agent.source } : modelContext({ model: OBSERVED_IDS[id] || "" });
+}
+
+module.exports = { fetchAgents, listAgents, resolveAgent, agentName, agentContext, normalize, resetCache };
