@@ -7497,6 +7497,8 @@ async function attachServerControls(message, text) {
         const details = document.createElement("details"), summary = document.createElement("summary"), output = document.createElement("pre");
         summary.textContent = "Sortie du serveur"; details.append(summary, output); details.hidden = true;
         card.updateServerRun = run => {
+            // An initial IPC snapshot may arrive after a newer stop event.
+            if (card.serverRun?.id === run.id && card.serverRun.status !== "running" && run.status === "running") return;
             card.serverRun = run;
             const running = run.status === "running";
             start.disabled = running; stop.disabled = !running;

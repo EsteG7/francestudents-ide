@@ -33,6 +33,7 @@ test("assistant server buttons start, open and stop the actual local server", { 
             await new Promise(resolve => setTimeout(resolve, 100));
         }
         assert.equal(stopped, true);
+        await page.waitForFunction(() => [...document.querySelectorAll('.message-server-controls button')].some(button => button.textContent === 'Démarrer' && !button.disabled));
         assert.equal(await card.getByRole("button", { name: "Démarrer", exact: true }).isEnabled(), true);
     } finally {
         const page = await app.firstWindow();
