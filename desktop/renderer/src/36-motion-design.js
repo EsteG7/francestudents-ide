@@ -1,5 +1,5 @@
 /* ---------- Motion design (ULTRA BÊTA) : onglet à part, aucune modification des vues existantes ---------- */
-/* Cet onglet n'embarque pas encore EffectCraft : il affiche un avertissement expérimental et prépare des demandes pour le chat. */
+/* Cet onglet charge le build web d’EffectCraft (serveur local, iframe isolée) et prépare des demandes pour le chat. */
 const motionNav = document.createElement("button");
 motionNav.type = "button";
 motionNav.className = "activity";
@@ -49,7 +49,7 @@ motionView.innerHTML = `
   <div class="motion-consent-card">
    <span class="motion-pill">Ultra bêta</span>
    <h2 id="motion-consent-title">Fonctionnalité expérimentale</h2>
-   <p id="motion-consent-text">Le motion design est en ultra bêta. Il peut être instable, incomplet, changer ou être retiré sans préavis. Le moteur EffectCraft (lui-même en alpha) est chargé dans cet onglet depuis un serveur local. Tu peux l’essayer, mais ne compte pas dessus pour un travail important.</p>
+   <p id="motion-consent-text">Le motion design est en ultra bêta. Il peut être instable, incomplet, changer ou être retiré sans préavis. Un studio natif (calques, keyframes, timeline, export HTML et WebM) est disponible ici. Le moteur EffectCraft (lui-même en alpha) reste optionnel : il ne se charge que si tu cliques sur le bouton EffectCraft du studio. Tu peux l’essayer, mais ne compte pas dessus pour un travail important.</p>
    <div class="motion-consent-actions"><button type="button" id="motion-consent-back">Retour au code</button><button type="button" id="motion-consent-ok" class="primary">J’ai compris, continuer</button></div>
   </div>
  </div>`;
@@ -108,13 +108,24 @@ function showMotionEngineFallback(message) {
     $("motion-engine").hidden = true;
     const stage = motionView.querySelector(".motion-stage");
     stage.hidden = false;
-    stage.querySelector("h2").textContent = "EffectCraft n’est pas encore branché";
+    stage.querySelector("h2").textContent = "EffectCraft indisponible";
     stage.querySelector("p").textContent = message;
 }
 
 function unloadMotionEngine() {
     if (motionEngine.frame) { motionEngine.frame.remove(); motionEngine.frame = null; }
     window.frst?.effectCraft?.("stop").catch(() => {});
+}
+
+/* EffectCraft rend avec WebGPU quand il est disponible ; sinon il retombe sur le processeur (plus lent). On l’indique dans la barre d’état. */
+async function describeMotionGpu() {
+    try {
+        if (!navigator.gpu) return "WebGPU absent : rendu sur processeur, plus lent";
+        const adapter = await navigator.gpu.requestAdapter();
+ return adapter ? "WebGPU disponible" : "aucune carte WebGPU compatible : rendu sur processeur, plus lent";
+    } catch {
+        return "WebGPU non vérifiable";
+    }
 }
 
 async function loadMotionEngine(force = false) {
@@ -136,7 +147,10 @@ async function loadMotionEngine(force = false) {
         frame.setAttribute("allow", "fullscreen; clipboard-read; clipboard-write");
         frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-downloads");
  frame.setAttribute("referrerpolicy", "no-referrer");
-        frame.addEventListener("load", () => setMotionEngineStatus(`EffectCraft ${info.version || ""} · page chargée (ultra bêta)`));
+        frame.addEventListener("load", async () => {
+     const gpu = await describeMotionGpu();
+     if (motionEngine.frame === frame) setMotionEngineStatus(`EffectCraft ${info.version || ""} · page chargée (ultra bêta) · ${gpu}`);
+ });
         frame.src = url.toString();
         $("motion-engine-frame").replaceChildren(frame);
  motionEngine.frame = frame;
@@ -148,7 +162,6 @@ async function loadMotionEngine(force = false) {
 }
 
 $("motion-engine-reload").onclick = () => loadMotionEngine(true);
-$("motion-consent-ok").addEventListener("click", () => loadMotionEngine());
 motionNav.addEventListener("click", () => { if (!isMotionOpen()) unloadMotionEngine(); });
 $("motion-close").addEventListener("click", unloadMotionEngine);
 $("motion-consent-back").addEventListener("click", unloadMotionEngine);

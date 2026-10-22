@@ -2,6 +2,12 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
+## [1.2.1] — 22 octobre 2026 · Studio motion design natif et message de budget épuisé
+
+- Onglet **Motion design** : nouveau studio natif qui ne dépend plus d’EffectCraft. Il s’appuie sur un moteur sans DOM (easings, interpolation de keyframes, presets) couvert par des tests automatiques. Le rendu et l’ergonomie dans l’IDE n’ont pas encore été vérifiés visuellement.
+- Message « budget de chat épuisé » (HTTP 429) : au lieu du texte brut avec le JSON de l’erreur, l’IDE affiche une carte intégrée au thème avec l’heure de reprise en heure de Paris, le temps restant et un bloc « Détails techniques » replié. Le CLI et le terminal affichent toujours le message d’origine.
+- Limites : 4 tests automatiques étaient déjà en échec avant cette version (runCommand cd/cwd, policy denialReason, 2 confirmations desktop-backend). L’installateur n’est pas signé.
+
 ## [1.2.0] — 22 octobre 2026 · Motion design EffectCraft et images moins coûteuses
 
 - Nouvel onglet **Motion design** : intégration d’EffectCraft v0.14.0 (version alpha), chargé depuis `desktop/vendor-effectcraft`. Ce dossier n’est pas versionné ; il se télécharge avec `npm run vendor:effectcraft`. Le rendu WebGPU dans Electron et le pilotage de la timeline ne sont pas encore vérifiés.

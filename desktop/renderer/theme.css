@@ -2648,3 +2648,52 @@ button.primary:active,
 .hidden {
     display: none !important;
 }
+
+/* Budget de chat épuisé (HTTP 429) : carte lisible à la place du JSON brut */
+.entry.budget-notice {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(204, 167, 0, 0.12), rgba(0, 120, 212, 0.07));
+    border: 1px solid rgba(204, 167, 0, 0.3);
+    border-left: 3px solid var(--warn);
+    color: var(--fg, #cccccc);
+    white-space: normal;
+}
+.budget-icon {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(204, 167, 0, 0.16);
+    color: var(--warn);
+}
+.budget-body { min-width: 0; flex: 1; }
+.budget-title { font-size: 13px; font-weight: 600; color: var(--fg-strong, var(--fg, #e6e6e6)); }
+.budget-detail { margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--fg-dim); }
+.budget-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.budget-chip {
+    padding: 2px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    background: rgba(255, 255, 255, 0.04);
+    font-size: 11px;
+    color: var(--fg-dim);
+}
+.budget-chip b { margin-right: 4px; font-weight: 600; color: var(--warn); }
+.budget-tech { margin-top: 8px; font-size: 11px; color: var(--fg-dim); }
+.budget-tech summary { cursor: pointer; user-select: none; }
+.budget-tech pre {
+    margin: 6px 0 0;
+    padding: 8px;
+    border-radius: 6px;
+    background: var(--bg-panel);
+    font-family: var(--mono);
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}

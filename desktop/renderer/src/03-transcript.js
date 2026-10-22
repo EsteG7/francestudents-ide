@@ -85,8 +85,13 @@ function renderEntry(e) {
         }
         case "info":
         case "warn":
-        case "error":
+        case "error": {
+            if (e.type === "error") {
+                const budget = parseBudgetNotice(e.text);
+                if (budget) return renderBudgetEntry(budget, e.text);
+            }
             return addEntry(e.type, escapeHtml(e.text));
+        }
         case "print":
             return addEntry("print", `<pre>${escapeHtml((e.lines || []).join("\n"))}</pre>`);
         case "plan":
