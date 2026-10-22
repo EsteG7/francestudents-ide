@@ -31,11 +31,11 @@ L’application est distribuée pour **Windows 64 bits**. Aucun Node.js ni aucun
 - Suivre le travail de l’IA, ajouter une demande à la suite ou arrêter une tâche.
 - Retrouver tes conversations et exporter leur contenu.
 
-### Les nouveautés du code source
+### Les nouveautés de la version 1.1.4
 
-Le code disponible ici ajoute aussi le **mode Éco**, un avertissement de quota pour les nombreux fichiers, davantage de formats de documents, l’**import de conversation Codex en bêta** et les boutons pour démarrer et arrêter un serveur depuis une réponse.
+La version 1.1.4 ajoute aussi le **mode Éco**, un avertissement de quota pour les nombreux fichiers, davantage de formats de documents, l’**import de conversation Codex en bêta** et les boutons pour démarrer et arrêter un serveur depuis une réponse.
 
-Ces nouveautés peuvent ne pas encore être incluses dans l’installateur publié. Consulte les [notes de version](CHANGELOG.md) et la page de téléchargement pour savoir ce que contient ta version.
+Installe la [version 1.1.4](https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.4) pour en profiter. Les [notes de version](CHANGELOG.md) détaillent les changements et leurs limites.
 
 ## Garder le contrôle
 

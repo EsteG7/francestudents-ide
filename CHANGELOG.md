@@ -2,7 +2,7 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
-## À venir
+## [1.1.4] — 22 octobre 2026 · Fichiers, mode Éco et reprise de conversation
 
 - Prise en charge élargie des fichiers : PDF, SVG, documents Office, présentations, tableaux, archives et extraction de contenu avec signalement des limites.
 - Glisser-déposer et pièces jointes nombreuses envoyées en lots ; avertissement de quota dès cinq fichiers.
@@ -14,7 +14,7 @@ Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est u
 - Compaction du contexte adaptée au modèle sélectionné.
 - Choix de mise à jour au démarrage et README simplifié, accompagné d’un guide avancé.
 
-Ces changements décrivent les sources et ne constituent pas encore une nouvelle release d’installateur.
+Installateur Windows x64 avec les fichiers nécessaires aux mises à jour. Les versions portables restent locales.
 
 ## [1.1.3] — 22 octobre 2026 · Navigateur local, images et pièces jointes
 
@@ -119,4 +119,5 @@ L’historique du [projet de EsteG7](https://github.com/EsteG7/francestudents-id
 
 [1.1.1]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.1
 [1.1.2]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.2
+[1.1.4]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.4
 [1.1.3]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.3
