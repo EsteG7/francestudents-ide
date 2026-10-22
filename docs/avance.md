@@ -4,6 +4,8 @@
 
 Cette page regroupe les réglages et les détails techniques de FranceStudent IDE. Elle décrit le code source actuel ; l’installateur d’une release antérieure peut proposer moins de fonctions.
 
+Les paramètres sont regroupés par catégorie : Général, IA et contexte, Autorisations, Connexions et outils. La recherche parcourt toutes les catégories, même lorsqu’un filtre est sélectionné. Le bouton Tout retrouve l’ensemble des réglages.
+
 ## Agent, conversations et contexte
 
 Le mode Agent peut lire et modifier le projet avec ses outils. Le mode Discussion sert aux échanges avec le modèle choisi. Les demandes ajoutées pendant une tâche sont placées dans la file : elles peuvent être modifiées, réordonnées, supprimées ou utilisées pour orienter la tâche en cours.
@@ -42,7 +44,11 @@ Le navigateur intégré ouvre les serveurs locaux. Lorsqu’une réponse contien
 
 Le mode **Demander** conserve les confirmations. **Full accès** permet les écritures, suppressions et commandes sans confirmation, avec les droits du compte qui lance l’application. Selon les outils, il peut aussi permettre l’accès à des fichiers hors du projet et l’envoi de données sur Internet. Il n’accorde pas automatiquement les droits administrateur.
 
+En Full accès, chaque action en cours affiche **Annuler l’action** : l’application tente d’interrompre l’opération et écarte son résultat, puis l’agent continue les étapes suivantes. Un petit délai avant exécution permet d’intervenir sur les actions rapides. Les modifications de fichiers suivies proposent **Annuler la modification** après la tâche ; les commandes shell et effets distants déjà réalisés demandent une correction séparée. Le bouton Stop interrompt toujours la tâche entière.
+
 Les permissions de capture se règlent séparément. Un serveur MCP exécute un programme local ; un skill apporte des instructions. Vérifie leur provenance et leur contenu avant activation. Le centre d’extensions propose les skills, profils et serveurs MCP stdio.
+
+**Désinstaller** retire un skill et conserve son dossier dans `.trash`, à côté des autres skills de la même portée. **Retirer la connexion** enlève un serveur de `mcp.json`, avec sauvegarde ; cela ne supprime pas son programme de l’ordinateur. Les téléchargements communautaires affichent les octets réellement reçus, une barre indéterminée lorsque la taille totale est inconnue, ainsi que les boutons Annuler et Réessayer. Seul le SKILL.md est téléchargé : les scripts annexes ne sont pas installés.
 
 [Intégration GitHub](github.md) · [Composants open source](studio.md#composants-open-source).
 

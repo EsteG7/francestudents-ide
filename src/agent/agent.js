@@ -374,20 +374,21 @@ async function preloadContext(task, observations) {
 
     for (const file of mentioned.slice(0, CONFIG.maxPreloadFiles)) {
         try {
-            const result = await readFile({ path: file });
+            const result = await require("../tools/action-control").run("read_file", file, () => readFile({ path: file }));
 
             ui.tool("read_file", file);
             ui.result(summarizeResult("read_file", result));
 
             observations.push({ tool: "read_file", args: { path: file }, ok: true, result });
-        } catch {
+        } catch (error) {
+            if (error.code === "ACTION_CANCELED") observations.push({ tool: "read_file", args: { path: file }, ok: false, error: "Préchargement annulé par l’utilisateur. Ne relis pas ce fichier sans nouvelle demande." });
             // Pas un fichier lisible : le modèle décidera.
         }
     }
 
     if (!observations.length) {
         try {
-            const result = await listDirectory({ path: "." });
+            const result = await require("../tools/action-control").run("list_directory", ".", () => listDirectory({ path: "." }));
 
             ui.tool("list_directory", ".");
             ui.result(summarizeResult("list_directory", result));
@@ -768,7 +769,7 @@ async function runAgent(task, options = {}) {
                 action.calls.map((call, index) => Promise.resolve().then(async () => {
                     if (blocked[index]) throw new Error(blocked[index]);
 
-                    const result = await TOOLS[call.name].run(call.args);
+                    const result = await require("../tools/action-control").run(call.name, describeCall(call), () => TOOLS[call.name].run(call.args));
 
                     // Hooks postToolUse : leur sortie est jointe au résultat de l'appel.
                     if (useHooks && result && typeof result === "object" && !result.denied) {
@@ -839,7 +840,7 @@ async function runAgent(task, options = {}) {
                 if (pre.blocked) throw new Error(pre.message);
             }
 
-            const result = await TOOLS[action.name].run(action.args);
+            const result = await require("../tools/action-control").run(action.name, describeCall(action), () => TOOLS[action.name].run(action.args));
 
             // Hooks postToolUse (formatage, lint...) : leur sortie est jointe au résultat pour l'agent.
             if (hookConfig && hooks.hasHooks(hookConfig) && result && !result.denied) {

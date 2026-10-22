@@ -1,6 +1,6 @@
 "use strict";
 const { setFrontmatterValue } = require("../src/skills");
-async function boundedText(response, max = 250000) {
+async function boundedText(response, max = 250000, onProgress = () => {}) {
     if (!response.body) throw new Error("Réponse vide du serveur.");
     const reader = response.body.getReader();
     const chunks = []; let size = 0;
@@ -11,6 +11,7 @@ async function boundedText(response, max = 250000) {
             size += value.byteLength;
             if (size > max) throw new Error("Le téléchargement dépasse la taille autorisée.");
             chunks.push(Buffer.from(value));
+            onProgress(size);
         }
         return Buffer.concat(chunks).toString("utf8");
     } finally { await reader.cancel().catch(() => {}); }
@@ -24,8 +25,9 @@ function rawSkillUrl(value) {
     if (!fileParts.at(-1).toLowerCase().endsWith("skill.md")) fileParts.push("SKILL.md");
     return `https://raw.githubusercontent.com/${fileParts.join("/")}`;
 }
-function createMarketplace({ fetchFn = (...args) => fetch(...args), getKey = async () => process.env.SKILLSMP_API_KEY || "" } = {}) {
+function createMarketplace({ fetchFn = (...args) => fetch(...args), getKey = async () => process.env.SKILLSMP_API_KEY || "", onProgress = () => {} } = {}) {
     const previews = new Map();
+    const downloads = new Map();
     return {
         async search({ query, page = 1, sort = "stars" }) {
             const q = String(query || "").trim();
@@ -46,16 +48,28 @@ function createMarketplace({ fetchFn = (...args) => fetch(...args), getKey = asy
             }));
             return {items, page, hasNext:data.data.pagination?.hasNext === true, remaining:response.headers.get("x-ratelimit-daily-remaining")};
         },
-        async preview({ githubUrl }) {
+        cancel(requestId) { const controller = downloads.get(requestId); if (!controller) return false; controller.abort(); return true; },
+        async preview({ githubUrl, requestId = require("node:crypto").randomUUID() }) {
             const url = rawSkillUrl(githubUrl);
-            const response = await fetchFn(url, {redirect:"error", signal:AbortSignal.timeout(20000)});
+            if (typeof requestId !== "string" || requestId.length > 100 || downloads.has(requestId) || downloads.size >= 8) throw new Error("Téléchargement déjà en cours ou limite de téléchargements atteinte.");
+            const controller = new AbortController(); downloads.set(requestId, controller);
+            try {
+            const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]);
+            const response = await fetchFn(url, {redirect:"error", signal});
             if (!response.ok) throw new Error(`SKILL.md inaccessible sur GitHub (HTTP ${response.status}). Tu peux ouvrir le dépôt ou importer son contenu manuellement.`);
-            const content = await boundedText(response);
+            const length = Number(response.headers.get("content-length"));
+            const total = !response.headers.get("content-encoding") && Number.isFinite(length) && length > 0 ? length : null;
+            const content = await boundedText(response, 250000, received => { signal.throwIfAborted(); onProgress({requestId, received, total}); });
+            signal.throwIfAborted();
             if (!content.trim() || content.length > 90000 || /^\s*<!doctype html/i.test(content)) throw new Error("Le fichier reçu n’est pas un SKILL.md utilisable.");
             const disabledContent = setFrontmatterValue(content, "disabled", "true");
             previews.set(url, disabledContent);
             if (previews.size > 40) previews.delete(previews.keys().next().value);
             return {url, content:disabledContent};
+            } catch (error) {
+                if (controller.signal.aborted) throw new Error("Téléchargement annulé.", {cause:error});
+                throw error;
+            } finally { downloads.delete(requestId); }
         },
         takePreview(url) {
             const content = previews.get(url);

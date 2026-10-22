@@ -35,6 +35,16 @@
 #agent:not([data-tab="activity"]) #agent-activity { display: none; }
 #agent:not([data-tab="usage"]) #agent-usage, #agent[data-tab="usage"] #composer { display: none; }
 .agent-usage { flex: 1; min-height: 0; overflow: auto; padding: 20px 16px; color: var(--fg); }
+.action-controls { flex-shrink: 0; max-height: 130px; overflow: auto; margin: 6px 12px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--accent-soft); }
+.action-control-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px; font-size: 11px; }
+.action-control-row button { flex-shrink: 0; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--bg-input); color: var(--fg); padding: 5px 8px; cursor: pointer; }
+.github-connector-dialog { width: min(800px, 92vw); }
+.github-connector-nav { flex-wrap: wrap; gap: 6px; }
+.github-connector-nav button[aria-pressed="true"] { background: var(--accent-soft); color: var(--link); }
+.github-connector-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; margin: 10px 0; border: 1px solid var(--border-strong); border-radius: 9px; overflow-wrap: anywhere; }
+.github-connector-card > span, .github-connector-card small { color: var(--fg-dim); font-size: 11px; }
+.github-connector-card pre { max-height: 200px; overflow: auto; white-space: pre-wrap; }
+.github-connector-dialog .studio-actions { flex-wrap: wrap; }
 .usage-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
 .usage-heading h2 { font-size: 20px; font-weight: 600; letter-spacing: -.5px; margin: 6px 0 0; }
 #usage-refresh { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--border-strong); border-radius: 8px; color: var(--fg-dim); background: var(--bg-input); cursor: pointer; }

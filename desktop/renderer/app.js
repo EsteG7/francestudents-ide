@@ -4409,6 +4409,7 @@ $("terminal").addEventListener("mouseup", (ev) => {
 /* Pending prompts live directly above the composer. */
 let queueSnapshot = { tasks: [], enabled: false };
 let inlineEditingId = null;
+let pendingRenderSignature = null;
 async function editQueuedPrompt(task,attach=false){
     try{
         const result=await api.taskQueue("attachments",{id:task.id});
@@ -4439,8 +4440,12 @@ function refreshTaskQueue() {
 function renderInlinePending(snapshot) {
     const host = $("pending-prompts");
     if (!host) return;
-    host.replaceChildren();
     const waiting = (snapshot?.tasks || []).filter(task => ["pending", "steering"].includes(task.status));
+    const signature = JSON.stringify([waiting, snapshot.enabled, Boolean(ui.status.canSteer)]);
+    if (signature === pendingRenderSignature) return;
+    pendingRenderSignature = signature;
+    const openMenus = new Set([...host.querySelectorAll(".pending-menu[open]")].map(menu => menu.dataset.taskId));
+    host.replaceChildren();
     host.classList.toggle("hidden", !waiting.length);
     if (waiting.length && !snapshot.enabled) {
         const paused = document.createElement("div"); paused.className = "pending-paused";
@@ -4462,6 +4467,7 @@ function renderInlinePending(snapshot) {
         remove.innerHTML = '<svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M6 7l1 13h10l1-13M9 7V4h6v3M10 10v7M14 10v7"/></svg>';
         remove.onclick = () => queueAction("remove", { id: task.id });
         const menu = document.createElement("details"); menu.className = "pending-menu";
+        menu.dataset.taskId = task.id; menu.open = openMenus.has(String(task.id));
         const summary = document.createElement("summary"); summary.textContent = "⋯"; summary.setAttribute("aria-label", "Actions sur le prompt");
         const actions = document.createElement("div"); actions.className = "pending-menu-items";
         const action = (label, callback) => { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.onclick = () => { menu.open = false; callback(); }; actions.appendChild(button); };
@@ -6454,7 +6460,9 @@ function renderLibrary() {
         actions.append(centerButton("Voir les instructions", () => openSkillEditor({ kind: "library", item })));
         const installed = centerData.skills.some(skill => skill.key === `${scope}:${item.id}`);
         const install = centerButton(installed ? "Installé" : "Installer", () => changeExtension("install", {id:item.id, scope}, `${item.title} installé. Tu peux le désactiver dans Mes skills.`), true);
-        install.disabled = installed; actions.append(install); card.append(actions); list.append(card);
+        install.disabled = installed; actions.append(install);
+        if (installed) actions.append(centerButton("Désinstaller", () => uninstallCenterSkill(centerData.skills.find(skill => skill.key === `${scope}:${item.id}`))));
+        card.append(actions); list.append(card);
     }
     if (!list.children.length) list.append(centerNode("p", "ext-empty", "Aucun skill ne correspond. Essaie un autre mot ou une autre catégorie."));
 }
@@ -6471,10 +6479,7 @@ function renderInstalledSkills() {
         const favorite = centerButton(skill.favorite ? "★" : "☆", () => changeExtension("favorite", {key:skill.key}));
         favorite.setAttribute("aria-label", `${skill.favorite ? "Retirer des" : "Ajouter aux"} favoris : ${skill.name}`);
         favorite.setAttribute("aria-pressed", String(skill.favorite));
-        actions.append(favorite, centerButton("Ouvrir", async () => openSkillEditor({kind:"edit", item:await api.extensionAction("read", {key:skill.key}), key:skill.key})), centerButton("Retirer", async () => {
-            if (!window.confirm(`Retirer « ${skill.name} » ? Son dossier sera conservé dans .trash, dans le dossier de ses skills.`)) return;
-            await changeExtension("remove", {key:skill.key}, "Skill retiré. Son dossier reste récupérable dans .trash.");
-        }));
+        actions.append(favorite, centerButton("Ouvrir", async () => openSkillEditor({kind:"edit", item:await api.extensionAction("read", {key:skill.key}), key:skill.key})), centerButton("Désinstaller", () => uninstallCenterSkill(skill)));
         const label = centerNode("label", "skill-enabled");
         const toggle = document.createElement("input"); toggle.type = "checkbox"; toggle.checked = !skill.disabled; toggle.setAttribute("role", "switch"); toggle.setAttribute("aria-label", `Activer ${skill.name}`);
         toggle.onchange = async () => {
@@ -6557,7 +6562,7 @@ function renderMcpCard(server, sub) {
     const actions = centerNode("div", "center-card-actions");
     actions.append(centerButton(server.status === "disabled" ? "Activer" : "Désactiver", async () => {
         await api.mcpManage("toggle", {name:server.name, disabled:server.status !== "disabled"}); await refreshMcp();
-    }), centerButton("Retirer", async () => {
+    }), centerButton("Retirer la connexion", async () => {
         if (!window.confirm(`Retirer le serveur « ${server.name} » de mcp.json ? La configuration précédente reste dans mcp.json.backup.`)) return;
         await api.mcpManage("remove", {name:server.name}); await refreshMcp();
     }));
@@ -6673,8 +6678,7 @@ async function searchMarketplace(page = 1) {
             card.append(centerNode("span", "ext-tag", `★ ${item.stars.toLocaleString("fr-FR")}`), centerNode("h3", "", item.name), centerNode("p", "", `par ${item.author}`), centerNode("p", "", item.description));
             const actions = centerNode("div", "center-card-actions");
             actions.append(centerButton("Voir le dépôt", () => api.openExternal(item.githubUrl)), centerButton("Lire et installer", async () => {
-                const preview = await api.marketplace("preview", {githubUrl:item.githubUrl});
-                openSkillEditor({kind:"remote", item:{...item, ...preview}});
+                await downloadSkillPreview(item);
             }, true));
             card.append(actions); list.append(card);
         }
@@ -7567,6 +7571,205 @@ function renderUsageDashboard() {
         <p class="usage-updated">${ui.quotaUpdatedAt ? "Quota actualisé le " + escapeHtml(usageDate(ui.quotaUpdatedAt)) : "Le quota ne peut pas être déduit du nombre de tokens de cette session."}</p>`;
 }
 $("usage-refresh").onclick = () => refreshQuota();
+/* ---------- Annulation d’une action sans interrompre l’agent ---------- */
+const actionControlPanel = document.createElement("section");
+actionControlPanel.id = "action-controls";
+actionControlPanel.className = "action-controls hidden";
+actionControlPanel.setAttribute("aria-label", "Actions en accès complet");
+document.querySelector(".agent-context-bar")?.after(actionControlPanel);
+if (!actionControlPanel.isConnected) $("agent-activity").before(actionControlPanel);
+api.onEvent((channel, action) => {
+    if (channel === "status") {
+        for (const button of actionControlPanel.querySelectorAll("button[data-undo]")) { button.disabled = Boolean(action.busy); button.title = action.busy ? "Disponible après la tâche pour éviter les modifications concurrentes." : "Restaurer cette modification suivie"; }
+        return;
+    }
+    if (channel !== "actionControl") return;
+    let row = [...actionControlPanel.children].find(item => item.dataset.actionId === action.id);
+    if (action.state === "running" && !row) {
+        row = document.createElement("div"); row.className = "action-control-row"; row.dataset.actionId = action.id;
+        row.dataset.actionName = action.name;
+        const label = document.createElement("span"); label.textContent = toolLabel(action.name); label.title = action.description;
+        const cancel = document.createElement("button"); cancel.type = "button"; cancel.textContent = "Annuler l’action";
+        cancel.title = "Écarter le résultat et arrêter l’opération si possible, sans arrêter l’agent. Les effets déjà produits ne sont pas automatiquement annulés.";
+        cancel.onclick = async () => { cancel.disabled = true; try { await api.cancelAction(action.id); } catch (error) { studioFeedback(error.message); cancel.disabled = false; } };
+        row.append(label, cancel); actionControlPanel.appendChild(row);
+    }
+    if (row && action.state === "canceling") { row.querySelector("button").disabled = true; row.querySelector("button").textContent = "Annulation…"; }
+    if (row && ["done", "failed", "canceled"].includes(action.state)) {
+        if (action.undo) {
+            const button = row.querySelector("button"); button.dataset.undo = "1"; button.disabled = Boolean(ui.status.busy); button.textContent = "Annuler la modification";
+            button.title = "Disponible après la tâche pour éviter les modifications concurrentes. Les commandes shell et publications distantes ne sont pas restaurées.";
+            button.onclick = async () => { button.disabled = true; try { if (ui.workspace !== action.undo.workspace) throw new Error("Reviens au projet de cette modification."); await api.undoEntry(action.undo.index, action.undo.at); row.remove(); actionControlPanel.classList.toggle("hidden", !actionControlPanel.children.length); } catch (error) { studioFeedback(error.message); button.disabled = false; } };
+        } else row.remove();
+        if (action.state === "canceled") studioFeedback("Action annulée. L’agent continue ; les effets déjà produits restent à vérifier.");
+    }
+    actionControlPanel.classList.toggle("hidden", !actionControlPanel.children.length);
+});
+/* ---------- Connecteur natif GitHub ---------- */
+const githubConnectorDialog = document.createElement("dialog");
+githubConnectorDialog.id = "github-connector-dialog";
+githubConnectorDialog.className = "conversation-import-dialog github-connector-dialog";
+githubConnectorDialog.setAttribute("aria-labelledby", "github-connector-title");
+githubConnectorDialog.innerHTML = `<div class="workspace-section-head"><h2 id="github-connector-title">GitHub <small>Bêta</small></h2><button type="button" id="github-connector-close" aria-label="Fermer le connecteur GitHub">×</button></div>
+<p id="github-connector-account" class="settings-help"></p><p id="github-connector-repo"></p>
+<div class="studio-actions github-connector-nav"><button type="button" data-github-view="releases">Releases</button><button type="button" data-github-view="pull_requests">Pull requests</button><button type="button" data-github-view="issues">Issues</button><button type="button" data-github-view="repositories">Mes dépôts</button><button type="button" id="github-connector-readme">Modifier le README avec l’IA</button></div>
+<p id="github-connector-status" role="status"></p><div id="github-connector-list"></div>
+<details id="github-connector-create"><summary>Préparer une release</summary><p class="settings-help">Un brouillon sera créé. Ajoute ses fichiers et vérifie ses notes avant de publier.</p><label>Tag<input id="github-release-tag" placeholder="v1.0.0"></label><label>Commit ou branche cible<input id="github-release-target" placeholder="SHA du commit ou main"></label><label>Titre<input id="github-release-title" placeholder="Version 1.0.0"></label><label>Notes<textarea id="github-release-body" rows="4"></textarea></label><button type="button" id="github-release-create">Créer le brouillon</button></details>
+<p class="settings-help">Le dépôt vient du remote origin du projet ouvert. Les droits dépendent du token connecté. L’agent dispose de l’outil natif github ; les modifications demandent une confirmation en mode Demander, mais pas en Full accès. Une publication ou un push ne peut pas être annulé comme une lecture locale.</p>`;
+document.body.appendChild(githubConnectorDialog);
+let githubConnectorView = "releases", githubConnectorLoading = false;
+async function githubConnectorWork(operation) {
+    if (githubConnectorLoading) return;
+    githubConnectorLoading = true;
+    const buttons = [...githubConnectorDialog.querySelectorAll("button:not(#github-connector-close)")];
+    buttons.forEach(button => { button.disabled = true; });
+    $("github-connector-status").textContent = "Chargement…";
+    try { await operation(); }
+    catch (error) { $("github-connector-status").textContent = error.message; }
+    finally { githubConnectorLoading = false; buttons.forEach(button => { if (button.isConnected) button.disabled = false; }); }
+}
+async function loadGithubConnector() {
+    const result = await api.githubConnector({ action: githubConnectorView });
+    const list = $("github-connector-list"); list.replaceChildren();
+    for (const item of result.items || result.repositories || []) {
+        const card = document.createElement("article"); card.className = "github-connector-card";
+        const title = document.createElement("b"); title.textContent = item.title || item.name;
+        const status = document.createElement("span"); status.textContent = item.draft ? "Brouillon" : item.state || (item.private === true ? "Privé" : item.private === false ? "Public" : "Publié");
+        const actions = document.createElement("div"); actions.className = "studio-actions";
+        const open = document.createElement("button"); open.textContent = "Voir sur GitHub"; open.onclick = () => api.openExternal(item.url, true).catch(error => { $("github-connector-status").textContent = error.message; });
+        actions.append(open);
+        if (item.draft && githubConnectorView === "releases") {
+            const upload = document.createElement("button"); upload.textContent = "Ajouter un fichier"; upload.onclick = () => githubConnectorWork(async () => { await api.githubUploadAsset(item.id); await loadGithubConnector(); });
+            const publish = document.createElement("button"); publish.textContent = "Publier la release"; publish.onclick = () => githubConnectorWork(async () => { await api.githubConnector({ action: "publish_release", id: item.id }); await loadGithubConnector(); });
+            actions.append(upload, publish);
+        }
+        if (githubConnectorView === "repositories") {
+            const link = document.createElement("button"); link.textContent = "Lier au projet"; link.onclick = () => githubConnectorWork(async () => { await api.githubSetRemote(item.name); $("github-connector-repo").textContent = item.name; $("github-connector-status").textContent = "Remote origin mis à jour."; }); actions.append(link);
+        }
+        card.append(title, status);
+        if (item.body) { const details = document.createElement("details"), summary = document.createElement("summary"), body = document.createElement("pre"); summary.textContent = "Notes"; body.textContent = item.body; details.append(summary, body); card.append(details); }
+        for (const asset of item.assets || []) { const line = document.createElement("small"); line.textContent = `${asset.name} · ${formatBytes(asset.size)}`; card.append(line); }
+        card.append(actions); list.append(card);
+    }
+    $("github-connector-status").textContent = list.children.length ? `${list.children.length} élément(s)` : "Aucun élément.";
+    for (const button of githubConnectorDialog.querySelectorAll("[data-github-view]")) button.setAttribute("aria-pressed", String(button.dataset.githubView === githubConnectorView));
+}
+$("gh-connector-open").onclick = () => {
+    githubConnectorDialog.showModal();
+    githubConnectorWork(async () => {
+        const account = await api.githubStatus();
+        $("github-connector-account").textContent = account.connected ? `Compte connecté : ${account.login || "GitHub"}` : "Connecte ton compte avec le champ sécurisé du panneau Git.";
+        $("github-connector-repo").textContent = account.remote || "Aucun dépôt lié au projet.";
+        if (!account.connected) { $("github-connector-list").replaceChildren(); $("github-connector-status").textContent = "Connexion GitHub nécessaire."; return; }
+        try { const repo = await api.githubConnector({ action: "overview" }); $("github-connector-repo").textContent = `${repo.repository} · ${repo.branch}${repo.private ? " · Privé" : " · Public"}`; $("github-release-target").value = repo.branch; } catch { githubConnectorView = "repositories"; }
+        await loadGithubConnector();
+    });
+};
+$("github-connector-close").onclick = () => githubConnectorDialog.close();
+for (const button of githubConnectorDialog.querySelectorAll("[data-github-view]")) button.onclick = () => githubConnectorWork(async () => { githubConnectorView = button.dataset.githubView; await loadGithubConnector(); });
+$("github-release-create").onclick = () => githubConnectorWork(async () => {
+    await api.githubConnector({ action: "create_release", tag: $("github-release-tag").value.trim(), target: $("github-release-target").value.trim(), title: $("github-release-title").value.trim(), body: $("github-release-body").value });
+    githubConnectorView = "releases"; await loadGithubConnector();
+});
+$("github-connector-readme").onclick = () => { githubConnectorDialog.close(); setAgentTab("conversation"); input.value = "Examine le projet et son README, puis mets à jour le README pour expliquer simplement son utilisation. Utilise les outils de fichiers locaux ; prépare un commit et un push uniquement si je te le demande."; autosizeInput(); saveStudioDraft(); input.focus(); };
+/* Organize settings without moving the controls or losing search results. */
+const settingsNavigation = centerNode("nav", "settings-navigation");
+settingsNavigation.setAttribute("aria-label", "Catégories des paramètres");
+let settingsCategory = "all";
+const settingsGroups = [
+    ["all", "Tout"], ["general", "Général"], ["agent", "IA et contexte"],
+    ["access", "Autorisations"], ["advanced", "Connexions et outils"]
+];
+const settingsGroupByTitle = {
+    "settings-model-title": "general", "studio-editor-settings-title": "general",
+    "settings-context-title": "agent", "settings-web-title": "agent",
+    "settings-access-title": "access", "settings-tools-title": "advanced",
+    "settings-marketplace-title": "advanced", "settings-help-title": "general"
+};
+captureSettings.dataset.settingsGroup = "access";
+updateSettings.dataset.settingsGroup = "general";
+function filterSettingsCards() {
+    const normalize = value => value.toLocaleLowerCase("fr").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const query = normalize($("settings-search").value).trim();
+    let visible = 0;
+    for (const card of $("settings-view").querySelectorAll(".settings-card")) {
+        const group = card.dataset.settingsGroup || settingsGroupByTitle[card.getAttribute("aria-labelledby")] || "general";
+        const matches = query ? normalize(card.textContent).includes(query) : settingsCategory === "all" || settingsCategory === group;
+        card.classList.toggle("hidden", !matches);
+        if (matches) visible++;
+    }
+    for (const button of settingsNavigation.children) {
+        button.setAttribute("aria-pressed", String(!query && button.dataset.category === settingsCategory));
+        button.disabled = !!query;
+        button.title = query ? "Efface la recherche pour filtrer par catégorie" : "";
+    }
+    $("settings-search-empty").classList.toggle("hidden", visible > 0);
+}
+for (const [id, label] of settingsGroups) {
+    const button = centerNode("button", "", label);
+    button.type = "button"; button.dataset.category = id;
+    button.onclick = () => { settingsCategory = id; filterSettingsCards(); };
+    settingsNavigation.append(button);
+}
+$("settings-search").closest(".settings-search-wrap").after(settingsNavigation);
+$("settings-search").oninput = filterSettingsCards;
+filterSettingsCards();
+// Expose icon-only navigation names to keyboard and assistive technology.
+for (const button of document.querySelectorAll("#activity-bar button, .agent-actions button, .sidebar-actions button")) {
+    if (!button.hasAttribute("aria-label") && button.title) button.setAttribute("aria-label", button.title);
+}
+/* Explicit progress and cancellation for community instruction downloads. */
+async function uninstallCenterSkill(skill) {
+    if (!skill || !window.confirm(`Désinstaller « ${skill.name} » ? Il ne sera plus disponible pour l’IA. Son dossier sera conservé dans .trash pour pouvoir le récupérer.`)) return;
+    await changeExtension("remove", {key:skill.key}, `« ${skill.name} » désinstallé. Son dossier reste récupérable dans .trash.`);
+}
+const extensionDownloads = new Map();
+const extensionDownloadList = centerNode("section", "extension-downloads hidden");
+extensionDownloadList.setAttribute("aria-label", "Téléchargements des skills");
+$("marketplace-status").after(extensionDownloadList);
+function showSkillDownload(job) {
+    const card = job.card;
+    card.replaceChildren();
+    const heading = centerNode("div");
+    heading.append(centerNode("b", "", job.item.name));
+    const button = centerNode("button", "", job.state === "loading" ? "Annuler" : job.state === "failed" || job.state === "canceled" ? "Réessayer" : "Fermer");
+    button.type = "button";
+    button.onclick = async () => {
+        if (job.state === "loading") {
+            button.disabled = true;
+            try { await api.marketplace("cancel", {requestId:job.id}); }
+            catch (error) { button.disabled = false; card.append(centerNode("p", "", error.message)); }
+        } else if (job.state === "failed" || job.state === "canceled") { card.remove(); extensionDownloads.delete(job.id); downloadSkillPreview(job.item); }
+        else { card.remove(); extensionDownloads.delete(job.id); extensionDownloadList.classList.toggle("hidden", !extensionDownloadList.children.length); }
+    };
+    heading.append(button); card.append(heading);
+    if (job.state === "loading") {
+        const progress = document.createElement("progress"); progress.setAttribute("aria-label", "Téléchargement du SKILL.md");
+        if (job.total) { progress.max = job.total; progress.value = Math.min(job.received, job.total); }
+        card.append(progress);
+    }
+    const bytes = count => `${(count / 1024).toLocaleString("fr-FR", {maximumFractionDigits:1})} Ko`;
+    card.append(centerNode("p", "", job.message || `${bytes(job.received)} reçus${job.total ? ` sur ${bytes(job.total)}` : " · taille totale inconnue"}`));
+}
+async function downloadSkillPreview(item) {
+    const job = {id:crypto.randomUUID(), item, received:0, total:null, state:"loading", card:centerNode("article", "download-card")};
+    extensionDownloads.set(job.id, job); extensionDownloadList.classList.remove("hidden"); extensionDownloadList.append(job.card); showSkillDownload(job);
+    // Keep only recent completed entries; in-flight downloads are always visible.
+    for (const [id, old] of extensionDownloads) if (extensionDownloads.size > 8 && old.state !== "loading") { old.card.remove(); extensionDownloads.delete(id); }
+    try {
+        const preview = await api.marketplace("preview", {githubUrl:item.githubUrl, requestId:job.id});
+        job.state = "ready"; job.message = "Téléchargé · lis les instructions avant de choisir Installer. Le skill sera désactivé.";
+        showSkillDownload(job); openSkillEditor({kind:"remote", item:{...item, ...preview}});
+    } catch (error) {
+        job.state = error.message.includes("annulé") ? "canceled" : "failed"; job.message = error.message; showSkillDownload(job);
+    }
+}
+api.onEvent((channel, data) => {
+    if (channel !== "marketplaceDownload") return;
+    const job = extensionDownloads.get(data.requestId);
+    if (!job || job.state !== "loading") return;
+    job.received = data.received; job.total = data.total; showSkillDownload(job);
+});
 /* ---------- Démarrage ---------- */
 
 (async () => {

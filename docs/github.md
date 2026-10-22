@@ -1,4 +1,12 @@
-# Connexion à GitHub
+# Connexion à GitHub · connecteur Bêta
+
+Dans le panneau **Git**, clique sur **Connecteur GitHub · Bêta** après avoir connecté ton compte. Il utilise le dépôt `origin` du projet ouvert. Tu peux consulter les releases, PR, issues et dépôts, préparer un brouillon de release, y ajouter un fichier du projet puis choisir **Publier la release**.
+
+L’agent dispose aussi d’un outil natif `github` : lecture de fichiers, mise à jour distante avec branche et SHA explicites, commit de fichiers choisis, push/pull/fetch, création d’issues et de PR. Pour modifier un README du projet, préfère une modification locale suivie d’un commit et d’un push. Une modification distante ne change pas la copie locale : récupère ensuite les changements.
+
+Les releases sont créées en brouillon ; leur publication est une action séparée. L’envoi de fichiers se fait uniquement sur un brouillon. L’outil ne propose ni push forcé ni suppression de dépôt. En mode avec approbation, les écritures demandent confirmation ; en Full accès, elles suivent les instructions de l’utilisateur sans question supplémentaire. L’annulation n’efface pas une opération déjà terminée sur GitHub.
+
+Un token finement limité doit autoriser **Contents** en écriture pour les fichiers et releases, **Pull requests** pour les PR et **Issues** pour les issues. Les droits effectifs du compte et du dépôt s’appliquent toujours. Le token local est enregistré dans un fichier, sans chiffrement applicatif ; il n’est pas envoyé au modèle.
 
 La commande `/github` connecte la CLI et l'application de bureau à un compte GitHub. Elle permet ensuite de configurer le remote du projet et de faire `push`, `pull` et `fetch` authentifiés.
 

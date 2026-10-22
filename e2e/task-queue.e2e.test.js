@@ -49,6 +49,8 @@ test("e2e : tâches ajoutées, réordonnées, exécutées et suspendues sur bloc
         });
         await page.waitForFunction(() => document.querySelectorAll(".pending-prompt").length === 2);
         await page.locator(".pending-menu > summary").nth(1).click();
+        await page.evaluate(() => refreshTaskQueue());
+        assert.equal(await page.locator(".pending-menu[open]").count(), 1);
         await page.locator(".pending-menu[open]").getByRole("button", { name: "Monter", exact: true }).click();
         await page.waitForFunction(() => document.querySelector(".pending-text").textContent === "Deuxième tâche");
         await page.locator(".pending-paused").getByRole("button", { name: "Reprendre", exact: true }).click();
@@ -119,7 +121,7 @@ test("e2e : tâches ajoutées, réordonnées, exécutées et suspendues sur bloc
         await page.locator("#agent-focus").click();
         assert.ok(await page.locator("#app").evaluate(el => el.classList.contains("focus-agent")));
         await page.locator("#agent-focus").click();
-        assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()), "#0078d4");
+        assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()), "#3979dc");
         await page.evaluate(async () => {
             const queue = await window.frst.taskQueue("list");
             for (const task of queue.tasks.filter(t => t.status === "pending")) await window.frst.taskQueue("remove", { id: task.id });

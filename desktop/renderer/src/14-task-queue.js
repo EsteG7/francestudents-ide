@@ -1,6 +1,7 @@
 /* Pending prompts live directly above the composer. */
 let queueSnapshot = { tasks: [], enabled: false };
 let inlineEditingId = null;
+let pendingRenderSignature = null;
 async function editQueuedPrompt(task,attach=false){
     try{
         const result=await api.taskQueue("attachments",{id:task.id});
@@ -31,8 +32,12 @@ function refreshTaskQueue() {
 function renderInlinePending(snapshot) {
     const host = $("pending-prompts");
     if (!host) return;
-    host.replaceChildren();
     const waiting = (snapshot?.tasks || []).filter(task => ["pending", "steering"].includes(task.status));
+    const signature = JSON.stringify([waiting, snapshot.enabled, Boolean(ui.status.canSteer)]);
+    if (signature === pendingRenderSignature) return;
+    pendingRenderSignature = signature;
+    const openMenus = new Set([...host.querySelectorAll(".pending-menu[open]")].map(menu => menu.dataset.taskId));
+    host.replaceChildren();
     host.classList.toggle("hidden", !waiting.length);
     if (waiting.length && !snapshot.enabled) {
         const paused = document.createElement("div"); paused.className = "pending-paused";
@@ -54,6 +59,7 @@ function renderInlinePending(snapshot) {
         remove.innerHTML = '<svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M6 7l1 13h10l1-13M9 7V4h6v3M10 10v7M14 10v7"/></svg>';
         remove.onclick = () => queueAction("remove", { id: task.id });
         const menu = document.createElement("details"); menu.className = "pending-menu";
+        menu.dataset.taskId = task.id; menu.open = openMenus.has(String(task.id));
         const summary = document.createElement("summary"); summary.textContent = "⋯"; summary.setAttribute("aria-label", "Actions sur le prompt");
         const actions = document.createElement("div"); actions.className = "pending-menu-items";
         const action = (label, callback) => { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.onclick = () => { menu.open = false; callback(); }; actions.appendChild(button); };
