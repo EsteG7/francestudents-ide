@@ -9,7 +9,7 @@ const { requestModel, MAX_REQUEST_FAILURES } = require("../src/api/api");
 
 const originalFetch = global.fetch;
 
-test("images remain attached on later turns but do not leak into a new conversation", async () => {
+test("images are sent once, not re-attached on later turns, and do not leak into a new conversation", async () => {
     prepareAuth();
     const image = "11111111-2222-3333-4444-123456789012", bodies = [];
     state.chatIds.agent = null; state.pendingImages = [image]; state.pendingFiles = [];
@@ -20,11 +20,46 @@ test("images remain attached on later turns but do not leak into a new conversat
     try {
         await requestModel("Analyse le design", { conversationMode: "agent" });
         await requestModel("Suite après lecture des fichiers", { conversationMode: "agent" });
-        assert.deepEqual(bodies[0].images, [image]); assert.deepEqual(bodies[1].images, [image]);
+        assert.equal(bodies.length, 2); assert.deepEqual(bodies[0].images, [image]); assert.deepEqual(bodies[1].images, []);
         state.chatIds.agent = null;
         await requestModel("Nouvelle tâche sans image", { conversationMode: "agent" });
         assert.deepEqual(bodies[2].images, []);
     } finally { global.fetch = originalFetch; state.pendingImages = []; state.pendingFiles = []; state.chatIds.agent = null; }
+});
+
+async function runImageMemoryScenario(answerToQuestion) {
+    prepareAuth();
+    const image = "11111111-2222-3333-4444-123456789012", bodies = [];
+    state.chatIds.agent = null; state.pendingImages = [image]; state.pendingFiles = [];
+    global.fetch = async (_, init) => {
+        const body = JSON.parse(init.body);
+        bodies.push(body);
+        const answer = JSON.stringify(body).includes("VÉRIFICATION DE MÉMOIRE") ? answerToQuestion : "ok";
+        const data = JSON.stringify({ chat_id: "visual-memory-chat", delta: answer });
+        return new Response(`event: response.output_text.delta\ndata: ${data}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+    };
+    try {
+        await requestModel("Analyse le design", { conversationMode: "agent" });
+        for (let turn = 1; turn <= 5; turn++) await requestModel(`Suite ${turn}`, { conversationMode: "agent" });
+        return { image, bodies };
+    } finally { global.fetch = originalFetch; state.pendingImages = []; state.pendingFiles = []; state.chatIds.agent = null; }
+}
+
+test("la vérification de mémoire n'a lieu qu'après plusieurs requêtes et, sur OUI, les images ne sont pas renvoyées", async () => {
+    const { image, bodies } = await runImageMemoryScenario("OUI");
+    assert.equal(bodies.length, 7);
+    assert.deepEqual(bodies[0].images, [image]);
+    for (const index of [1, 2, 3, 4, 5, 6]) assert.deepEqual(bodies[index].images, [], `requête ${index}`);
+    for (const index of [0, 1, 2, 3, 4, 6]) assert.doesNotMatch(JSON.stringify(bodies[index]), /VÉRIFICATION DE MÉMOIRE/, `requête ${index}`);
+    assert.match(JSON.stringify(bodies[5]), /VÉRIFICATION DE MÉMOIRE/);
+});
+
+test("sur NON à la vérification de mémoire, les images sont renvoyées", async () => {
+    const { image, bodies } = await runImageMemoryScenario("NON");
+    assert.equal(bodies.length, 7);
+    assert.match(JSON.stringify(bodies[5]), /VÉRIFICATION DE MÉMOIRE/);
+    assert.deepEqual(bodies[5].images, []);
+    assert.deepEqual(bodies[6].images, [image]);
 });
 
 test.after(() => {

@@ -13,6 +13,10 @@ const MAX_REQUEST_FAILURES = 2;
 // The backend may retain text history without retaining the provider's pixels.
 // Keep only upload IDs, isolated by conversation/model/workspace, never raw data.
 const visualContexts = new Map();
+// Les images ne sont plus renvoyées à chaque requête : on demande d'abord à l'agent s'il s'en souvient encore.
+// Une réponse OUI dispense de la vérification pendant IMAGE_MEMORY_CHECK_EVERY requêtes ; sinon les images sont renvoyées.
+const IMAGE_MEMORY_CHECK_EVERY = 4;
+const IMAGE_MEMORY_QUESTION = "VÉRIFICATION DE MÉMOIRE (aucune action à mener) : te souviens-tu encore précisément du contenu des images jointes plus tôt dans cette conversation (texte lisible, disposition, éléments visuels) ? Réponds uniquement par OUI ou NON. En cas de doute, réponds NON.";
 
 // Volume réellement envoyé (chaque tentative HTTP compte, relances comprises).
 const usage = { requests: 0, chars: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, reported: 0 };
@@ -234,11 +238,37 @@ async function requestModel(message, options = {}) {
         ui.info("Contexte compacté. Reprise automatique de la tâche.");
         return true;
     };
+    // Les images ne sont plus renvoyées d'office : on demande d'abord à l'agent s'il s'en souvient encore.
+    // Sans OUI franc (NON, doute, erreur), les images sont renvoyées comme avant.
+    const agentRemembersImages = async previous => {
+        if (Number(previous.sinceCheck) < IMAGE_MEMORY_CHECK_EVERY) {
+            previous.sinceCheck++;
+            return true;
+        }
+        try {
+            let measured = null;
+            const answer = await requestModelOnce(IMAGE_MEMORY_QUESTION, {
+                ...options, onDelta: undefined, receivingAttachments: true,
+                attachmentBatch: { images: [], files: [] }, onUsage: value => { measured = value; }
+            });
+            compactor.record(mode, state.chatIds[mode], IMAGE_MEMORY_QUESTION, answer, measured);
+            const remembers = /^\W*oui\b/i.test(String(answer).trim());
+            previous.sinceCheck = remembers ? 0 : undefined;
+            ui.info(remembers
+                ? "L'agent se souvient des images : elles ne sont pas renvoyées."
+                : "L'agent ne se souvient plus des images : elles sont renvoyées.");
+            return remembers;
+        } catch (error) {
+            if (error.cancelled) throw error;
+            ui.debug(`Vérification de mémoire des images impossible : ${error.message}`);
+            return false;
+        }
+    };
     let attachmentPlan = null;
     if (!options.fresh) {
         const previousImages = visualContexts.get(mode);
         if (!state.pendingImages?.length && previousImages?.chatId && previousImages.chatId === state.chatIds[mode] && previousImages.model === state.model && previousImages.workspace === state.workspace) {
-            state.pendingImages = [...previousImages.images];
+            if (!await agentRemembersImages(previousImages)) state.pendingImages = [...previousImages.images];
         }
         await resolvePendingImages();
         const fileText = await resolvePendingFiles();
@@ -301,7 +331,7 @@ async function requestModel(message, options = {}) {
             // Clear pending files; retain recent image IDs for this conversation only.
             if (!options.fresh) {
                 compactor.record(mode, state.chatIds[mode], message, answer, measured);
-                if (state.pendingImages.length && state.chatIds[mode]) visualContexts.set(mode, { chatId: state.chatIds[mode], model: state.model, workspace: state.workspace, images: state.pendingImages.slice(-API_ATTACHMENT_LIMIT) });
+                if (state.pendingImages.length && state.chatIds[mode]) visualContexts.set(mode, { chatId: state.chatIds[mode], model: state.model, workspace: state.workspace, images: state.pendingImages.slice(-API_ATTACHMENT_LIMIT), sinceCheck: 0 });
                 state.pendingImages = [];
                 state.pendingFiles = [];
             }

@@ -12,6 +12,8 @@ Les améliorations de ce fork sont détaillées dans le [changelog](CHANGELOG.md
 
 L’application utilise notamment Electron, CodeMirror, xterm.js, node-pty, Prettier, Marked, DOMPurify, Fuse.js, Lucide et electron-updater. Chaque composant conserve sa licence et son attribution.
 
+EffectCraft (moteur de motion design web, v0.14.0, © 2026 ArtCraft Team and the EffectCraft contributors, licence MIT OR Apache-2.0) est intégré à l’onglet Motion design. Il n’est pas versionné dans ce dépôt : `npm run vendor:effectcraft` le télécharge depuis la release officielle (https://github.com/storytold/effectcraft) après vérification de son empreinte SHA-256.
+
 Les licences embarquées sont accessibles dans **Cockpit → Raccourcis → Lire les licences**. Voir les [composants open source](docs/studio.md#composants-open-source).
 
 Le paquet déclare ISC dans `package.json` ; aucun fichier `LICENSE` autonome n’est actuellement présent. Aucun nouveau texte de licence ou détenteur de droits n’est substitué à ceux du projet original.

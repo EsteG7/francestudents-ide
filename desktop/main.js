@@ -60,6 +60,7 @@ const projectStudio = require("./project-studio").createProjectStudio({workspace
 const previewServer = require("./preview-server").createPreviewServer();
 const conversationImporter = require("./conversation-import").createConversationImporter();
 const localBrowser = require("./local-browser").createLocalBrowser({getWindow:()=>win,onState:data=>send("localBrowser",data)});
+const effectCraftHost = require("./effectcraft-host").createEffectCraftHost();
 let updates=null;
 const webResearch=require("../src/tools/web-research").manager;
 webResearch.subscribe(data=>send("webResearch",data));
@@ -763,6 +764,7 @@ async function logoutAccount() {
 
 function registerIpc() {
     handle("localBrowser", (action,payload)=>localBrowser.action(String(action),payload||{}));
+    handle("effectCraft", action=>action === "stop" ? effectCraftHost.stop() : action === "start" ? effectCraftHost.start() : effectCraftHost.status());
     handle("inspectFile",rel=>require("./file-assets").inspectFile(require("../src/state").state.workspace,String(rel)));
     handle("openFileInApp",async rel=>{
         const file=String(rel);
@@ -1285,6 +1287,7 @@ if (!gotLock) {
         await require("../src/tools/browse").stopAll();
         webResearch.stopAll();
         previewServer.stop().catch(()=>{});
+        effectCraftHost.stop().catch(()=>{});
         killAllTerminals();
         if (lspManager) lspManager.stopAll().catch(() => {});
         try {

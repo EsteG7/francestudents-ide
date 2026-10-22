@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("frst", {
     documentSymbols: (file,text)=>call("documentSymbols",String(file||""),String(text||"")),
     updates: (action,payload)=>call("updates",String(action||"status"),payload||{}),
     localBrowser: (action,payload)=>call("localBrowser",String(action||"status"),payload||{}),
+    effectCraft: action=>call("effectCraft",String(action||"status")),
     webResearch: (action,payload)=>call("webResearch",String(action||"list"),payload||{}),
     captureWebPage: payload=>call("captureWebPage",payload||{}),
     browserPermission: (action,value)=>call("browserPermission",String(action||"get"),String(value||"")),

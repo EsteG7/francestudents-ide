@@ -1,6 +1,6 @@
 {
   "name": "project-frstcli",
-  "version": "1.1.7",
+  "version": "1.2.0",
   "description": "FranceStudent Code : agent de programmation en ligne de commande",
   "main": "index.js",
   "bin": {
@@ -21,6 +21,7 @@
     "start:tui": "npm run build:tui && node bin/frst.js",
     "build:tui": "node scripts/build-tui.js",
     "vendor:renderer": "node scripts/copy-vendor.js",
+    "vendor:effectcraft": "node scripts/fetch-effectcraft.js",
     "build:renderer": "node scripts/copy-vendor.js && node scripts/build-renderer.js",
     "check:renderer": "node scripts/build-renderer.js --check",
     "rebuild:native": "electron-builder install-app-deps",

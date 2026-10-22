@@ -2,6 +2,13 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
+## [1.2.0] — 22 octobre 2026 · Motion design EffectCraft et images moins coûteuses
+
+- Nouvel onglet **Motion design** : intégration d’EffectCraft v0.14.0 (version alpha), chargé depuis `desktop/vendor-effectcraft`. Ce dossier n’est pas versionné ; il se télécharge avec `npm run vendor:effectcraft`. Le rendu WebGPU dans Electron et le pilotage de la timeline ne sont pas encore vérifiés.
+- Images jointes : elles ne sont plus renvoyées automatiquement à chaque requête de la même conversation. Toutes les cinq requêtes, l’agent est interrogé (sans images ni outils) pour savoir s’il se souvient encore des images ; en cas de réponse négative, d’hésitation ou d’erreur, elles sont renvoyées. Le découpage en lots de quatre images n’a pas changé.
+- Crédits mis à jour pour EffectCraft.
+- Limites : la mémoire des images dépend du modèle et du fournisseur ; la question de contrôle consomme une petite requête.
+
 ## [1.1.7] — 22 octobre 2026 · Interface harmonisée et connecteur GitHub bêta
 
 - Refonte visuelle de l’espace de travail : couleurs, espacements, boutons, navigation, accueil, chat, cartes, dialogues et panneaux cohérents. Meilleure adaptation aux petites fenêtres.

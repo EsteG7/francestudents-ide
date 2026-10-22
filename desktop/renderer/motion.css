@@ -1,0 +1,39 @@
+/* Motion design (ultra bêta) : styles isolés, n'altèrent aucune vue existante. */
+.motion-page {display:none;}
+#app.view-motion #motion-view {display:block;position:fixed;top:var(--titlebar);bottom:24px;left:48px;width:calc(100vw - 48px - var(--right) - 4px);box-sizing:border-box;background:var(--bg);color:var(--fg);overflow:auto;z-index:30;padding:0 30px 40px;}
+#app.view-motion.no-agent #motion-view {width:calc(100vw - 48px);}
+.motion-page > :not(.motion-consent) {max-width:1060px;margin-left:auto;margin-right:auto;}
+.motion-header {display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding:26px 0 14px;}
+.motion-header h1 {margin:4px 0 0;font-size:24px;color:var(--fg-strong);display:flex;align-items:center;gap:10px;}
+.motion-eyebrow {font-size:11px;letter-spacing:.08em;opacity:.8;}
+.motion-pill {display:inline-block;padding:2px 9px;border-radius:999px;border:1px solid #d9a441;background:rgba(217,164,65,.15);color:#e8b954;font-size:11px;font-weight:700;letter-spacing:.04em;}
+.motion-warning {display:flex;flex-direction:column;gap:4px;margin-top:6px;margin-bottom:18px;padding:12px 14px;border:1px solid #d9a441;border-left-width:4px;border-radius:8px;background:rgba(217,164,65,.1);font-size:13px;line-height:1.5;}
+.motion-warning b {color:#e8b954;}
+.motion-stage {min-height:240px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--border-strong);border-radius:10px;background:var(--bg-input);padding:24px;box-sizing:border-box;}
+.motion-stage-inner {max-width:640px;text-align:center;font-size:13px;line-height:1.6;}
+.motion-stage-inner h2 {margin:0 0 8px;font-size:16px;color:var(--fg-strong);}
+.motion-section-title {margin-top:26px;margin-bottom:10px;font-size:15px;color:var(--fg-strong);}
+.motion-starters {display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;}
+.motion-page button {display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:30px;border:1px solid var(--border-strong);border-radius:6px;padding:6px 11px;background:var(--bg-input);color:var(--fg);font-size:12px;line-height:1.4;cursor:pointer;}
+.motion-page button:hover {background:var(--bg-hover);color:var(--fg-strong);}
+.motion-page button.primary {background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600;}
+.motion-starters button {flex-direction:column;align-items:flex-start;text-align:left;padding:12px 14px;}
+.motion-starters small {opacity:.75;}
+.motion-note {margin-top:12px;font-size:12px;opacity:.75;}
+.motion-badge {position:absolute;right:6px;bottom:6px;min-width:12px;height:12px;border-radius:6px;background:#d9a441;color:#1b1b1b;font-size:9px;font-weight:700;line-height:12px;text-align:center;}
+.motion-consent {position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);z-index:5;}
+.motion-consent.hidden-consent {display:none;}
+.motion-consent-card {max-width:460px;padding:22px;border:1px solid #d9a441;border-radius:12px;background:var(--bg);box-shadow:0 12px 40px rgba(0,0,0,.5);font-size:13px;line-height:1.6;}
+.motion-consent-card h2 {margin:10px 0 8px;font-size:18px;color:var(--fg-strong);}
+.motion-consent-actions {display:flex;justify-content:flex-end;gap:8px;margin-top:16px;}
+/* Moteur EffectCraft : zone de travail à gauche, le chat agent reste à droite */
+.motion-stage[hidden] {display:none;}
+.motion-engine[hidden] {display:none;}
+#motion-view > #motion-engine {max-width:none;display:flex;flex-direction:column;gap:6px;}
+.motion-engine-bar {display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;opacity:.85;}
+.motion-engine-frame {height:calc(100vh - var(--titlebar) - 24px - 190px);min-height:420px;border:1px solid var(--border-strong);border-radius:10px;overflow:hidden;background:#000;}
+.motion-engine-iframe {display:block;width:100%;height:100%;border:0;background:#000;}
+
+/* Chat de l'agent : repère discret quand l'onglet motion design est ouvert (aucune règle existante modifiée) */
+.agent-motion-badge{display:inline-flex;align-items:center;margin-left:8px;padding:1px 8px;border-radius:999px;border:1px solid rgba(255,196,87,.5);color:#ffc457;font-size:11px;line-height:18px;white-space:nowrap}
+.agent-motion-badge[hidden]{display:none}
