@@ -1,0 +1,47 @@
+name: Préparer la release v1.1.7 en brouillon
+
+on:
+  push:
+    paths:
+      - .github/workflows/prepare-v1.1.7.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Créer la fiche de release sans publier un build incorrect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v1.1.7 --repo "$GH_REPO" >/dev/null 2>&1; then
+            echo "La release v1.1.7 existe déjà : aucune modification."
+            exit 0
+          fi
+          cat > /tmp/release-notes.md <<'NOTES'
+          FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide). Cette version est proposée par le fork d'amélioration maintenu par extraopaa.
+
+          ## Téléchargement
+
+          Installateur pour Windows 64 bits : `FranceStudentCode-1.1.7-setup.exe`.
+
+          Fermez l'ancienne version avant de lancer l'installation.
+
+          ## Publication à terminer
+
+          Cette fiche est préparée en **brouillon**. Avant publication, ajouter le véritable installateur v1.1.7, vérifier sa provenance et synchroniser le code source correspondant. Joindre idéalement `latest.yml`, le `.blockmap` de cet installateur et `SHA256SUMS.txt` pour conserver le fonctionnement des mises à jour. Documenter les nouveautés vérifiées de cette version.
+
+          Ne pas reconstruire v1.1.7 depuis les sources encore en v1.1.6 : ce serait un exécutable différent.
+          NOTES
+          gh release create v1.1.7 \
+            --repo "$GH_REPO" \
+            --target main \
+            --draft \
+            --title "FranceStudent IDE 1.1.7 — Windows" \
+            --notes-file /tmp/release-notes.md
