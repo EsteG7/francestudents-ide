@@ -2,6 +2,13 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
+## [1.1.6] — 22 octobre 2026 · Boutons et suivi de consommation
+
+- Boutons de conversation redessinés : icônes cohérentes, badge Bêta séparé, état du mode Éco et disposition adaptée à la largeur du panneau.
+- Jauge de quota cliquable et nouvel onglet Usage avec quota restant, réinitialisation et limites du compte.
+- Compteurs de requêtes et tokens de session, avec distinction entre estimations et relevés réels.
+- Consultation et actualisation de l’usage pendant une tâche, sans lancer de génération IA ni perdre le brouillon.
+
 ## [1.1.5] — 22 octobre 2026 · Liens partagés Codex
 
 - Reconnaissance du format de partage Codex `https://chatgpt.com/s/cx_…`.
@@ -126,6 +133,7 @@ L’historique du [projet de EsteG7](https://github.com/EsteG7/francestudents-id
 
 [1.1.1]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.1
 [1.1.2]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.2
+[1.1.6]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.6
 [1.1.5]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.5
 [1.1.4]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.4
 [1.1.3]: https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.3

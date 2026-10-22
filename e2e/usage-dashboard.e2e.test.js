@@ -1,0 +1,44 @@
+"use strict";
+const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), os = require("node:os"), path = require("node:path"), { _electron } = require("playwright-core");
+test("usage meter opens a live dashboard, distinguishes estimates and handles unavailable quota", { timeout: 45000 }, async () => {
+    const root = path.resolve(__dirname, ".."), dir = fs.mkdtempSync(path.join(os.tmpdir(), "frst-usage-"));
+    const harness = path.join(dir, "launch.cjs");
+    fs.writeFileSync(harness, `const session=require(${JSON.stringify(path.join(root, "src/core/session"))});session.bootstrap=async()=>({ok:true});globalThis.usageSubmissions=0;session.handleInput=async()=>{globalThis.usageSubmissions++;await new Promise(resolve=>globalThis.releaseUsageTask=resolve);return {completed:true};};globalThis.quotaFixture={chatBudget:{usedPercent:7,resetAt:'2026-10-23T00:00:00Z'},rateLimits:[{type:'image',used:19,limit:20,usedPercent:95}]};globalThis.quotaFails=false;require(${JSON.stringify(path.join(root, "src/api/account"))}).fetchUserUsage=async()=>{if(globalThis.quotaFails)throw Error('offline');return globalThis.quotaFixture;};const api=require(${JSON.stringify(path.join(root, "src/api/api"))});Object.assign(api.usage,{requests:13,chars:185500,reported:0});globalThis.setUsageFixture=(quota,usage)=>{globalThis.quotaFixture=quota;Object.assign(api.usage,usage);};require(${JSON.stringify(path.join(root, "desktop/main.js"))});`);
+    const env = { ...process.env, FS_DATA_DIR: dir, FS_STATE_DIR: dir }; delete env.ELECTRON_RUN_AS_NODE;
+    const app = await _electron.launch({ executablePath: require("electron"), args: [harness, "--user-data-dir=" + path.join(dir, "electron")], env, cwd: root });
+    try {
+        const page = await app.firstWindow(); await page.locator("#startup-loading").waitFor({ state: "hidden" });
+        await page.waitForFunction(async () => (await window.frst.status()).booted);
+        await page.locator("#input").fill("Brouillon conservé");
+        await page.locator("#st-usage").click();
+        await page.waitForFunction(() => document.querySelector("#usage-dashboard").textContent.includes("93 % disponibles"));
+        assert.match(await page.locator("#st-usage").innerText(), /7 %/);
+        assert.match(await page.locator("#usage-dashboard").innerText(), /Tokens estimés/);
+        assert.match(await page.locator(".usage-limits").innerText(), /95 %/);
+        assert.equal(await app.evaluate(() => globalThis.usageSubmissions), 0);
+        if (process.env.FS_USAGE_SCREENSHOT) await page.locator("#agent").screenshot({ path: process.env.FS_USAGE_SCREENSHOT });
+        await app.evaluate(() => globalThis.setUsageFixture({ chatBudget: { usedPercent: 92, accountingUncertain: true } }, { reported: 1, inputTokens: 40000, outputTokens: 12000, cachedTokens: 5000 }));
+        await page.locator("#usage-refresh").click();
+        await page.waitForFunction(() => document.querySelector(".usage-quota-card").classList.contains("critical"));
+        assert.match(await page.locator("#usage-dashboard").innerText(), /Estimation serveur/);
+        assert.match(await page.locator("#usage-dashboard").innerText(), /Tokens comptabilisés/);
+        assert.match(await page.locator(".usage-cache").innerText(), /5.000 tokens en cache/);
+        assert.equal(await page.locator("#usage-refresh").isEnabled(), true);
+        await app.evaluate(() => globalThis.setUsageFixture({ chatBudget: { usedPercent: 0 } }, {}));
+        await page.locator("#usage-refresh").click();
+        await page.waitForFunction(() => document.querySelector("#usage-dashboard").textContent.includes("100 % disponibles"));
+        await app.evaluate(() => { globalThis.quotaFails = true; });
+        await page.locator("#usage-refresh").click();
+        await page.waitForFunction(() => document.querySelector("#usage-dashboard").textContent.includes("momentanément indisponible"));
+        assert.match(await page.locator("#usage-dashboard").innerText(), /Quota indisponible/);
+        await page.locator('[data-agent-tab="conversation"]').click();
+        assert.equal(await page.locator("#input").inputValue(), "Brouillon conservé");
+        await page.evaluate(() => { void window.frst.submit("Tâche en cours"); });
+        await page.waitForFunction(async () => (await window.frst.status()).busy);
+        await page.locator("#st-usage").focus(); await page.keyboard.press("Enter");
+        assert.equal(await page.locator("#agent-usage").isVisible(), true);
+        assert.equal(await app.evaluate(() => globalThis.usageSubmissions), 1);
+        await app.evaluate(() => globalThis.releaseUsageTask());
+        await page.waitForFunction(async () => !(await window.frst.status()).busy);
+    } finally { await app.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});

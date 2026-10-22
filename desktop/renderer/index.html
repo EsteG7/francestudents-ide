@@ -440,6 +440,7 @@
                 <div class="agent-tabs" role="tablist" aria-label="Espace agent">
                     <button type="button" class="selected" data-agent-tab="conversation" role="tab" aria-selected="true" aria-controls="transcript">Conversation</button>
                     <button type="button" data-agent-tab="activity" role="tab" aria-selected="false" aria-controls="agent-activity">Activité</button>
+                    <button type="button" data-agent-tab="usage" role="tab" aria-selected="false" aria-controls="agent-usage">Usage</button>
                 </div>
                 <button type="button" id="agent-focus" title="Agrandir l’espace agent" aria-label="Agrandir l’espace agent">⤢</button>
             </div>
@@ -463,6 +464,11 @@
                 <div class="workspace-section"><h4>Commandes en arrière-plan</h4><div id="activity-jobs"></div><pre id="activity-job-output" class="hidden"></pre></div>
                 <div class="workspace-section"><h4>Points de reprise</h4><p class="muted">Restaure les modifications suivies par les outils de fichiers. Les commandes shell ne sont pas annulées.</p><div id="activity-checkpoints"></div></div>
             </section>
+            <section id="agent-usage" class="agent-usage" role="tabpanel" aria-label="Utilisation du quota">
+                <div class="usage-heading"><div><span class="starter-eyebrow">VOTRE COMPTE</span><h2>Consommation</h2></div><button type="button" id="usage-refresh" title="Actualiser le quota" aria-label="Actualiser le quota"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 2M18 18a8 8 0 0 1-13-2"/></svg></button></div>
+                <div id="usage-dashboard" aria-live="polite"></div>
+                <p class="usage-footnote">Le quota du compte vient de FranceStudent. Les compteurs de session suivent cette ouverture de l’application ; ils ne représentent pas une facture ni une répartition par modèle.</p>
+            </section>
             <div id="spinner" class="spinner hidden"><span class="dot"></span><span id="spinner-label"></span></div>
             <div id="prompt-zone" class="prompt-zone hidden"></div>
             <form id="composer" class="composer">
@@ -470,7 +476,14 @@
                 <section id="pending-prompts" class="pending-prompts hidden" aria-label="Prompts en attente" aria-live="polite"></section>
                 <div id="agent-favorites" class="agent-favorites hidden"><div class="workspace-section-head"><b>Prompts favoris</b><button type="button" id="favorite-close" aria-label="Fermer les favoris">×</button></div><div id="favorite-list"></div></div>
                 <div class="composer-box">
-                    <div class="composer-topline"><div class="composer-utilities"><button type="button" id="favorite-open" title="Prompts favoris" aria-label="Prompts favoris">☆</button><button type="button" id="draft-save-favorite" title="Enregistrer ce prompt en favori" aria-label="Enregistrer ce prompt en favori">＋☆</button><button type="button" id="conversation-export" title="Exporter la conversation en Markdown" aria-label="Exporter la conversation">↗</button></div></div>
+                    <div class="composer-topline"><div class="composer-utilities" role="group" aria-label="Outils de conversation">
+                        <div class="composer-shortcuts">
+                            <button type="button" id="favorite-open" class="composer-icon-button" title="Prompts favoris" aria-label="Prompts favoris"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/></svg></button>
+                            <button type="button" id="draft-save-favorite" class="composer-icon-button" title="Enregistrer ce prompt en favori" aria-label="Enregistrer ce prompt en favori"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 11v9l-7-4-7 4V4a1 1 0 0 1 1-1h8M19 2v6m-3-3h6"/></svg></button>
+                            <button type="button" id="conversation-export" class="composer-icon-button" title="Exporter la conversation en Markdown" aria-label="Exporter la conversation"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg></button>
+                        </div>
+                        <div id="composer-options" class="composer-options"></div>
+                    </div></div>
                     <div id="attachments" class="attachments hidden"></div>
                     <textarea id="input" rows="2" placeholder="Demande à l'agent… (/ pour les commandes)"></textarea>
                     <input type="file" id="attach-input" multiple hidden>

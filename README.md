@@ -35,7 +35,7 @@ L’application est distribuée pour **Windows 64 bits**. Aucun Node.js ni aucun
 
 La version 1.1.4 ajoute aussi le **mode Éco**, un avertissement de quota pour les nombreux fichiers, davantage de formats de documents, l’**import de conversation Codex en bêta** et les boutons pour démarrer et arrêter un serveur depuis une réponse.
 
-Installe la [version 1.1.5](https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.5) pour en profiter, avec le correctif d’import des liens partagés Codex. Les [notes de version](CHANGELOG.md) détaillent les changements et leurs limites.
+Installe la [version 1.1.6](https://github.com/extraopaa/francestudents-ide/releases/tag/v1.1.6) pour en profiter, avec les boutons redessinés, la jauge de quota et l’onglet Usage. Le correctif d’import des liens Codex est inclus. Les [notes de version](CHANGELOG.md) détaillent les changements et leurs limites.
 
 ## Garder le contrôle
 

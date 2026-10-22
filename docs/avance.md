@@ -20,6 +20,8 @@ Les PDF peuvent être rendus en images. Les documents Office, présentations, ta
 
 À partir de cinq fichiers joints, un avertissement rappelle le risque de forte consommation. Le nombre de pages et la taille du contenu comptent également.
 
+La jauge de la barre d’état ouvre l’onglet **Usage** : quota de chat, réinitialisation, limites du compte, requêtes et tokens de la session. Les estimations sont distinguées des relevés du service. Les compteurs restent consultables pendant une tâche et l’actualisation ne lance aucune génération IA. Le quota du compte et les compteurs de cette ouverture de l’application couvrent des périodes différentes.
+
 Le **mode Éco** réduit le contexte projet ajouté automatiquement à 20 000 caractères, limite l’agent à quatre tours et désactive les sous-agents, la recherche web intégrée et certaines reprises automatiques. Une fenêtre explique ces limites avant activation. Il peut laisser une tâche incomplète et ne fixe pas de plafond garanti de quota. [Fonctionnement du mode Éco](eco-mode.md).
 
 ## Continuer une conversation Codex — bêta

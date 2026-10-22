@@ -25,7 +25,7 @@ function saveStudioDraft() {
     if (studioWorkspace !== undefined) writeStudioStorage(`frst.draft:${studioWorkspace || "global"}`, input.value);
 }
 function setAgentTab(tab) {
-    studioTab = ["conversation", "activity"].includes(tab) ? tab : "conversation";
+    studioTab = ["conversation", "activity", "usage"].includes(tab) ? tab : "conversation";
     $("agent").dataset.tab = studioTab;
     for (const button of document.querySelectorAll("[data-agent-tab]")) {
         const selected = button.dataset.agentTab === studioTab;
@@ -34,6 +34,7 @@ function setAgentTab(tab) {
         button.tabIndex = selected ? 0 : -1;
     }
     if (studioTab === "activity") refreshStudioActivity();
+    if (studioTab === "usage") { renderUsageDashboard(); refreshQuota(); }
 }
 function updateStudioStatus(status) {
     const workspace = status.workspace || null;

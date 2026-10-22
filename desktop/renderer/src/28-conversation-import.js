@@ -2,9 +2,10 @@
 const conversationImportButton = document.createElement("button");
 conversationImportButton.type = "button";
 conversationImportButton.id = "conversation-import";
-conversationImportButton.textContent = "Importer Codex · Bêta";
+conversationImportButton.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3H5a2 2 0 0 0-2 2v12l4-4h5M17 3v10m-4-4 4 4 4-4M13 18h8"/></svg><span>Importer Codex</span><span class="composer-beta">Bêta</span>';
+conversationImportButton.setAttribute("aria-label", "Importer une conversation Codex, bêta");
 conversationImportButton.title = "Continuer une conversation Codex avec une IA FranceStudent";
-$("conversation-export").after(conversationImportButton);
+$("composer-options").appendChild(conversationImportButton);
 
 const conversationImportDialog = document.createElement("dialog");
 conversationImportDialog.id = "conversation-import-dialog";

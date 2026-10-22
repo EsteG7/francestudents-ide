@@ -8,7 +8,7 @@ function applyStatus(s) {
     if (ecoButton) {
         ecoButton.disabled = Boolean(s.busy);
         ecoButton.setAttribute("aria-pressed", String(Boolean(s.ecoMode)));
-        ecoButton.textContent = s.ecoMode ? "Éco activé" : "Mode Éco";
+        ecoButton.querySelector(".eco-mode-label").textContent = s.ecoMode ? "Éco activé" : "Mode Éco";
         ecoButton.title = s.ecoMode ? "Désactiver le mode Éco" : "Réduire la consommation avec des capacités limitées";
     }
     const busy = Boolean(s.busy);
@@ -63,45 +63,26 @@ function applyStatus(s) {
 /* ---------- Quota du compte FranceStudent ---------- */
 
 function renderQuota() {
-    const el = $("st-usage");
-    const quota = ui.quota;
-
-    if (!quota || quota.percent == null) {
-        el.textContent = ui.sessionRequests || "";
-        el.title = "";
-        el.classList.remove("warn", "crit");
-        return;
-    }
-
-    const session = ui.sessionRequests ? ` · ${ui.sessionRequests}` : "";
-    const approx = quota.uncertain ? "~" : "";
-    el.textContent = `quota chat ${approx}${quota.percent} %${session}`;
-    el.classList.toggle("warn", quota.percent >= 75 && quota.percent < 90);
-    el.classList.toggle("crit", quota.percent >= 90);
-
-    const fmtReset = (iso) => (iso ? ` — réinit. ${new Date(iso).toLocaleString()}` : "");
-    const lines = [`Quota général de chat : ${approx}${quota.percent} %${fmtReset(quota.resetAt)}`];
-    if (quota.uncertain) lines.push("(décompte approximatif côté serveur)");
-    const isImage = (l) => /image/i.test(`${l.type || ""} ${l.bucket || ""}`);
-    for (const limit of quota.limits || []) {
-        const name = [limit.type, limit.bucket].filter(Boolean).join("/") || "limite";
-        const total = limit.limit ? `${limit.used}/${limit.limit}` : `${limit.used}`;
-        const prefix = isImage(limit) ? "Images" : "Limite";
-        lines.push(`${prefix} ${name} : ${Math.round(limit.usedPercent)} % (${total})${fmtReset(limit.resetAt)}`);
-    }
-    if (quota.powerUp) lines.push("Power-up de quota actif");
-    lines.push("Cliquer pour le détail (/usage)");
-    el.title = lines.join("\n");
+    renderUsageMeter();
+    renderUsageDashboard();
 }
 
 async function refreshQuota() {
+    if (ui.quotaLoading) return;
     if (!ui.status.booted) { ui.quota = null; renderQuota(); return; }
+    ui.quotaLoading = true;
+    ui.quotaError = "";
+    renderQuota();
     try {
         const quota = await api.usage();
+        applyStatus(await api.status());
         ui.quota = ui.status.booted ? quota : null;
+        ui.quotaUpdatedAt = new Date().toISOString();
     } catch {
         ui.quota = null;
+        ui.quotaError = "Le quota est momentanément indisponible. Réessaie dans quelques instants.";
     }
+    ui.quotaLoading = false;
     renderQuota();
 }
 

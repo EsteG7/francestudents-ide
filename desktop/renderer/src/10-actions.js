@@ -23,10 +23,13 @@ $("btn-history").onclick = (ev) => {
     toggleHistoryMenu();
 };
 $("st-usage").onclick = () => {
-    if (ui.status && ui.status.busy) return;
-    api.submit("/usage", []).catch((err) => renderEntry({ type: "error", text: err.message }));
+    setAgentTab("usage");
 };
-if (!$("st-usage").title) $("st-usage").title = "Cliquer pour afficher la consommation (/usage)";
+$("st-usage").setAttribute("role", "button");
+$("st-usage").tabIndex = 0;
+$("st-usage").onkeydown = event => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setAgentTab("usage"); }
+};
 $("btn-open-project").onclick = openProject;
 $("btn-open-project-2").onclick = openProject;
 $("btn-refresh-tree").onclick = () => renderTree();

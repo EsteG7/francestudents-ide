@@ -2,7 +2,7 @@
 const ecoModeButton = document.createElement("button");
 ecoModeButton.id = "eco-mode-toggle";
 ecoModeButton.type = "button";
-ecoModeButton.textContent = "Mode Éco";
+ecoModeButton.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4c-6-1-13 1-13 7a6 6 0 0 0 6 6c6 0 8-7 7-13ZM4 21 15 10"/></svg><span class="eco-mode-label">Mode Éco</span><span class="eco-mode-indicator" aria-hidden="true"></span>';
 ecoModeButton.setAttribute("aria-pressed", "false");
 $("conversation-import").after(ecoModeButton);
 

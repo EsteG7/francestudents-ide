@@ -790,7 +790,7 @@ function applyStatus(s) {
     if (ecoButton) {
         ecoButton.disabled = Boolean(s.busy);
         ecoButton.setAttribute("aria-pressed", String(Boolean(s.ecoMode)));
-        ecoButton.textContent = s.ecoMode ? "Éco activé" : "Mode Éco";
+        ecoButton.querySelector(".eco-mode-label").textContent = s.ecoMode ? "Éco activé" : "Mode Éco";
         ecoButton.title = s.ecoMode ? "Désactiver le mode Éco" : "Réduire la consommation avec des capacités limitées";
     }
     const busy = Boolean(s.busy);
@@ -845,45 +845,26 @@ function applyStatus(s) {
 /* ---------- Quota du compte FranceStudent ---------- */
 
 function renderQuota() {
-    const el = $("st-usage");
-    const quota = ui.quota;
-
-    if (!quota || quota.percent == null) {
-        el.textContent = ui.sessionRequests || "";
-        el.title = "";
-        el.classList.remove("warn", "crit");
-        return;
-    }
-
-    const session = ui.sessionRequests ? ` · ${ui.sessionRequests}` : "";
-    const approx = quota.uncertain ? "~" : "";
-    el.textContent = `quota chat ${approx}${quota.percent} %${session}`;
-    el.classList.toggle("warn", quota.percent >= 75 && quota.percent < 90);
-    el.classList.toggle("crit", quota.percent >= 90);
-
-    const fmtReset = (iso) => (iso ? ` — réinit. ${new Date(iso).toLocaleString()}` : "");
-    const lines = [`Quota général de chat : ${approx}${quota.percent} %${fmtReset(quota.resetAt)}`];
-    if (quota.uncertain) lines.push("(décompte approximatif côté serveur)");
-    const isImage = (l) => /image/i.test(`${l.type || ""} ${l.bucket || ""}`);
-    for (const limit of quota.limits || []) {
-        const name = [limit.type, limit.bucket].filter(Boolean).join("/") || "limite";
-        const total = limit.limit ? `${limit.used}/${limit.limit}` : `${limit.used}`;
-        const prefix = isImage(limit) ? "Images" : "Limite";
-        lines.push(`${prefix} ${name} : ${Math.round(limit.usedPercent)} % (${total})${fmtReset(limit.resetAt)}`);
-    }
-    if (quota.powerUp) lines.push("Power-up de quota actif");
-    lines.push("Cliquer pour le détail (/usage)");
-    el.title = lines.join("\n");
+    renderUsageMeter();
+    renderUsageDashboard();
 }
 
 async function refreshQuota() {
+    if (ui.quotaLoading) return;
     if (!ui.status.booted) { ui.quota = null; renderQuota(); return; }
+    ui.quotaLoading = true;
+    ui.quotaError = "";
+    renderQuota();
     try {
         const quota = await api.usage();
+        applyStatus(await api.status());
         ui.quota = ui.status.booted ? quota : null;
+        ui.quotaUpdatedAt = new Date().toISOString();
     } catch {
         ui.quota = null;
+        ui.quotaError = "Le quota est momentanément indisponible. Réessaie dans quelques instants.";
     }
+    ui.quotaLoading = false;
     renderQuota();
 }
 
@@ -2766,10 +2747,13 @@ $("btn-history").onclick = (ev) => {
     toggleHistoryMenu();
 };
 $("st-usage").onclick = () => {
-    if (ui.status && ui.status.busy) return;
-    api.submit("/usage", []).catch((err) => renderEntry({ type: "error", text: err.message }));
+    setAgentTab("usage");
 };
-if (!$("st-usage").title) $("st-usage").title = "Cliquer pour afficher la consommation (/usage)";
+$("st-usage").setAttribute("role", "button");
+$("st-usage").tabIndex = 0;
+$("st-usage").onkeydown = event => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setAgentTab("usage"); }
+};
 $("btn-open-project").onclick = openProject;
 $("btn-open-project-2").onclick = openProject;
 $("btn-refresh-tree").onclick = () => renderTree();
@@ -6070,7 +6054,7 @@ function saveStudioDraft() {
     if (studioWorkspace !== undefined) writeStudioStorage(`frst.draft:${studioWorkspace || "global"}`, input.value);
 }
 function setAgentTab(tab) {
-    studioTab = ["conversation", "activity"].includes(tab) ? tab : "conversation";
+    studioTab = ["conversation", "activity", "usage"].includes(tab) ? tab : "conversation";
     $("agent").dataset.tab = studioTab;
     for (const button of document.querySelectorAll("[data-agent-tab]")) {
         const selected = button.dataset.agentTab === studioTab;
@@ -6079,6 +6063,7 @@ function setAgentTab(tab) {
         button.tabIndex = selected ? 0 : -1;
     }
     if (studioTab === "activity") refreshStudioActivity();
+    if (studioTab === "usage") { renderUsageDashboard(); refreshQuota(); }
 }
 function updateStudioStatus(status) {
     const workspace = status.workspace || null;
@@ -7316,9 +7301,10 @@ document.addEventListener("click",event=>{
 const conversationImportButton = document.createElement("button");
 conversationImportButton.type = "button";
 conversationImportButton.id = "conversation-import";
-conversationImportButton.textContent = "Importer Codex · Bêta";
+conversationImportButton.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3H5a2 2 0 0 0-2 2v12l4-4h5M17 3v10m-4-4 4 4 4-4M13 18h8"/></svg><span>Importer Codex</span><span class="composer-beta">Bêta</span>';
+conversationImportButton.setAttribute("aria-label", "Importer une conversation Codex, bêta");
 conversationImportButton.title = "Continuer une conversation Codex avec une IA FranceStudent";
-$("conversation-export").after(conversationImportButton);
+$("composer-options").appendChild(conversationImportButton);
 
 const conversationImportDialog = document.createElement("dialog");
 conversationImportDialog.id = "conversation-import-dialog";
@@ -7431,7 +7417,7 @@ $("conversation-import-apply").onclick = async () => {
 const ecoModeButton = document.createElement("button");
 ecoModeButton.id = "eco-mode-toggle";
 ecoModeButton.type = "button";
-ecoModeButton.textContent = "Mode Éco";
+ecoModeButton.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4c-6-1-13 1-13 7a6 6 0 0 0 6 6c6 0 8-7 7-13ZM4 21 15 10"/></svg><span class="eco-mode-label">Mode Éco</span><span class="eco-mode-indicator" aria-hidden="true"></span>';
 ecoModeButton.setAttribute("aria-pressed", "false");
 $("conversation-import").after(ecoModeButton);
 
@@ -7530,6 +7516,57 @@ api.onEvent((channel, run) => {
         if (card.dataset.serverKey === run.server.key && card.serverWorkspace === run.workspace) card.updateServerRun(run);
     }
 });
+/* ---------- Quota du compte et compteurs de cette session ---------- */
+function usagePercent(value) {
+    return value != null && Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : null;
+}
+function usageTone(value) { return value >= 90 ? "critical" : value >= 75 ? "warning" : "normal"; }
+function usageDate(value) {
+    const date = value ? new Date(value) : null;
+    return date && Number.isFinite(date.getTime()) ? date.toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Non communiquée";
+}
+function usageNumber(value) { return Math.max(0, Number(value) || 0).toLocaleString("fr-FR"); }
+function usageProgress(value, label, className = "usage-progress") {
+    const bounded = Math.min(100, value ?? 0);
+    return `<span class="${className} ${usageTone(value)}${value == null ? " unknown" : ""}" role="progressbar" aria-label="${escapeHtml(label)}" aria-valuemin="0" aria-valuemax="100" ${value == null ? 'aria-valuetext="Indisponible"' : `aria-valuenow="${bounded}"`} style="--usage:${bounded}%"><span></span></span>`;
+}
+function renderUsageMeter() {
+    const el = $("st-usage"), quota = ui.quota, percent = usagePercent(quota?.percent);
+    const label = percent == null ? "Usage" : `${quota.uncertain ? "≈ " : ""}${percent} %`;
+    el.classList.remove("warn", "crit");
+    el.innerHTML = usageProgress(percent, "Quota de chat utilisé", "usage-mini-meter") + `<span class="usage-meter-label">${label}</span>`;
+    el.title = percent == null ? "Voir la consommation et les compteurs de session" : `${quota.uncertain ? "Environ " : ""}${percent} % du quota de chat utilisé · Cliquer pour les détails`;
+    el.setAttribute("aria-label", el.title);
+}
+
+function renderUsageDashboard() {
+    if ($("agent").dataset.tab !== "usage") return;
+    const box = $("usage-dashboard"), quota = ui.quota, usage = ui.status.usage || {};
+    const signature = JSON.stringify([quota, usage, ui.quotaLoading, ui.quotaError, ui.quotaUpdatedAt, ui.status.booted, ui.status.ecoMode]);
+    if (box.usageSignature === signature) return;
+    box.usageSignature = signature;
+    const percent = usagePercent(quota?.percent), reported = Number(usage.reported) > 0;
+    const total = reported ? Number(usage.inputTokens || 0) + Number(usage.outputTokens || 0) : null;
+    const estimate = Math.round(Number(usage.chars || 0) / 3.5);
+    const metric = (name, value, detail) => `<div class="usage-metric"><span>${name}</span><strong>${value}</strong><small>${detail}</small></div>`;
+    const limits = (quota?.limits || []).map(limit => {
+        const value = usagePercent(limit.usedPercent);
+        const label = [limit.type, limit.bucket].filter(Boolean).join(" · ") || "Limite du compte";
+        return `<div class="usage-limit"><div><b>${escapeHtml(label)}</b><span>${value == null ? "—" : Math.round(value) + " %"}</span></div>${usageProgress(value, label)}<small>${usageNumber(limit.used)}${limit.limit > 0 ? " / " + usageNumber(limit.limit) : " utilisé(s)"} · Réinitialisation : ${escapeHtml(usageDate(limit.resetAt))}</small></div>`;
+    }).join("");
+    $("usage-refresh").disabled = Boolean(ui.quotaLoading) || !ui.status.booted;
+    box.innerHTML = `<div class="usage-quota-card ${usageTone(percent)}">
+        <div class="usage-quota-top"><span>Quota de chat</span><span class="usage-badge">${ui.quotaLoading ? "Actualisation…" : quota?.uncertain ? "Estimation serveur" : percent == null ? "Indisponible" : "Compte FranceStudent"}</span></div>
+        <div class="usage-quota-main"><div class="usage-ring${percent == null ? " unknown" : ""}" style="--usage:${Math.min(100, percent ?? 0)}%" role="img" aria-label="${percent == null ? "Quota inconnu" : percent + " % utilisés"}"><strong>${percent == null ? "—" : (quota?.uncertain ? "≈ " : "") + percent + "<small>%</small>"}</strong></div><div><b>${percent == null ? "Quota indisponible" : usageNumber(Math.max(0, 100 - percent)) + " % disponibles"}</b><p>${percent == null ? "Les compteurs de session restent accessibles." : "de votre budget de chat"}</p>${quota?.powerUp ? '<span class="usage-badge">Power-up actif</span>' : ""}</div></div>
+        <div class="usage-reset"><span>Réinitialisation</span><b>${escapeHtml(usageDate(quota?.resetAt))}</b></div></div>
+        ${ui.quotaError ? `<p class="usage-notice" role="status">${escapeHtml(ui.quotaError)}</p>` : !ui.status.booted ? '<p class="usage-notice">Connecte-toi pour consulter le quota du compte.</p>' : ""}
+        <div class="usage-section-title"><h3>Cette session</h3><span>${ui.status.ecoMode ? "Mode Éco activé" : "Depuis l’ouverture"}</span></div>
+        <div class="usage-metrics">${metric("Requêtes IA", usageNumber(usage.requests), "Relances comprises")}${metric(reported ? "Tokens comptabilisés" : "Tokens estimés", reported ? usageNumber(total) : estimate ? "≈ " + usageNumber(estimate) : "—", reported ? "Données reçues du service" : "Estimation du texte envoyé")}${metric("Entrée", reported ? usageNumber(usage.inputTokens) : "—", "Tokens envoyés au modèle")}${metric("Sortie", reported ? usageNumber(usage.outputTokens) : "—", "Tokens générés")}</div>
+        ${reported ? `<p class="usage-cache">${usageNumber(usage.cachedTokens)} tokens en cache, déjà inclus dans l’entrée. Les compteurs couvrent les réponses qui transmettent un relevé.</p>` : '<p class="usage-cache">Sans relevé de tokens du service, l’estimation ne couvre pas les images, les réponses ni tout l’historique serveur.</p>'}
+        ${limits ? `<div class="usage-section-title"><h3>Limites du compte</h3></div><div class="usage-limits">${limits}</div>` : ""}
+        <p class="usage-updated">${ui.quotaUpdatedAt ? "Quota actualisé le " + escapeHtml(usageDate(ui.quotaUpdatedAt)) : "Le quota ne peut pas être déduit du nombre de tokens de cette session."}</p>`;
+}
+$("usage-refresh").onclick = () => refreshQuota();
 /* ---------- Démarrage ---------- */
 
 (async () => {
