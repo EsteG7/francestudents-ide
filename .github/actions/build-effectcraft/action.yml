@@ -1,0 +1,25 @@
+name: Build FranceStudent EffectCraft
+description: Rebuild and verify the integrated EffectCraft UI from pinned sources
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v4
+      id: vendor
+      with:
+        path: desktop/vendor-effectcraft
+        key: effectcraft-custom-${{ runner.os }}-${{ hashFiles('patches/effectcraft-francestudent.patch', 'scripts/build-effectcraft.js') }}
+    - uses: dtolnay/rust-toolchain@stable
+      if: steps.vendor.outputs.cache-hit != 'true'
+      with:
+        targets: wasm32-unknown-unknown
+    - name: Install the matching WASM bindings generator
+      if: steps.vendor.outputs.cache-hit != 'true'
+      shell: bash
+      run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+    - name: Build the modified native interface
+      if: steps.vendor.outputs.cache-hit != 'true'
+      shell: bash
+      run: npm run vendor:effectcraft
+    - name: Verify the generated integration
+      shell: bash
+      run: npm run check:effectcraft

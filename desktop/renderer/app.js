@@ -216,6 +216,7 @@ const expanded = new Set();
 /* ---------- Rendu du texte ---------- */
 
 const TOOL_LABELS = {
+    effectcraft: "EffectCraft",
     list_directory: "Lister", read_file: "Lire", search_files: "Chercher",web_search_result:"Résultat web",view_image:"Examiner l’image",
     create_directory: "Créer le dossier", write_file: "Écrire", edit_file: "Éditer",
     move_path: "Déplacer", copy_path: "Copier", delete_path: "Supprimer",
@@ -2304,6 +2305,7 @@ async function confirmImageReadability(attachments){
 }
 
 async function send(text) {
+    if(typeof motionChatSwitch!=="undefined" && motionChatSwitch){studioFeedback("Le changement de chat est en cours.");return;}
     const value = text ?? input.value;
     const withFiles = text === undefined && pendingAttachments.length > 0;
     if (!value.trim() && !withFiles) return;
@@ -6061,8 +6063,9 @@ function writeStudioStorage(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch { studioFeedback("Le stockage local est indisponible."); }
 }
 function studioFeedback(message) { $("composer-feedback").textContent = message || ""; }
+function studioDraftKey(workspace,mode=typeof motionChatMode!=="undefined"?motionChatMode:"code") {return `frst.draft:${workspace || "global"}${mode==="motion"?":motion":""}`;}
 function saveStudioDraft() {
-    if (studioWorkspace !== undefined) writeStudioStorage(`frst.draft:${studioWorkspace || "global"}`, input.value);
+    if (studioWorkspace !== undefined) writeStudioStorage(studioDraftKey(studioWorkspace), input.value);
 }
 function setAgentTab(tab) {
     studioTab = ["conversation", "activity", "usage"].includes(tab) ? tab : "conversation";
@@ -6085,7 +6088,7 @@ function updateStudioStatus(status) {
     if (studioWorkspace !== workspace) {
         saveStudioDraft();
         studioWorkspace = workspace;
-        input.value = readStudioStorage(`frst.draft:${workspace || "global"}`, "");
+        input.value = readStudioStorage(studioDraftKey(workspace), "");
         autosizeInput();
         if (studioRun && studioRun.workspace !== workspace) { studioRun = null; renderAgentActivity(null); }
     }
@@ -7775,1262 +7778,128 @@ api.onEvent((channel, data) => {
     if (!job || job.state !== "loading") return;
     job.received = data.received; job.total = data.total; showSkillDownload(job);
 });
-/* ---------- Motion design (ULTRA BÊTA) : onglet à part, aucune modification des vues existantes ---------- */
-/* Cet onglet charge le build web d’EffectCraft (serveur local, iframe isolée) et prépare des demandes pour le chat. */
-const motionNav = document.createElement("button");
-motionNav.type = "button";
-motionNav.className = "activity";
-motionNav.dataset.view = "motion";
-motionNav.id = "btn-motion";
-motionNav.title = "Motion design (ultra bêta, expérimental)";
-motionNav.setAttribute("aria-label", "Motion design, ultra bêta expérimental");
-motionNav.innerHTML = '<svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg><span class="activity-badge motion-badge" aria-hidden="true">β</span>';
-(() => {
-    const spacer = document.querySelector("#activity-bar .spacer");
-    if (spacer) $("activity-bar").insertBefore(motionNav, spacer);
-    else $("activity-bar").append(motionNav);
-})();
-
-const motionView = document.createElement("section");
-motionView.id = "motion-view";
-motionView.className = "motion-page";
-motionView.setAttribute("aria-label", "Motion design (expérimental)");
-motionView.innerHTML = `
- <header class="motion-header">
-  <div><span class="motion-eyebrow">MOTION DESIGN · EXPÉRIMENTAL</span><h1>Motion design <span class="motion-pill">Ultra bêta</span></h1></div>
-  <div class="motion-actions"><button type="button" id="motion-close">Retour au code</button></div>
- </header>
- <div class="motion-warning" role="note">
-  <b>Fonctionnalité expérimentale.</b>
-  <span>Cet espace est en ultra bêta : il peut être incomplet, instable, changer d’un jour à l’autre ou disparaître. Ne l’utilise pas pour un travail important sans copie de sauvegarde.</span>
- </div>
- <div class="motion-stage" aria-label="Zone de travail motion design">
-  <div class="motion-stage-inner">
-   <h2>EffectCraft n’est pas encore branché</h2>
-   <p>Cette zone est réservée au moteur de motion graphics EffectCraft (lui-même en développement). Pour l’instant, aucun moteur de rendu n’est chargé : rien n’est animé ni exporté ici.</p>
-   <p>Tu peux déjà préparer ton projet avec l’agent : le chat de droite reste le même, seules les demandes ci-dessous sont orientées motion design.</p>
-  </div>
- </div>
- <div id="motion-engine" class="motion-engine" hidden>
-  <div class="motion-engine-bar"><span id="motion-engine-status" role="status">EffectCraft : chargement…</span><button type="button" id="motion-engine-reload">Recharger</button></div>
-  <div id="motion-engine-frame" class="motion-engine-frame"></div>
- </div>
- <h2 class="motion-section-title">Démarrer une demande à l’agent</h2>
- <div class="motion-starters">
-  <button type="button" data-motion-prompt="Je veux animer un titre (apparition, mouvement, sortie). Propose une timeline avec durées, easings et keyframes, puis le code pour la réaliser dans ce projet."><b>Animer un titre</b><small>Timeline, easings et keyframes</small></button>
-  <button type="button" data-motion-prompt="Je veux créer une transition entre deux scènes. Propose plusieurs options simples, avec durées et courbes d’animation, puis implémente la meilleure dans ce projet."><b>Créer une transition</b><small>Entre deux scènes ou deux écrans</small></button>
-  <button type="button" data-motion-prompt="Aide-moi à découper mon animation en scènes et en calques : liste les éléments, leur ordre d’apparition et la durée totale. N’écris pas de code pour l’instant."><b>Planifier une animation</b><small>Scènes, calques et durées</small></button>
- </div>
- <p class="motion-note">Les demandes sont seulement pré-remplies dans la zone de saisie du chat : rien n’est envoyé sans ton accord. L’agent à droite reste visible pendant que tu travailles dans EffectCraft.</p>
- <div id="motion-consent" class="motion-consent" role="alertdialog" aria-modal="true" aria-labelledby="motion-consent-title" aria-describedby="motion-consent-text" tabindex="-1">
-  <div class="motion-consent-card">
-   <span class="motion-pill">Ultra bêta</span>
-   <h2 id="motion-consent-title">Fonctionnalité expérimentale</h2>
-   <p id="motion-consent-text">Le motion design est en ultra bêta. Il peut être instable, incomplet, changer ou être retiré sans préavis. Un studio natif (calques, keyframes, timeline, export HTML et WebM) est disponible ici. Le moteur EffectCraft (lui-même en alpha) reste optionnel : il ne se charge que si tu cliques sur le bouton EffectCraft du studio. Tu peux l’essayer, mais ne compte pas dessus pour un travail important.</p>
-   <div class="motion-consent-actions"><button type="button" id="motion-consent-back">Retour au code</button><button type="button" id="motion-consent-ok" class="primary">J’ai compris, continuer</button></div>
-  </div>
- </div>`;
+/* The official EffectCraft editor, embedded next to its specialized agent chat. */
+const motionNav=document.createElement("button");
+motionNav.type="button";motionNav.className="activity";motionNav.dataset.view="motion";motionNav.id="btn-motion";
+motionNav.title="Motion design · EffectCraft (Bêta)";motionNav.setAttribute("aria-label","Motion design · EffectCraft, Bêta");
+motionNav.innerHTML='<svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>';
+$("activity-bar").insertBefore(motionNav,document.querySelector("#activity-bar .spacer"));
+const motionView=document.createElement("section");motionView.id="motion-view";motionView.className="motion-page";motionView.setAttribute("aria-label","EffectCraft et agent motion design");
+motionView.innerHTML=`<header class="motion-header"><div class="motion-brand"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 17 8-13 8 13H4Zm4-1 4-7 4 7"/></svg><h1>EffectCraft</h1><span class="motion-pill">Bêta</span></div><div class="motion-actions"><button type="button" id="motion-local-save" title="Enregistrer dans le stockage local d’EffectCraft">Enregistrer</button><button type="button" id="motion-close">Retour au code</button></div></header>
+<div class="motion-commandbar"><div role="group" aria-label="Contrôles de composition"><button type="button" id="motion-undo" title="Annuler la dernière modification">↶ Annuler</button><button type="button" id="motion-play">▶ Lecture</button><button type="button" id="motion-stop">■ Arrêter</button></div><span id="motion-engine-status" role="status">EffectCraft attend ton ouverture.</span><button type="button" id="motion-engine-reload" title="Recharger EffectCraft">Recharger</button></div>
+<div class="motion-stage" aria-label="Chargement d’EffectCraft"><div><h2>Chargement d’EffectCraft…</h2><p>Le véritable éditeur se prépare. Le chat motion design reste à droite.</p><button type="button" id="motion-retry">Réessayer</button></div></div>
+<div id="motion-engine" class="motion-engine" hidden><div id="motion-engine-frame" class="motion-engine-frame"></div></div>
+<div id="motion-consent" class="motion-consent" role="alertdialog" aria-modal="true" aria-labelledby="motion-consent-title" tabindex="-1"><div class="motion-consent-card"><span class="motion-pill">Bêta</span><h2 id="motion-consent-title">Ton espace motion design</h2><p>EffectCraft à gauche, ton agent spécialisé à droite. Le chat peut modifier les compositions, les calques, les keyframes et les effets. Cette intégration reste expérimentale : conserve une copie des projets importants.</p><div class="motion-consent-actions"><button type="button" id="motion-consent-back">Retour au code</button><button type="button" id="motion-consent-ok" class="primary">J’ai compris, continuer</button></div></div></div>`;
 $("app").append(motionView);
-
-function isMotionOpen() { return $("app").classList.contains("view-motion"); }
-
-function openMotionDesign() {
-    setActivity(null);
-    $("app").classList.add("view-motion");
-    motionNav.classList.add("active");
-    $("motion-consent").classList.remove("hidden-consent");
-    setTimeout(() => $("motion-consent-ok").focus(), 0);
+const motionEngine={frame:null,loading:false,accepted:false};
+function isMotionOpen(){return $("app").classList.contains("view-motion");}
+function setMotionEngineStatus(text){$("motion-engine-status").textContent=text;$("motion-engine-status").title=text;}
+async function openMotionDesign(){
+    if(!await selectMotionChat("motion"))return;
+    setActivity(null);$("app").classList.add("view-motion");motionNav.classList.add("active");
+    $("motion-consent").classList.toggle("hidden-consent",motionEngine.accepted);
+    if(motionEngine.accepted)loadMotionEngine();else $("motion-consent-ok").focus({preventScroll:true});
+    syncMotionChat();
 }
-
-function closeMotionDesign() {
-    if (!isMotionOpen()) return;
-    $("app").classList.remove("view-motion");
-    motionNav.classList.remove("active");
-    setActivity($("app").classList.contains("no-sidebar") ? null : ui.sideView);
+async function closeMotionDesign(){
+    if(!isMotionOpen() || !await selectMotionChat("code"))return;
+    $("app").classList.remove("view-motion");motionNav.classList.remove("active");
+    setActivity($("app").classList.contains("no-sidebar")?null:ui.sideView);syncMotionChat();
 }
-
-motionNav.onclick = () => { if (isMotionOpen()) closeMotionDesign(); else openMotionDesign(); };
-$("motion-close").onclick = closeMotionDesign;
-$("motion-consent-back").onclick = closeMotionDesign;
-$("motion-consent-ok").onclick = () => {
-    $("motion-consent").classList.add("hidden-consent");
-    motionView.querySelector("[data-motion-prompt]")?.focus();
-};
-
-/* Les autres boutons de la barre d'activité ferment simplement cet onglet ; leur comportement reste inchangé. */
-for (const button of document.querySelectorAll("#activity-bar .activity")) {
-    if (button !== motionNav) button.addEventListener("click", closeMotionDesign);
-}
-
-motionView.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") { event.preventDefault(); closeMotionDesign(); motionNav.focus(); }
-});
-
-for (const button of motionView.querySelectorAll("[data-motion-prompt]")) {
-    button.onclick = () => {
-        const input = $("input");
-        if (!input) return;
-        input.value = `[Motion design, expérimental] ${button.dataset.motionPrompt}`;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
- input.focus();
-    };
-}
-
-/* ---------- Moteur EffectCraft : build web officiel hébergé en local, affiché dans une iframe d'une autre origine ---------- */
-const motionEngine = { frame: null, loading: false };
-
-function setMotionEngineStatus(text) { $("motion-engine-status").textContent = text; }
-
-function showMotionEngineFallback(message) {
-    $("motion-engine").hidden = true;
-    const stage = motionView.querySelector(".motion-stage");
-    stage.hidden = false;
-    stage.querySelector("h2").textContent = "EffectCraft indisponible";
-    stage.querySelector("p").textContent = message;
-}
-
-function unloadMotionEngine() {
-    if (motionEngine.frame) { motionEngine.frame.remove(); motionEngine.frame = null; }
-    window.frst?.effectCraft?.("stop").catch(() => {});
-}
-
-/* EffectCraft rend avec WebGPU quand il est disponible ; sinon il retombe sur le processeur (plus lent). On l’indique dans la barre d’état. */
-async function describeMotionGpu() {
-    try {
-        if (!navigator.gpu) return "WebGPU absent : rendu sur processeur, plus lent";
-        const adapter = await navigator.gpu.requestAdapter();
- return adapter ? "WebGPU disponible" : "aucune carte WebGPU compatible : rendu sur processeur, plus lent";
-    } catch {
-        return "WebGPU non vérifiable";
-    }
-}
-
-async function loadMotionEngine(force = false) {
-    if (motionEngine.loading || (motionEngine.frame && !force)) return;
-    if (!window.frst?.effectCraft) { showMotionEngineFallback("Le pont EffectCraft n’est pas disponible dans cette fenêtre."); return; }
-    motionEngine.loading = true;
-    try {
-        if (motionEngine.frame) { motionEngine.frame.remove(); motionEngine.frame = null; }
-        const info = await window.frst.effectCraft("start");
-        const url = new URL(info.url);
-        if (url.protocol !== "http:" || url.hostname !== "127.0.0.1") throw new Error("Adresse EffectCraft inattendue.");
- url.search = "?nosw";
-        $("motion-engine").hidden = false;
-        motionView.querySelector(".motion-stage").hidden = true;
- setMotionEngineStatus(`EffectCraft ${info.version || ""} · chargement du moteur (≈ 63 Mo)…`);
- const frame = document.createElement("iframe");
-        frame.className = "motion-engine-iframe";
- frame.title = "EffectCraft (motion design, ultra bêta)";
-        frame.setAttribute("allow", "fullscreen; clipboard-read; clipboard-write");
-        frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-downloads");
- frame.setAttribute("referrerpolicy", "no-referrer");
-        frame.addEventListener("load", async () => {
-     const gpu = await describeMotionGpu();
-     if (motionEngine.frame === frame) setMotionEngineStatus(`EffectCraft ${info.version || ""} · page chargée (ultra bêta) · ${gpu}`);
- });
-        frame.src = url.toString();
-        $("motion-engine-frame").replaceChildren(frame);
- motionEngine.frame = frame;
-    } catch (error) {
-        showMotionEngineFallback(String(error?.message || error));
-    } finally {
-        motionEngine.loading = false;
-    }
-}
-
-$("motion-engine-reload").onclick = () => loadMotionEngine(true);
-motionNav.addEventListener("click", () => { if (!isMotionOpen()) unloadMotionEngine(); });
-$("motion-close").addEventListener("click", unloadMotionEngine);
-$("motion-consent-back").addEventListener("click", unloadMotionEngine);
-
-/* ---------- Chat de l'agent : même principe, simplement adapté au motion design tant que l'onglet est ouvert ---------- */
-const motionChat = { placeholder: null, badge: null };
-
-function syncMotionChat() {
-    const input = $("input");
-    const bar = document.querySelector("#agent .agent-context-bar");
-    if (!input || !bar) return;
-    if (!motionChat.badge) {
-        const badge = document.createElement("span");
-        badge.id = "agent-motion-badge";
-        badge.className = "agent-motion-badge";
- badge.hidden = true;
-        badge.textContent = "Motion design · bêta";
- badge.title = "Le chat fonctionne comme d’habitude ; les suggestions et la saisie sont orientées motion design.";
- bar.insertBefore(badge, bar.querySelector("#agent-access"));
-        motionChat.badge = badge;
-    }
-    const open = isMotionOpen();
-    motionChat.badge.hidden = !open;
-    if (open) {
- if (motionChat.placeholder === null) motionChat.placeholder = input.placeholder;
-        input.placeholder = "Décris ton animation (titre, transition, scènes, durées…) · / pour les commandes";
-    } else if (motionChat.placeholder !== null) {
-        input.placeholder = motionChat.placeholder;
- motionChat.placeholder = null;
-    }
-}
-
-new MutationObserver(syncMotionChat).observe($("app"), { attributes: true, attributeFilter: ["class"] });
-syncMotionChat();
-/* ---------- Motion design : moteur natif (partie pure, sans DOM, testée hors navigateur) ---------- */
-/* Le studio (38-motion-studio.js) s’appuie sur ces fonctions ; l’export HTML les embarque telles quelles. */
-const MG_PROPS = [
-    { key: 'x', label: 'X', step: 1 },
-    { key: 'y', label: 'Y', step: 1 },
-    { key: 'scale', label: 'Échelle', step: 0.05 },
-    { key: 'rotation', label: 'Rotation (°)', step: 1 },
-    { key: 'opacity', label: 'Opacité', step: 0.05 }
-];
-const MG_EASES = [
-    { id: 'linear', label: 'Linéaire' },
-    { id: 'in', label: 'Accélération' },
-    { id: 'out', label: 'Décélération' },
-    { id: 'inout', label: 'Accélération + décélération' },
-    { id: 'back', label: 'Dépassement' },
-    { id: 'bounce', label: 'Rebond' },
-    { id: 'elastic', label: 'Élastique' }
-];
-const MG_PRESETS = [
-    { id: 'fade', label: 'Fondu' },
-    { id: 'slide', label: 'Glisser' },
-    { id: 'pop', label: 'Pop' },
-    { id: 'bounce', label: 'Rebond' },
-    { id: 'out', label: 'Sortie' }
-];
-let mgLayerCounter = 0;
-
-function mgNum(value, fallback, min, max) {
-    const n = Number(value);
-    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
-}
-
-function mgColor(value, fallback) {
-    return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
-}
-
-function mgRound(value) { return Math.round(value * 1000) / 1000; }
-
-function mgEase(name, p) {
-    if (p <= 0) return 0;
-    if (p >= 1) return 1;
-    switch (name) {
-        case 'in': return p * p * p;
-        case 'out': return 1 - Math.pow(1 - p, 3);
- case 'inout': return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
-        case 'back': { const c1 = 1.70158; const c3 = c1 + 1; return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2); }
- case 'bounce': {
-     const n = 7.5625; const d = 2.75;
-     if (p < 1 / d) return n * p * p;
-     if (p < 2 / d) { const q = p - 1.5 / d; return n * q * q + 0.75; }
-     if (p < 2.5 / d) { const q = p - 2.25 / d; return n * q * q + 0.9375; }
-     const q = p - 2.625 / d;
-     return n * q * q + 0.984375;
- }
-        case 'elastic': return Math.pow(2, -10 * p) * Math.sin((p * 10 - 0.75) * ((2 * Math.PI) / 3)) + 1;
- default: return p;
-    }
-}
-
-function mgValue(layer, prop, t) {
-    const frames = layer.keys && layer.keys[prop];
-    if (!frames || !frames.length) return layer[prop];
-    if (t <= frames[0].t) return frames[0].v;
-    const last = frames[frames.length - 1];
-    if (t >= last.t) return last.v;
-    for (let i = 0; i < frames.length - 1; i++) {
- const a = frames[i];
-        const b = frames[i + 1];
- if (t >= a.t && t <= b.t) {
-     const span = b.t - a.t;
-     const p = span > 0 ? (t - a.t) / span : 1;
-     return a.v + (b.v - a.v) * mgEase(a.ease || 'linear', p);
-        }
-    }
-    return last.v;
-}
-
-function mgFont(layer) {
-    return (layer.bold ? '700 ' : '') + layer.fontSize + 'px system-ui, sans-serif';
-}
-
-function mgIsVisible(layer, project, t) {
-    if (layer.hidden) return false;
-    const end = layer.end > 0 ? layer.end : project.duration;
-    return t >= layer.start && t <= end;
-}
-
-function mgDrawFrame(ctx, project, t) {
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = project.background;
-    ctx.fillRect(0, 0, project.width, project.height);
-    for (const layer of project.layers) {
-        if (!mgIsVisible(layer, project, t)) continue;
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, Math.min(1, mgValue(layer, 'opacity', t)));
-        ctx.translate(mgValue(layer, 'x', t), mgValue(layer, 'y', t));
-        ctx.rotate(mgValue(layer, 'rotation', t) * Math.PI / 180);
-        const s = mgValue(layer, 'scale', t);
-        ctx.scale(s, s);
- ctx.fillStyle = layer.fill;
-        if (layer.type === 'text') {
-     ctx.font = mgFont(layer);
-            ctx.textAlign = 'center';
-     ctx.textBaseline = 'middle';
-     ctx.fillText(layer.text, 0, 0);
-        } else if (layer.type === 'ellipse') {
-     ctx.beginPath();
-     ctx.ellipse(0, 0, layer.w / 2, layer.h / 2, 0, 0, Math.PI * 2);
-     ctx.fill();
- } else {
-     ctx.fillRect(-layer.w / 2, -layer.h / 2, layer.w, layer.h);
- }
-        ctx.restore();
-    }
-    ctx.restore();
-}
-
-function mgMakeLayer(type, project) {
-    mgLayerCounter += 1;
-    const base = {
-        id: 'l' + Date.now().toString(36) + mgLayerCounter,
-        type,
-        name: 'Calque',
- x: project.width / 2,
-        y: project.height / 2,
- scale: 1,
-        rotation: 0,
- opacity: 1,
- start: 0,
-        end: 0,
- fill: '#ffffff',
-        hidden: false,
-        keys: {}
-    };
-    if (type === 'text') return Object.assign(base, { name: 'Texte', text: 'Mon titre', fontSize: 96, bold: true });
-    if (type === 'ellipse') return Object.assign(base, { name: 'Ellipse', w: 320, h: 320, fill: '#4f8cff' });
-    return Object.assign(base, { type: 'rect', name: 'Rectangle', w: 480, h: 240, fill: '#ff6b6b' });
-}
-
-function mgNormalizeProject(raw) {
-    const src = raw && typeof raw === 'object' ? raw : {};
-    const project = {
- version: 1,
- name: String(src.name === undefined ? 'Animation' : src.name).slice(0, 80) || 'Animation',
-        width: Math.round(mgNum(src.width, 1280, 64, 3840)),
-        height: Math.round(mgNum(src.height, 720, 64, 3840)),
-        fps: Math.round(mgNum(src.fps, 30, 1, 60)),
-        duration: mgNum(src.duration, 5, 0.5, 120),
-        background: mgColor(src.background, '#101418'),
-        layers: []
-    };
-    const seen = new Set();
-    for (const item of Array.isArray(src.layers) ? src.layers.slice(0, 200) : []) {
-        if (!item || typeof item !== 'object') continue;
- const type = ['text', 'rect', 'ellipse'].includes(item.type) ? item.type : 'rect';
-        const layer = mgMakeLayer(type, project);
-        const id = String(item.id || '').replace(/[^a-z0-9_-]/gi, '').slice(0, 40);
-        if (id && !seen.has(id)) layer.id = id;
-        seen.add(layer.id);
-        layer.name = String(item.name === undefined ? layer.name : item.name).slice(0, 80) || layer.name;
- layer.hidden = item.hidden === true;
-        layer.fill = mgColor(item.fill, layer.fill);
-        layer.x = mgNum(item.x, layer.x, -100000, 100000);
- layer.y = mgNum(item.y, layer.y, -100000, 100000);
-        layer.scale = mgNum(item.scale, 1, 0, 1000);
-        layer.rotation = mgNum(item.rotation, 0, -36000, 36000);
-        layer.opacity = mgNum(item.opacity, 1, 0, 1);
-        layer.start = mgNum(item.start, 0, 0, project.duration);
- layer.end = mgNum(item.end, 0, 0, project.duration);
-        if (type === 'text') {
-     layer.text = String(item.text === undefined ? layer.text : item.text).slice(0, 500);
-     layer.fontSize = mgNum(item.fontSize, 96, 8, 600);
-     layer.bold = item.bold !== false;
-        } else {
-     layer.w = mgNum(item.w, layer.w, 1, 8000);
-     layer.h = mgNum(item.h, layer.h, 1, 8000);
-        }
-        for (const prop of MG_PROPS) {
-     const list = item.keys && Array.isArray(item.keys[prop.key]) ? item.keys[prop.key].slice(0, 200) : [];
-     const frames = list
-         .filter((k) => k && typeof k === 'object')
-  .map((k) => ({
-      t: mgRound(mgNum(k.t, 0, 0, project.duration)),
-      v: mgRound(mgNum(k.v, layer[prop.key], -100000, 100000)),
-      ease: MG_EASES.some((e) => e.id === k.ease) ? k.ease : 'linear'
-  }))
-  .sort((a, b) => a.t - b.t);
-            if (frames.length) layer.keys[prop.key] = frames;
-        }
-        project.layers.push(layer);
-    }
-    return project;
-}
-
-function mgPresetKeys(layer, id, project) {
-    const s = layer.start;
-    const e = layer.end > 0 ? layer.end : project.duration;
-    switch (id) {
-        case 'fade': return { opacity: [{ t: s, v: 0, ease: 'out' }, { t: s + 0.8, v: 1, ease: 'linear' }] };
-        case 'slide': return {
-     x: [{ t: s, v: layer.x - 320, ease: 'out' }, { t: s + 0.9, v: layer.x, ease: 'linear' }],
-     opacity: [{ t: s, v: 0, ease: 'out' }, { t: s + 0.6, v: 1, ease: 'linear' }]
-        };
-        case 'pop': return { scale: [{ t: s, v: 0, ease: 'back' }, { t: s + 0.7, v: 1, ease: 'linear' }] };
- case 'bounce': return { y: [{ t: s, v: layer.y - 360, ease: 'bounce' }, { t: s + 1.1, v: layer.y, ease: 'linear' }] };
-        case 'out': return { opacity: [{ t: Math.max(s, e - 0.7), v: 1, ease: 'in' }, { t: e, v: 0, ease: 'linear' }] };
-        default: return {};
-    }
-}
-
-function mgApplyPreset(layer, id, project) {
-    const keys = mgPresetKeys(layer, id, project);
-    for (const key of Object.keys(keys)) {
-        const existing = layer.keys[key];
- if (id === 'out' && existing && existing.length) {
-     const from = keys[key][0].t;
-     layer.keys[key] = existing.filter((k) => k.t < from).concat(keys[key]);
-        } else {
-            layer.keys[key] = keys[key].map((k) => Object.assign({}, k));
- }
-    }
-}
-
-function mgStarterProject() {
-    const project = mgNormalizeProject({ name: 'Ma première animation' });
-    const bar = mgMakeLayer('rect', project);
-    Object.assign(bar, { name: 'Barre', w: 520, h: 8, y: project.height / 2 + 60, fill: '#4f8cff', start: 0.8 });
-    const title = mgMakeLayer('text', project);
-    Object.assign(title, { name: 'Titre', text: 'Motion design', y: project.height / 2 - 30, start: 0.2 });
-    const dot = mgMakeLayer('ellipse', project);
-    Object.assign(dot, { name: 'Pastille', w: 90, h: 90, x: project.width - 160, y: 140, fill: '#ffc457', start: 0.4 });
-    mgApplyPreset(bar, 'fade', project);
-    mgApplyPreset(title, 'slide', project);
-    mgApplyPreset(title, 'out', project);
-    mgApplyPreset(dot, 'bounce', project);
-    project.layers.push(bar, title, dot);
-    return project;
-}
-
-/* Page HTML autonome (un seul fichier) qui rejoue l’animation en boucle, sans aucune dépendance. */
-function mgBuildHtml(project) {
-    const data = JSON.stringify(project).replace(/</g, '\\u003c');
-    const lib = [mgEase, mgValue, mgFont, mgIsVisible, mgDrawFrame].map((fn) => fn.toString()).join('\n');
-    const title = String(project.name).replace(/[<>&]/g, '');
-    const player = `const canvas=document.getElementById('c');canvas.width=project.width;canvas.height=project.height;const ctx=canvas.getContext('2d');const begin=performance.now();function frame(now){mgDrawFrame(ctx,project,((now-begin)/1000)%project.duration);requestAnimationFrame(frame);}requestAnimationFrame(frame);`;
-    return [
- '<!doctype html>',
- `<html lang='fr'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>${title}</title>`,
- '<style>html,body{margin:0;height:100%;background:#000;display:flex;align-items:center;justify-content:center}canvas{max-width:100vw;max-height:100vh}</style></head>',
-        `<body><canvas id='c'></canvas>`,
-        '<script>',
-        `const project = ${data};`,
-        lib,
-        player,
- '</' + 'script></body></html>',
- ''
-    ].join('\n');
-}
-/* ---------- Motion design : studio natif (canvas, calques, keyframes, timeline, sauvegarde, export) ---------- */
-/* Dépend de 36-motion-design.js (onglet) et de 37-motion-engine.js (moteur pur). Aucune dépendance externe. */
-const mgs = { project: null, selected: null, t: 0, playing: false, since: 0, undo: [], lastMut: { tag: '', at: 0 }, dirty: false, file: '', busy: false, drag: null, scrub: false };
-const MG_DIR = 'motion';
-const MG_EXT = '.motion.json';
-const MG_FIELDS = [
-    { k: 'name', label: 'Nom', type: 'text' },
-    { k: 'width', label: 'Largeur (px)', type: 'number', min: 64, max: 3840, step: 10 },
-    { k: 'height', label: 'Hauteur (px)', type: 'number', min: 64, max: 3840, step: 10 },
-    { k: 'fps', label: 'Images / s', type: 'number', min: 1, max: 60, step: 1 },
-    { k: 'duration', label: 'Durée (s)', type: 'number', min: 0.5, max: 120, step: 0.5 },
-    { k: 'background', label: 'Fond', type: 'color' }
-];
-
-const mgStudio = document.createElement('section');
-mgStudio.id = 'mg-studio';
-mgStudio.className = 'mg-studio';
-mgStudio.setAttribute('aria-label', 'Studio motion design');
-mgStudio.innerHTML = `
- <div class='mg-bar'>
-  <button type='button' id='mg-new'>Nouveau</button>
-  <button type='button' id='mg-example'>Exemple</button>
-  <select id='mg-open' aria-label='Ouvrir un projet enregistré'><option value=''>Ouvrir un projet…</option></select>
-  <button type='button' id='mg-save' class='primary'>Enregistrer</button>
-  <button type='button' id='mg-undo'>Annuler</button>
-  <span class='mg-grow'></span>
-  <button type='button' id='mg-export-html'>Exporter HTML</button>
-  <button type='button' id='mg-export-webm'>Exporter WebM</button>
-  <button type='button' id='mg-effectcraft' title='Charge le moteur EffectCraft externe (≈ 63 Mo, expérimental)'>EffectCraft…</button>
- </div>
- <div class='mg-meta'><span id='mg-file' class='mg-file'></span><span id='mg-status' class='mg-status' role='status'></span></div>
- <div class='mg-main'>
-  <div class='mg-preview'>
-   <div class='mg-canvas-wrap'><canvas id='mg-canvas' width='1280' height='720' aria-label='Aperçu de l’animation (glisse un calque pour le déplacer)'></canvas></div>
-   <div class='mg-transport'>
-    <button type='button' id='mg-play'>Lecture</button>
-    <button type='button' id='mg-stop'>Début</button>
-    <input id='mg-time' type='range' min='0' max='1000' value='0' aria-label='Position dans l’animation'>
-    <span id='mg-clock' class='mg-clock'>0.00 / 5.00 s</span>
-    <label class='mg-loop'><input type='checkbox' id='mg-loop' checked> Boucle</label>
-   </div>
-  </div>
-  <aside class='mg-side'>
-   <div class='mg-block'><h3>Projet</h3><div id='mg-project' class='mg-grid'></div></div>
-   <div class='mg-block'>
-    <h3>Calques</h3>
-    <div class='mg-add'>
-     <button type='button' data-mg-add='text'>+ Texte</button><button type='button' data-mg-add='rect'>+ Rectangle</button><button type='button' data-mg-add='ellipse'>+ Ellipse</button>
-    </div>
-    <ul id='mg-layers' class='mg-layers'></ul>
-    <div class='mg-add'>
-     <button type='button' id='mg-front' title='Mettre devant'>▲</button><button type='button' id='mg-back' title='Mettre derrière'>▼</button><button type='button' id='mg-dup'>Dupliquer</button><button type='button' id='mg-del'>Supprimer</button>
-    </div>
-   </div>
-   <div class='mg-block' id='mg-props'></div>
-  </aside>
- </div>
- <div id='mg-timeline' class='mg-tl' aria-label='Timeline : clique ou glisse pour te déplacer dans le temps'></div>`;
-motionView.insertBefore(mgStudio, motionView.querySelector('.motion-stage'));
-motionView.querySelector('.motion-stage').hidden = true;
-
-function mgEl(tag, attrs, text) {
-    const el = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs || {})) {
-        if (v === false || v === null || v === undefined) continue;
-        el.setAttribute(k, v === true ? '' : String(v));
-    }
-    if (text !== undefined) el.textContent = text;
-    return el;
-}
-
-function mgStatus(message, isError) {
-    const el = $('mg-status');
-    el.textContent = message;
-    el.classList.toggle('error', !!isError);
-}
-
-function mgSlug(name) {
-    return String(name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'animation';
-}
-
-function mgSelectedLayer() { return mgs.project.layers.find((l) => l.id === mgs.selected) || null; }
-function mgKeyAt(layer, key, t) { return (layer.keys[key] || []).find((k) => Math.abs(k.t - t) < 0.02) || null; }
-function mgKeyBefore(layer, key, t) { return (layer.keys[key] || []).filter((k) => k.t <= t + 0.02).pop() || null; }
-
-function mgUpdateFile() {
-    $('mg-file').textContent = (mgs.file || 'Projet non enregistré') + (mgs.dirty ? ' · modifications non enregistrées' : '');
-}
-
-function mgMutate(tag, fn) {
-    const now = Date.now();
-    if (tag !== mgs.lastMut.tag || now - mgs.lastMut.at > 800) {
-        mgs.undo.push(JSON.stringify(mgs.project));
-        if (mgs.undo.length > 60) mgs.undo.shift();
-    }
-    mgs.lastMut = { tag, at: now };
-    fn();
-    mgs.dirty = true;
-    mgUpdateFile();
-}
-function mgSetProp(layer, key, value) {
-    const range = key === 'opacity' ? [0, 1] : key === 'scale' ? [0, 1000] : [-100000, 100000];
-    const v = mgRound(mgNum(value, mgValue(layer, key, mgs.t), range[0], range[1]));
-    const frames = layer.keys[key];
-    if (frames && frames.length) {
-        const hit = mgKeyAt(layer, key, mgs.t);
-        if (hit) hit.v = v;
-        else {
-            const prev = mgKeyBefore(layer, key, mgs.t);
-            frames.push({ t: mgRound(mgs.t), v, ease: prev ? prev.ease : 'out' });
-            frames.sort((a, b) => a.t - b.t);
-        }
-    } else layer[key] = v;
-}
-
-function mgBounds(ctx, layer) {
-    if (layer.type === 'text') {
-        ctx.save();
-        ctx.font = mgFont(layer);
-        const w = ctx.measureText(layer.text).width;
-        ctx.restore();
-        return { w: Math.max(8, w), h: layer.fontSize * 1.2 };
-    }
-    return { w: layer.w, h: layer.h };
-}
-
-function mgDraw() {
-    const canvas = $('mg-canvas');
-    const project = mgs.project;
-    if (canvas.width !== project.width) canvas.width = project.width;
-    if (canvas.height !== project.height) canvas.height = project.height;
-    const ctx = canvas.getContext('2d');
-    mgDrawFrame(ctx, project, mgs.t);
-    if (mgs.playing || mgs.busy) return;
-    const layer = mgSelectedLayer();
-    if (!layer || !mgIsVisible(layer, project, mgs.t)) return;
-    const b = mgBounds(ctx, layer);
-    const s = Math.max(0.05, mgValue(layer, 'scale', mgs.t));
-    ctx.save();
-    ctx.translate(mgValue(layer, 'x', mgs.t), mgValue(layer, 'y', mgs.t));
-    ctx.rotate(mgValue(layer, 'rotation', mgs.t) * Math.PI / 180);
-    ctx.scale(s, s);
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = '#4f8cff';
-    ctx.lineWidth = 3 / s;
-    ctx.setLineDash([10 / s, 6 / s]);
-    ctx.strokeRect(-b.w / 2, -b.h / 2, b.w, b.h);
-    ctx.restore();
-}
-
-function mgHit(px, py) {
-    const ctx = $('mg-canvas').getContext('2d');
-    const layers = mgs.project.layers;
-    for (let i = layers.length - 1; i >= 0; i--) {
-        const l = layers[i];
-        if (!mgIsVisible(l, mgs.project, mgs.t)) continue;
-        const s = mgValue(l, 'scale', mgs.t);
-        if (s <= 0) continue;
-        const a = -mgValue(l, 'rotation', mgs.t) * Math.PI / 180;
-        const dx = px - mgValue(l, 'x', mgs.t);
-        const dy = py - mgValue(l, 'y', mgs.t);
-        const rx = (dx * Math.cos(a) - dy * Math.sin(a)) / s;
-        const ry = (dx * Math.sin(a) + dy * Math.cos(a)) / s;
-        const b = mgBounds(ctx, l);
-        if (Math.abs(rx) <= b.w / 2 && Math.abs(ry) <= b.h / 2) return l;
-    }
-    return null;
-}
-
-function mgSeek(t) {
-    const d = mgs.project.duration;
-    mgs.t = Math.max(0, Math.min(d, Number.isFinite(t) ? t : 0));
-    mgDraw();
-    $('mg-time').value = String(Math.round(mgs.t / d * 1000));
-    $('mg-clock').textContent = `${mgs.t.toFixed(2)} / ${d.toFixed(2)} s`;
-    mgUpdatePlayhead();
-    mgRefreshValues();
-}
-
-function mgUpdatePlayhead() {
-    const ph = $('mg-playhead');
-    if (ph) ph.style.left = `calc(130px + (100% - 130px) * ${mgs.t / mgs.project.duration})`;
-}
-
-function mgPlay() {
-    if (mgs.playing || mgs.busy) return;
-    if (mgs.t >= mgs.project.duration - 0.01) mgs.t = 0;
-    mgs.playing = true;
-    mgs.since = performance.now();
-    $('mg-play').textContent = 'Pause';
-    requestAnimationFrame(mgTick);
-}
-
-function mgPause() {
-    if (!mgs.playing) return;
-    mgs.playing = false;
-    $('mg-play').textContent = 'Lecture';
-    mgSeek(mgs.t);
-}
-
-function mgTick(now) {
-    if (!mgs.playing) return;
-    if (!isMotionOpen()) { mgPause(); return; }
-    const d = mgs.project.duration;
-    let t = mgs.t + (now - mgs.since) / 1000;
-    mgs.since = now;
-    if (t >= d) {
-        if ($('mg-loop').checked) t %= d;
-        else { mgs.t = d; mgPause(); return; }
-    }
-    mgSeek(t);
-    requestAnimationFrame(mgTick);
-}
-function mgRenderLayers() {
-    const ul = $('mg-layers');
-    ul.replaceChildren();
-    const list = mgs.project.layers.slice().reverse();
-    if (!list.length) ul.append(mgEl('li', { class: 'mg-empty' }, 'Aucun calque : ajoute un texte ou une forme.'));
-    for (const layer of list) {
-        const li = mgEl('li', { class: 'mg-layer' + (layer.id === mgs.selected ? ' active' : '') });
-        const eye = mgEl('button', { type: 'button', title: layer.hidden ? 'Afficher le calque' : 'Masquer le calque', 'aria-label': (layer.hidden ? 'Afficher ' : 'Masquer ') + layer.name, 'aria-pressed': String(!layer.hidden) }, layer.hidden ? '○' : '●');
-        eye.onclick = () => { mgMutate('hide:' + layer.id, () => { layer.hidden = !layer.hidden; }); mgRenderLayers(); mgDraw(); };
-        const icon = layer.type === 'text' ? 'T' : layer.type === 'ellipse' ? '◯' : '▭';
-        const name = mgEl('button', { type: 'button', class: 'mg-layer-name' }, `${icon}  ${layer.name}`);
-        name.onclick = () => mgSelect(layer.id);
-        li.append(eye, name);
-        ul.append(li);
-    }
-}
-
-function mgField(parent, label, input) {
-    const wrap = mgEl('label', { class: 'mg-field' });
-    wrap.append(mgEl('span', {}, label), input);
-    parent.append(wrap);
-    return input;
-}
-
-function mgAfterEdit(layersChanged) {
-    mgDraw();
-    mgRenderTimeline();
-    if (layersChanged) mgRenderLayers();
-}
-
-function mgRenderProps() {
-    const box = $('mg-props');
-    box.replaceChildren();
-    const layer = mgSelectedLayer();
-    if (!layer) {
-        box.append(mgEl('p', { class: 'mg-empty' }, 'Sélectionne un calque (liste, aperçu ou timeline) pour modifier ses propriétés et ses keyframes.'));
-        return;
-    }
-    box.append(mgEl('h3', {}, 'Propriétés'));
-    const grid = mgEl('div', { class: 'mg-grid' });
-    box.append(grid);
-    const text = (key, label, max) => {
-        const input = mgField(grid, label, mgEl('input', { type: 'text', maxlength: max }));
-        input.value = layer[key];
-        input.addEventListener('input', () => { mgMutate('f:' + layer.id + key, () => { layer[key] = input.value.slice(0, max) || (key === 'name' ? layer.name : ''); }); mgAfterEdit(key === 'name'); });
-    };
-    const number = (key, label, min, max, step) => {
-        const input = mgField(grid, label, mgEl('input', { type: 'number', min, max, step }));
-        input.value = String(layer[key]);
-        input.addEventListener('input', () => { if (input.value === '') return; mgMutate('f:' + layer.id + key, () => { layer[key] = mgNum(input.value, layer[key], min, max); }); mgAfterEdit(false); });
-    };
-    text('name', 'Nom', 80);
-    if (layer.type === 'text') {
-        text('text', 'Texte', 500);
-        number('fontSize', 'Taille', 8, 600, 2);
-        const bold = mgField(grid, 'Gras', mgEl('input', { type: 'checkbox' }));
-        bold.checked = layer.bold;
-        bold.addEventListener('change', () => { mgMutate('f:' + layer.id + 'bold', () => { layer.bold = bold.checked; }); mgAfterEdit(false); });
-    } else {
-        number('w', 'Largeur', 1, 8000, 10);
-        number('h', 'Hauteur', 1, 8000, 10);
-    }
-    const fill = mgField(grid, 'Couleur', mgEl('input', { type: 'color' }));
-    fill.value = layer.fill;
-    fill.addEventListener('input', () => { mgMutate('f:' + layer.id + 'fill', () => { layer.fill = mgColor(fill.value, layer.fill); }); mgAfterEdit(false); });
-    number('start', 'Apparition (s)', 0, mgs.project.duration, 0.1);
-    number('end', 'Fin (s, 0 = durée)', 0, mgs.project.duration, 0.1);
-
-    box.append(mgEl('h4', {}, 'Animation à l’instant affiché'));
-    box.append(mgEl('p', { class: 'mg-hint' }, 'Place le curseur, change une valeur puis pose un keyframe avec ◆. Une propriété déjà animée crée un keyframe à chaque modification.'));
-    for (const prop of MG_PROPS) {
-        const row = mgEl('div', { class: 'mg-prop' });
-        row.append(mgEl('span', { class: 'mg-prop-label' }, prop.label));
-        const input = mgEl('input', { type: 'number', step: prop.step, 'data-mg-prop': prop.key, 'aria-label': prop.label });
-        input.addEventListener('input', () => {
-            if (input.value === '') return;
-            mgMutate('p:' + layer.id + prop.key, () => mgSetProp(layer, prop.key, input.value));
-            mgAfterEdit(false);
-            mgRefreshValues();
-        });
-        const diamond = mgEl('button', { type: 'button', class: 'mg-diamond', 'data-mg-key': prop.key, title: 'Poser ou retirer un keyframe à cet instant', 'aria-label': 'Keyframe ' + prop.label }, '◆');
-        diamond.onclick = () => {
-            mgMutate('k:' + layer.id + prop.key, () => {
-                const hit = mgKeyAt(layer, prop.key, mgs.t);
-                const frames = layer.keys[prop.key] || [];
-                if (hit) {
-                    frames.splice(frames.indexOf(hit), 1);
-                    if (frames.length) layer.keys[prop.key] = frames;
-                    else { delete layer.keys[prop.key]; layer[prop.key] = hit.v; }
-                } else {
-                    const value = mgValue(layer, prop.key, mgs.t);
-                    const prev = mgKeyBefore(layer, prop.key, mgs.t);
-                    frames.push({ t: mgRound(mgs.t), v: mgRound(value), ease: prev ? prev.ease : 'out' });
-                    frames.sort((a, b) => a.t - b.t);
-                    layer.keys[prop.key] = frames;
-                }
-            });
-            mgAfterEdit(false);
-            mgRefreshValues();
-        };
-        const ease = mgEl('select', { 'data-mg-ease': prop.key, title: 'Courbe jusqu’au keyframe suivant', 'aria-label': 'Courbe ' + prop.label });
-        for (const e of MG_EASES) ease.append(mgEl('option', { value: e.id }, e.label));
-        ease.addEventListener('change', () => {
-            const k = mgKeyAt(layer, prop.key, mgs.t) || mgKeyBefore(layer, prop.key, mgs.t);
-            if (!k) return;
-            mgMutate('e:' + layer.id + prop.key, () => { k.ease = ease.value; });
-            mgSeek(mgs.t);
-        });
-        const clear = mgEl('button', { type: 'button', title: 'Supprimer toute l’animation de cette propriété', 'aria-label': 'Effacer l’animation ' + prop.label }, '∅');
-        clear.onclick = () => {
-            if (!(layer.keys[prop.key] || []).length) return;
-            mgMutate('c:' + layer.id + prop.key, () => { layer[prop.key] = mgValue(layer, prop.key, mgs.t); delete layer.keys[prop.key]; });
-            mgAfterEdit(false);
-            mgRefreshValues();
-        };
-        row.append(input, diamond, ease, clear);
-        box.append(row);
-    }
-
-    box.append(mgEl('h4', {}, 'Animations prêtes à l’emploi'));
-    const presets = mgEl('div', { class: 'mg-add' });
-    for (const preset of MG_PRESETS) {
-        const button = mgEl('button', { type: 'button' }, preset.label);
-        button.onclick = () => {
-            mgMutate('preset', () => mgApplyPreset(layer, preset.id, mgs.project));
-            mgRenderTimeline();
-            mgSeek(preset.id === 'out' ? Math.max(0, (layer.end > 0 ? layer.end : mgs.project.duration) - 0.35) : layer.start + 0.5);
-        };
-        presets.append(button);
-    }
-    box.append(presets);
-    mgRefreshValues();
-}
-
-function mgRefreshValues() {
-    const layer = mgSelectedLayer();
-    if (!layer) return;
-    for (const input of mgStudio.querySelectorAll('[data-mg-prop]')) {
-        if (document.activeElement === input) continue;
-        input.value = String(mgRound(mgValue(layer, input.dataset.mgProp, mgs.t)));
-    }
-    for (const button of mgStudio.querySelectorAll('[data-mg-key]')) {
-        const on = !!mgKeyAt(layer, button.dataset.mgKey, mgs.t);
-        button.classList.toggle('on', on);
-        button.setAttribute('aria-pressed', String(on));
-    }
-    for (const select of mgStudio.querySelectorAll('[data-mg-ease]')) {
-        const key = select.dataset.mgEase;
-        const k = mgKeyAt(layer, key, mgs.t) || mgKeyBefore(layer, key, mgs.t);
-        select.disabled = !k;
-        select.value = k ? k.ease : 'linear';
-    }
-}
-
-function mgTimeFromX(clientX) {
-    const track = mgStudio.querySelector('.mg-ruler .mg-track');
-    if (!track) return mgs.t;
-    const rect = track.getBoundingClientRect();
-    const ratio = rect.width > 0 ? (clientX - rect.left) / rect.width : 0;
-    return Math.max(0, Math.min(1, ratio)) * mgs.project.duration;
-}
-
-function mgRenderTimeline() {
-    const box = $('mg-timeline');
-    box.replaceChildren();
-    const d = mgs.project.duration;
-    const ruler = mgEl('div', { class: 'mg-row mg-ruler' });
-    ruler.append(mgEl('span', { class: 'mg-row-label' }, 'Temps'));
-    const rulerTrack = mgEl('div', { class: 'mg-track' });
-    const step = d <= 6 ? 1 : d <= 30 ? 5 : 10;
-    for (let s = 0; s <= d + 0.001; s += step) {
-        const tick = mgEl('span', { class: 'mg-tick' }, s + ' s');
-        tick.style.left = (s / d * 100) + '%';
-        rulerTrack.append(tick);
-    }
-    ruler.append(rulerTrack);
-    box.append(ruler);
-    for (const layer of mgs.project.layers.slice().reverse()) {
-        const row = mgEl('div', { class: 'mg-row' + (layer.id === mgs.selected ? ' active' : '') });
-        const label = mgEl('button', { type: 'button', class: 'mg-row-label' }, layer.name);
-        label.onclick = () => mgSelect(layer.id);
-        row.append(label);
-        const track = mgEl('div', { class: 'mg-track' });
-        const end = layer.end > 0 ? layer.end : d;
-        const span = mgEl('span', { class: 'mg-span' });
-        span.style.left = (layer.start / d * 100) + '%';
-        span.style.width = (Math.max(0, end - layer.start) / d * 100) + '%';
-        track.append(span);
-        for (const key of Object.keys(layer.keys)) {
-            for (const k of layer.keys[key]) {
-                const btn = mgEl('button', { type: 'button', class: 'mg-key', title: `${key} · ${k.t.toFixed(2)} s`, 'aria-label': `Keyframe ${key} à ${k.t.toFixed(2)} s`, 'data-key': key, 'data-layer': layer.id, 'data-t': k.t });
-                btn.style.left = (k.t / d * 100) + '%';
-                btn.onclick = () => { mgSelect(layer.id); mgPause(); mgSeek(k.t); };
-                track.append(btn);
+motionNav.onclick=()=>isMotionOpen()?closeMotionDesign():openMotionDesign();
+$("motion-close").onclick=closeMotionDesign;$("motion-consent-back").onclick=closeMotionDesign;
+$("motion-consent-ok").onclick=()=>{motionEngine.accepted=true;$("motion-consent").classList.add("hidden-consent");loadMotionEngine();input.focus({preventScroll:true});};
+for(const button of document.querySelectorAll("#activity-bar .activity"))if(button!==motionNav)button.addEventListener("click",event=>{
+    if(isMotionOpen() && ui.status.busy){event.preventDefault();event.stopImmediatePropagation();studioFeedback("Attends la fin de la tâche ou utilise Stop avant de changer de chat.");return;}
+    closeMotionDesign();
+},true);
+function showMotionEngineFallback(message){$("motion-engine").hidden=true;motionView.querySelector(".motion-stage").hidden=false;motionView.querySelector(".motion-stage h2").textContent="EffectCraft indisponible";motionView.querySelector(".motion-stage p").textContent=message;setMotionEngineStatus(message);}
+async function loadMotionEngine(force=false){
+    if(motionEngine.loading || motionEngine.frame && !force)return;
+    if(force && ui.status.busy){studioFeedback("Arrête d’abord la tâche pour recharger EffectCraft.");return;}
+    motionEngine.loading=true;
+    try{
+        if(motionEngine.frame){motionEngine.frame.remove();motionEngine.frame=null;}
+        const info=await api.effectCraft("start"),url=new URL(info.url);
+        if(url.protocol!=="http:" || url.hostname!=="127.0.0.1")throw new Error("Adresse EffectCraft inattendue.");
+        url.search="?nosw&frameworkers=0&webgl";
+        const frame=document.createElement("iframe");frame.className="motion-engine-iframe";frame.title="EffectCraft · Motion design";
+        frame.setAttribute("sandbox","allow-scripts allow-same-origin allow-downloads");frame.setAttribute("allow","fullscreen");frame.referrerPolicy="no-referrer";
+        frame.addEventListener("load",async()=>{
+            for(let attempt=0;attempt<60 && motionEngine.frame===frame;attempt++){
+                try{await api.effectCraftControl({method:"host.info",params:{}});await api.effectCraftControl({method:"ui.set",params:{theme:"Dark"}});await applyMotionInterface(motionEngine.advanced,true);setMotionEngineStatus("Prêt · décris ton animation dans le chat");return;}
+                catch(error){if(attempt===59){setMotionEngineStatus(error.message);return;}await new Promise(resolve=>setTimeout(resolve,200));}
             }
-        }
-        row.append(track);
-        box.append(row);
-    }
-    box.append(mgEl('div', { id: 'mg-playhead', class: 'mg-playhead' }));
-    mgUpdatePlayhead();
-}
-
-function mgClampDuration() {
-    const d = mgs.project.duration;
-    for (const l of mgs.project.layers) {
-        l.start = Math.min(l.start, d);
-        if (l.end > d) l.end = d;
-        for (const key of Object.keys(l.keys)) for (const k of l.keys[key]) k.t = Math.min(k.t, d);
-    }
-    mgs.t = Math.min(mgs.t, d);
-}
-
-function mgRenderProject() {
-    const box = $('mg-project');
-    box.replaceChildren();
-    for (const f of MG_FIELDS) {
-        const attrs = { type: f.type };
-        if (f.type === 'number') Object.assign(attrs, { min: f.min, max: f.max, step: f.step });
-        if (f.type === 'text') attrs.maxlength = 80;
-        const input = mgField(box, f.label, mgEl('input', attrs));
-        input.value = String(mgs.project[f.k]);
-        input.addEventListener(f.type === 'number' ? 'change' : 'input', () => {
-            if (input.value === '') return;
-            mgMutate('proj:' + f.k, () => {
-                const p = mgs.project;
-                if (f.type === 'number') p[f.k] = mgNum(input.value, p[f.k], f.min, f.max);
-                else if (f.type === 'color') p[f.k] = mgColor(input.value, p[f.k]);
-                else p[f.k] = input.value.slice(0, 80) || p[f.k];
-                if (f.k === 'duration') mgClampDuration();
-            });
-            if (f.type === 'number') input.value = String(mgs.project[f.k]);
-            if (f.k === 'duration') { mgRenderTimeline(); mgRenderProps(); mgSeek(mgs.t); }
-            else mgDraw();
         });
+        frame.src=url.toString();$("motion-engine-frame").replaceChildren(frame);motionEngine.frame=frame;
+        $("motion-engine").hidden=false;motionView.querySelector(".motion-stage").hidden=true;setMotionEngineStatus(`EffectCraft ${info.version} · chargement…`);
+    }catch(error){showMotionEngineFallback(error.message);}finally{motionEngine.loading=false;}
+}
+$("motion-engine-reload").onclick=()=>loadMotionEngine(true);$("motion-retry").onclick=()=>loadMotionEngine(true);
+async function motionControl(request){
+    if(ui.status.busy){studioFeedback("L’agent travaille sur la composition ; attends ou utilise Stop.");return;}
+    try{await api.effectCraftControl(request);setMotionEngineStatus("EffectCraft · action effectuée");}catch(error){studioFeedback(error.message);}
+}
+$("motion-play").onclick=()=>motionControl({method:"ui.playback",params:{action:"play"}});
+$("motion-stop").onclick=()=>motionControl({method:"ui.playback",params:{action:"stop"}});
+$("motion-undo").onclick=()=>motionControl({method:"engine.execute",params:{command:"edit.undo",params:{}}});
+$("motion-local-save").onclick=()=>motionControl({method:"host.save",params:{path:"FranceStudent.ecproj"}});
+const motionChat={placeholder:null,badge:null};
+function syncMotionChat(){
+    const bar=document.querySelector("#agent .agent-context-bar");if(!bar)return;
+    if(!motionChat.badge){const badge=document.createElement("span");badge.id="agent-motion-badge";badge.className="agent-motion-badge";badge.textContent="Motion design";bar.insertBefore(badge,$("agent-access"));motionChat.badge=badge;}
+    const open=isMotionOpen();motionChat.badge.hidden=!open;
+    if(open){if(motionChat.placeholder===null)motionChat.placeholder=input.placeholder;input.placeholder="Décris ton animation… l’agent agit dans EffectCraft.";}
+    else if(motionChat.placeholder!==null){input.placeholder=motionChat.placeholder;motionChat.placeholder=null;}
+}
+new MutationObserver(syncMotionChat).observe($("app"),{attributes:true,attributeFilter:["class"]});syncMotionChat();
+/* EffectCraft owns the editor. Reuse the agent UI with independent conversations. */
+const motionChats = new Map();
+let motionChatMode = "code", motionChatSwitch = false;
+let motionChatWorkspace=ui.workspace;
+const codeStarter = {title:$("agent-starter").querySelector("h2").textContent,description:$("agent-starter").querySelector("p").textContent,buttons:[...document.querySelectorAll("[data-starter]")].map(button=>({prompt:button.dataset.starter,title:button.querySelector("b").textContent,detail:button.querySelector("small").textContent}))};
+function renderMotionStarter(){
+    const motion=motionChatMode==="motion",starter=$("agent-starter");
+    starter.querySelector("h2").textContent=motion?"Créons ton animation":codeStarter.title;
+    starter.querySelector("p").textContent=motion?"Décris ton idée. L’agent agit directement dans EffectCraft.":codeStarter.description;
+    const choices=motion?[
+        {title:"Créer une animation",detail:"Composition, textes et mouvements",prompt:"Crée une animation de titre dans EffectCraft. Inspecte le projet, découvre les commandes nécessaires et réalise la composition avec des keyframes."},
+        {title:"Améliorer la composition",detail:"Rythme, lisibilité et effets",prompt:"Inspecte la composition active dans EffectCraft, analyse son rythme et sa lisibilité, puis améliore-la avec les outils du moteur."},
+        {title:"Préparer un export",detail:"Format, durée et rendu",prompt:"Inspecte la composition active et les formats d’export disponibles dans EffectCraft. Prépare un export adapté et vérifie le résultat sans annoncer de réussite avant sa fin."}
+    ]:codeStarter.buttons;
+    [...document.querySelectorAll("[data-starter]")].forEach((button,index)=>{const item=choices[index];if(!item)return;button.dataset.starter=item.prompt;button.querySelector("b").textContent=item.title;button.querySelector("small").textContent=item.detail;});
+}
+api.onEvent((channel,status)=>{
+    if(channel==="signedOut" || channel==="status" && motionChatWorkspace!==(status.workspace || null)){
+        if(channel==="status")motionChatWorkspace=status.workspace || null;
+        motionChats.clear();motionChatMode="code";
+        $("app").classList.remove("view-motion");motionNav.classList.remove("active");
+        input.value=readStudioStorage(studioDraftKey(motionChatWorkspace,"code"),"");
+        renderMotionStarter();syncMotionChat();
     }
-}
-
-function mgSelect(id) {
-    mgs.selected = id;
-    mgRenderLayers();
-    mgRenderProps();
-    mgRenderTimeline();
-    mgDraw();
-}
-
-function mgRebuild() {
-    const layers = mgs.project.layers;
-    if (!mgSelectedLayer()) mgs.selected = layers.length ? layers[layers.length - 1].id : null;
-    mgRenderProject();
-    mgRenderLayers();
-    mgRenderProps();
-    mgRenderTimeline();
-    mgSeek(Math.min(mgs.t, mgs.project.duration));
-    mgUpdateFile();
-}
-
-function mgConfirmDiscard() {
-    return !mgs.dirty || window.confirm('Des modifications ne sont pas enregistrées. Les abandonner ?');
-}
-
-function mgLoadProject(project, file) {
-    mgPause();
-    mgs.project = project;
-    mgs.file = file || '';
-    mgs.undo = [];
-    mgs.lastMut = { tag: '', at: 0 };
-    mgs.dirty = false;
-    mgs.t = 0;
-    mgs.selected = project.layers.length ? project.layers[project.layers.length - 1].id : null;
-    mgRebuild();
-}
-
-function mgUndo() {
-    const snap = mgs.undo.pop();
-    if (!snap) { mgStatus('Rien à annuler.'); return; }
-    try { mgs.project = mgNormalizeProject(JSON.parse(snap)); }
-    catch (error) { mgStatus('Annulation impossible.', true); return; }
-    mgs.lastMut = { tag: '', at: 0 };
-    mgs.dirty = true;
-    mgRebuild();
-    mgStatus('Modification annulée.');
-}
-
-function mgErrorText(error) { return error && error.message ? error.message : String(error); }
-
-async function mgEnsureDir() {
-    try { await window.frst.listDir(MG_DIR); }
-    catch (error) { await window.frst.createEntry(MG_DIR, 'directory'); }
-}
-
-async function mgRefreshList() {
-    const select = $('mg-open');
-    let entries;
-    try { entries = await window.frst.listDir(MG_DIR); } catch (error) { entries = []; }
-    const names = entries.filter((e) => e.type !== 'directory' && e.name.endsWith(MG_EXT)).map((e) => e.name).sort();
-    select.replaceChildren(mgEl('option', { value: '' }, names.length ? 'Ouvrir un projet…' : 'Aucun projet enregistré'));
-    for (const n of names) select.append(mgEl('option', { value: n }, n.slice(0, -MG_EXT.length)));
-}
-
-async function mgSave() {
-    if (mgs.busy) return;
-    const project = mgs.project;
-    const rel = `${MG_DIR}/${mgSlug(project.name)}${MG_EXT}`;
+});
+async function selectMotionChat(mode) {
+    if(motionChatSwitch) return false;
+    if(mode===motionChatMode)return true;
+    motionChatSwitch=true;
     try {
-        await mgEnsureDir();
-        if (rel !== mgs.file) {
-            let exists = false;
-            try { exists = (await window.frst.listDir(MG_DIR)).some((e) => e.name === rel.split('/').pop()); } catch (error) { exists = false; }
-            if (exists && !window.confirm(`Le fichier ${rel} existe déjà. Le remplacer ?`)) return;
-        }
-        await window.frst.writeFile(rel, JSON.stringify(project, null, 2) + '\n');
-        mgs.file = rel;
-        mgs.dirty = false;
-        mgUpdateFile();
-        mgStatus(`Enregistré dans ${rel}.`);
-        await mgRefreshList();
-    } catch (error) {
-        mgStatus('Enregistrement impossible : ' + mgErrorText(error) + ' (ouvre d’abord un dossier de projet).', true);
-    }
+        await api.motionConversation(mode);
+        const nodes=document.createDocumentFragment(), scroll=transcript.scrollTop;
+        while(transcript.firstChild)nodes.append(transcript.firstChild);
+        motionChats.set(motionChatMode,{nodes,draft:input.value,attachments:pendingAttachments,toolGroup,scroll,entries:studioEntries.slice(),history:ui.history,historyIndex:ui.historyIndex});
+        const next=motionChats.get(mode);
+        transcript.replaceChildren(next?.nodes || document.createDocumentFragment());
+        input.value=next?.draft ?? readStudioStorage(studioDraftKey(studioWorkspace,mode),"");pendingAttachments=next?.attachments || [];toolGroup=next?.toolGroup || null;
+        transcript.scrollTop=next?.scroll || 0;
+        studioEntries.splice(0,studioEntries.length,...(next?.entries || []));ui.history=next?.history || [];ui.historyIndex=next?.historyIndex || 0;
+        motionChatMode=mode;renderAttachments();autosizeInput();saveStudioDraft();
+        document.querySelector(".agent-title > span").textContent=mode==="motion"?"Motion design":"Agent";
+        $("agent-starter").classList.toggle("hidden",!!transcript.children.length);
+        renderMotionStarter();
+        return true;
+    } catch(error){studioFeedback(error.message);return false;}
+    finally {motionChatSwitch=false;}
 }
-
-async function mgOpen(name) {
-    const select = $('mg-open');
-    if (!name || !mgConfirmDiscard()) { select.value = ''; return; }
-    try {
-        const res = await window.frst.readFile(`${MG_DIR}/${name}`);
-        mgLoadProject(mgNormalizeProject(JSON.parse(res.content)), `${MG_DIR}/${name}`);
-        mgStatus(`Projet ${name} ouvert.`);
-    } catch (error) {
-        mgStatus('Ouverture impossible : ' + mgErrorText(error), true);
-    }
-    select.value = '';
-}
-
-async function mgExportHtml() {
-    const project = mgs.project;
-    const rel = `${MG_DIR}/${mgSlug(project.name)}.html`;
-    try {
-        await mgEnsureDir();
-        await window.frst.writeFile(rel, mgBuildHtml(project));
-        mgStatus(`Export HTML écrit dans ${rel} (fichier autonome, à ouvrir dans un navigateur).`);
-        await mgRefreshList();
-    } catch (error) {
-        mgStatus('Export HTML impossible : ' + mgErrorText(error) + ' (ouvre d’abord un dossier de projet).', true);
-    }
-}
-
-function mgSetBusy(busy) {
-    mgs.busy = busy;
-    for (const id of ['mg-new', 'mg-example', 'mg-open', 'mg-save', 'mg-undo', 'mg-export-html', 'mg-export-webm', 'mg-play', 'mg-stop', 'mg-time', 'mg-effectcraft']) {
-        const el = $(id);
-        if (el) el.disabled = busy;
-    }
-}
-
-function mgDownload(filename, blob) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 15000);
-}
-
-async function mgExportWebm() {
-    if (mgs.busy) return;
-    const canvas = $('mg-canvas');
-    if (typeof MediaRecorder === 'undefined' || typeof canvas.captureStream !== 'function') {
-        mgStatus('Export WebM indisponible dans ce navigateur : utilise l’export HTML.', true);
-        return;
-    }
-    const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find((m) => MediaRecorder.isTypeSupported(m));
-    if (!mime) {
-        mgStatus('Aucun codec WebM disponible : utilise l’export HTML.', true);
-        return;
-    }
-    mgPause();
-    const project = mgs.project;
-    const d = project.duration;
-    const resume = mgs.t;
-    let stream = null;
-    mgSetBusy(true);
-    try {
-        mgs.t = 0;
-        mgDraw();
-        stream = canvas.captureStream(project.fps);
-        const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8000000 });
-        const chunks = [];
-        recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-        const stopped = new Promise((resolve, reject) => {
-            recorder.onstop = resolve;
-            recorder.onerror = (e) => reject((e && e.error) || new Error('Erreur MediaRecorder'));
-        });
-        recorder.start(250);
-        const t0 = performance.now();
-        await new Promise((resolve) => {
-            const step = (now) => {
-                const t = Math.min(d, (now - t0) / 1000);
-                mgs.t = t;
-                mgDraw();
-                $('mg-clock').textContent = `${t.toFixed(2)} / ${d.toFixed(2)} s`;
-                mgStatus(`Enregistrement WebM… ${Math.round(t / d * 100)} %`);
-                if (t >= d) resolve();
-                else requestAnimationFrame(step);
-            };
-            requestAnimationFrame(step);
-        });
-        await new Promise((resolve) => setTimeout(resolve, 150));
-        recorder.stop();
-        await stopped;
-        if (!chunks.length) throw new Error('aucune image enregistrée');
-        const blob = new Blob(chunks, { type: 'video/webm' });
-        const name = `${mgSlug(project.name)}.webm`;
-        mgDownload(name, blob);
-        mgStatus(`Vidéo ${name} générée (${(blob.size / 1048576).toFixed(1)} Mo) : vérifie le dossier de téléchargements.`);
-    } catch (error) {
-        mgStatus('Export WebM impossible : ' + mgErrorText(error), true);
-    } finally {
-        if (stream) for (const track of stream.getTracks()) track.stop();
-        mgSetBusy(false);
-        mgSeek(resume);
-    }
-}
-
-/* ---------- Édition des calques et branchements ---------- */
-function mgAddLayer(type) {
-    if (mgs.busy) return;
-    mgMutate('add', () => {
-        const layer = mgMakeLayer(type, mgs.project);
-        if (!mgs.project.layers.includes(layer)) mgs.project.layers.push(layer);
-        mgs.selected = layer.id;
-    });
-    mgRenderLayers();
-    mgRenderProps();
-    mgRenderTimeline();
-    mgDraw();
-}
-
-function mgMoveLayer(delta) {
-    const layers = mgs.project.layers;
-    const i = layers.findIndex((l) => l.id === mgs.selected);
-    const j = i + delta;
-    if (i < 0 || j < 0 || j >= layers.length) return;
-    mgMutate('move', () => { [layers[i], layers[j]] = [layers[j], layers[i]]; });
-    mgRenderLayers();
-    mgRenderTimeline();
-    mgDraw();
-}
-
-function mgDuplicateLayer() {
-    const layer = mgSelectedLayer();
-    if (!layer || mgs.busy) return;
-    mgMutate('dup', () => {
- const layers = mgs.project.layers;
-        const tmp = mgMakeLayer('rect', mgs.project);
- const at = layers.indexOf(tmp);
- if (at >= 0) layers.splice(at, 1);
-        const copy = JSON.parse(JSON.stringify(layer));
-        copy.id = tmp.id;
-        copy.name = (layer.name + ' copie').slice(0, 80);
-        copy.x = mgRound(copy.x + 40);
-        copy.y = mgRound(copy.y + 40);
- for (const key of ['x', 'y']) for (const k of (copy.keys[key] || [])) k.v = mgRound(k.v + 40);
- layers.push(copy);
- mgs.selected = copy.id;
-    });
-    mgRenderLayers();
-    mgRenderProps();
-    mgRenderTimeline();
-    mgDraw();
-}
-
-function mgDeleteLayer() {
-    const layer = mgSelectedLayer();
-    if (!layer || mgs.busy) return;
-    mgMutate('del', () => {
-        const layers = mgs.project.layers;
- layers.splice(layers.indexOf(layer), 1);
- mgs.selected = layers.length ? layers[layers.length - 1].id : null;
-    });
-    mgRenderLayers();
-    mgRenderProps();
-    mgRenderTimeline();
-    mgDraw();
-}
-
-function mgCanvasPoint(e) {
-    const canvas = $('mg-canvas');
-    const rect = canvas.getBoundingClientRect();
-    return { x: (e.clientX - rect.left) * canvas.width / (rect.width || 1), y: (e.clientY - rect.top) * canvas.height / (rect.height || 1) };
-}
-
-const mgCanvas = $('mg-canvas');
-mgCanvas.addEventListener('pointerdown', (e) => {
-    if (mgs.busy || e.button > 0) return;
-    mgPause();
-    const p = mgCanvasPoint(e);
-    const hit = mgHit(p.x, p.y);
-    if (!hit) { mgs.drag = null; return; }
-    if (hit.id !== mgs.selected) mgSelect(hit.id);
-    mgs.drag = { id: hit.id, px: p.x, py: p.y, x0: mgValue(hit, 'x', mgs.t), y0: mgValue(hit, 'y', mgs.t) };
-    mgCanvas.setPointerCapture(e.pointerId);
-});
-mgCanvas.addEventListener('pointermove', (e) => {
-    const drag = mgs.drag;
-    if (!drag || mgs.busy) return;
-    const layer = mgs.project.layers.find((l) => l.id === drag.id);
-    if (!layer) return;
-    const p = mgCanvasPoint(e);
-    mgMutate('drag:' + drag.id, () => {
- mgSetProp(layer, 'x', drag.x0 + p.x - drag.px);
-        mgSetProp(layer, 'y', drag.y0 + p.y - drag.py);
-    });
-    mgDraw();
-    mgRefreshValues();
-});
-const mgEndDrag = () => {
-    if (!mgs.drag) return;
-    mgs.drag = null;
-    mgRenderTimeline();
-};
-mgCanvas.addEventListener('pointerup', mgEndDrag);
-mgCanvas.addEventListener('pointercancel', mgEndDrag);
-
-const mgTimelineBox = $('mg-timeline');
-mgTimelineBox.addEventListener('pointerdown', (e) => {
-    if (mgs.busy || !e.target.closest('.mg-ruler')) return;
-    mgs.scrub = true;
-    mgPause();
-    mgSeek(mgTimeFromX(e.clientX));
-    mgTimelineBox.setPointerCapture(e.pointerId);
-});
-mgTimelineBox.addEventListener('pointermove', (e) => { if (mgs.scrub) mgSeek(mgTimeFromX(e.clientX)); });
-const mgEndScrub = () => { mgs.scrub = false; };
-mgTimelineBox.addEventListener('pointerup', mgEndScrub);
-mgTimelineBox.addEventListener('pointercancel', mgEndScrub);
-
-$('mg-play').addEventListener('click', () => { if (mgs.playing) mgPause(); else mgPlay(); });
-$('mg-stop').addEventListener('click', () => { mgPause(); mgSeek(0); });
-$('mg-time').addEventListener('input', (e) => { mgPause(); mgSeek(Number(e.target.value) / 1000 * mgs.project.duration); });
-$('mg-undo').addEventListener('click', mgUndo);
-$('mg-save').addEventListener('click', mgSave);
-$('mg-export-html').addEventListener('click', mgExportHtml);
-$('mg-export-webm').addEventListener('click', mgExportWebm);
-$('mg-open').addEventListener('change', (e) => mgOpen(e.target.value));
-$('mg-new').addEventListener('click', () => {
-    if (!mgConfirmDiscard()) return;
-    mgLoadProject(mgNormalizeProject({ name: 'Nouvelle animation' }), '');
-    mgStatus('Nouveau projet vide : ajoute un texte ou une forme.');
-});
-$('mg-example').addEventListener('click', () => {
-    if (!mgConfirmDiscard()) return;
-    mgLoadProject(mgStarterProject(), '');
-    mgStatus('Exemple chargé : appuie sur Lecture.');
-});
-for (const button of mgStudio.querySelectorAll('[data-mg-add]')) button.addEventListener('click', () => mgAddLayer(button.dataset.mgAdd));
-$('mg-front').addEventListener('click', () => mgMoveLayer(1));
-$('mg-back').addEventListener('click', () => mgMoveLayer(-1));
-$('mg-dup').addEventListener('click', mgDuplicateLayer);
-$('mg-del').addEventListener('click', mgDeleteLayer);
-mgStudio.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && String(e.key).toLowerCase() === 'z' && !['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
-        e.preventDefault();
-        mgUndo();
-    }
-});
-$('mg-effectcraft').addEventListener('click', () => {
-    mgPause();
-    const stage = motionView.querySelector('.motion-stage');
-    stage.hidden = false;
-    stage.scrollIntoView({ block: 'start' });
-    loadMotionEngine(true);
-});
-motionNav.addEventListener('click', () => { if (isMotionOpen()) mgRefreshList(); });
-
-mgs.project = mgStarterProject();
-{
-    const first = mgs.project.layers[1] || mgs.project.layers[0];
-    mgs.selected = first ? first.id : null;
-}
-mgRebuild();
-mgStatus('Prêt : glisse un calque dans l’aperçu, pose des keyframes avec ◆, puis enregistre ou exporte.');
 /* ---------- Budget de chat épuisé : message lisible (HTTP 429) ---------- */
 
 const BUDGET_TIME_ZONE = "Europe/Paris";
@@ -9099,6 +7968,59 @@ function renderBudgetEntry(notice, rawText) {
     el.setAttribute("role", "status");
     return el;
 }
+/* A beginner workspace inside EffectCraft, with the full editor one click away. */
+motionEngine.advanced=readStudioStorage("frst.motion.advanced",false)===true;
+motionEngine.changingInterface=false;
+const motionModes=centerNode("div","motion-mode-switch");motionModes.setAttribute("role","group");motionModes.setAttribute("aria-label","Niveau de l’interface EffectCraft");
+motionModes.innerHTML='<button type="button" id="motion-simple" aria-pressed="true">Simple</button><button type="button" id="motion-advanced" aria-pressed="false">Avancé</button>';
+document.querySelector(".motion-header").insertBefore(motionModes,document.querySelector(".motion-actions"));
+const tutorialButton=centerNode("button","","Tutos");tutorialButton.type="button";tutorialButton.id="motion-tutorial-open";tutorialButton.title="Apprendre les bases du motion design";
+document.querySelector(".motion-actions").prepend(tutorialButton);
+const intro=centerNode("ol","motion-intro-steps");
+for(const text of ["Décris ton idée dans le chat.","Regarde l’agent créer ton animation.","Teste la lecture, puis enregistre ton projet."])intro.append(centerNode("li","",text));
+document.querySelector(".motion-consent-actions").before(intro);
+async function applyMotionInterface(advanced,initial=false){
+    if(motionEngine.changingInterface)return false;
+    if(!initial && ui.status.busy){studioFeedback("Attends la fin de l’action de l’agent avant de changer l’interface.");return false;}
+    motionEngine.changingInterface=true;$("motion-simple").disabled=true;$("motion-advanced").disabled=true;
+    try{
+        await api.effectCraftControl({method:"ui.set",params:{workspace:advanced?"Default":"FranceStudent",menuBar:advanced,viewer:{zoom:null},timeline:{graphEditor:false,showModes:advanced}}});
+        for(const column of ["label","num","comment","switches","modes","parent","in","out","duration","stretch"]){
+            await api.effectCraftControl({method:"engine.execute",params:{command:"timeline.column",params:{column,visible:advanced}}});
+        }
+        motionEngine.advanced=advanced;writeStudioStorage("frst.motion.advanced",advanced);
+        $("motion-simple").setAttribute("aria-pressed",String(!advanced));$("motion-advanced").setAttribute("aria-pressed",String(advanced));
+        motionView.dataset.interface=advanced?"advanced":"simple";
+        return true;
+    }catch(error){if(initial)throw error;studioFeedback(error.message);return false;}
+    finally{motionEngine.changingInterface=false;$("motion-simple").disabled=false;$("motion-advanced").disabled=false;}
+}
+$("motion-simple").onclick=()=>applyMotionInterface(false);$("motion-advanced").onclick=()=>applyMotionInterface(true);
+const motionTutorials=[
+    {title:"Ton premier titre",steps:["Choisis le texte à afficher et son ambiance.","Décris-le à l’agent : il crée la composition et l’animation.","Appuie sur Lecture pour voir le résultat."],prompt:"Crée dans EffectCraft un titre « Mon premier projet » qui apparaît en douceur sur un fond sombre. Utilise une composition de 5 secondes au format 16:9. Réalise les modifications et vérifie le rendu."},
+    {title:"Donner du mouvement",steps:["Sélectionne un texte ou une forme dans l’animation.","Décris le mouvement simplement : apparaître, glisser, tourner…", "L’agent règle les points de passage de l’animation (keyframes). Tu peux ensuite demander un mouvement plus lent ou plus rapide."],prompt:"Anime l’élément sélectionné dans EffectCraft : fais-le apparaître progressivement puis glisser légèrement vers la droite. Inspecte d’abord la sélection et vérifie le résultat."},
+    {title:"Enregistrer et exporter",steps:["Enregistrer conserve ton projet modifiable dans le stockage local d’EffectCraft.","Exporter produit un fichier à partager. Demande à l’agent de vérifier les formats disponibles avant le rendu.","Garde aussi une copie du projet .ecproj et de tes médias avec les fonctions de fichier du mode Avancé."],prompt:"Inspecte mon animation EffectCraft. Vérifie les formats d’export réellement disponibles, prépare un export adapté et explique où retrouver le résultat. Ne déclare pas un export terminé tant qu’il n’a pas réussi."}
+];
+const motionTutorialPanel=centerNode("section","motion-tutorial hidden");motionTutorialPanel.id="motion-tutorial";motionTutorialPanel.setAttribute("aria-label","Petits tutoriels motion design");motionView.append(motionTutorialPanel);
+let motionTutorialIndex=0;
+function showMotionTutorial(index=motionTutorialIndex){
+    motionTutorialIndex=Math.max(0,Math.min(motionTutorials.length-1,index));
+    const tutorial=motionTutorials[motionTutorialIndex];motionTutorialPanel.replaceChildren();
+    const header=centerNode("div","motion-tutorial-head");header.append(centerNode("span","",`LES BASES · ${motionTutorialIndex+1}/${motionTutorials.length}`));
+    const close=centerNode("button","","Fermer");close.type="button";close.onclick=()=>{motionTutorialPanel.classList.add("hidden");tutorialButton.focus();};header.append(close);motionTutorialPanel.append(header,centerNode("h2","",tutorial.title));
+    const list=centerNode("ol");for(const step of tutorial.steps)list.append(centerNode("li","",step));motionTutorialPanel.append(list);
+    const actions=centerNode("div","motion-tutorial-actions");
+    const prepare=centerNode("button","primary","Préparer la demande");prepare.type="button";prepare.onclick=()=>{
+        input.value=input.value.trim()?`${input.value}\n\n${tutorial.prompt}`:tutorial.prompt;
+        input.dispatchEvent(new Event("input",{bubbles:true}));autosizeInput();saveStudioDraft();
+        motionTutorialPanel.classList.add("hidden");input.focus();studioFeedback("La demande est préparée. Tu peux la modifier puis cliquer sur Envoyer.");
+    };
+    const next=centerNode("button","",motionTutorialIndex===motionTutorials.length-1?"Revoir le début":"Suivant");next.type="button";next.onclick=()=>showMotionTutorial((motionTutorialIndex+1)%motionTutorials.length);
+    actions.append(prepare,next);motionTutorialPanel.append(actions,centerNode("p","motion-tutorial-note","Les tutos sont gratuits à consulter. Une demande envoyée à l’agent utilise ton quota habituel."));
+    motionTutorialPanel.classList.remove("hidden");close.focus();
+}
+tutorialButton.onclick=()=>showMotionTutorial();
+motionView.addEventListener("keydown",event=>{if(event.key==="Escape" && !motionTutorialPanel.classList.contains("hidden")){event.preventDefault();event.stopPropagation();motionTutorialPanel.classList.add("hidden");tutorialButton.focus();}});
 /* ---------- Démarrage ---------- */
 
 (async () => {

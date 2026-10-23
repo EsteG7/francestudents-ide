@@ -45,6 +45,18 @@ test("le type MIME du WASM est application/wasm", () => {
     assert.equal(MIME[".wasm"], "application/wasm");
 });
 
+test("a stable binding preserves the browser storage origin and WebGL compatibility is opt-in",async()=>{
+    const root=makeRoot(),bindingFile=path.join(root,"binding.json");
+    fs.writeFileSync(path.join(root,"index.html"),'<script type="module">start()</script>');
+    let host=createEffectCraftHost({root,bindingFile});
+    try{
+        const first=await host.start();await host.stop();host=createEffectCraftHost({root,bindingFile});
+        assert.equal((await host.start()).url,first.url);
+        assert.doesNotMatch((await request(first.url)).body.toString(),/defineProperty/);
+        assert.match((await request(first.url+"?webgl")).body.toString(),/defineProperty\(navigator,"gpu"/);
+    }finally{await host.stop();fs.rmSync(root,{recursive:true,force:true});fs.rmSync(path.join(path.dirname(root),path.basename(root)+"-secret.txt"),{force:true});}
+});
+
 test("l'hébergeur signale l'absence du build au lieu de démarrer", async () => {
     const empty = fs.mkdtempSync(path.join(os.tmpdir(), "ec-host-empty-"));
     const host = createEffectCraftHost({ root: empty });

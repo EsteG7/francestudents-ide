@@ -23,6 +23,8 @@ npm run test:e2e
 
 Les tests Electron nécessitent un environnement graphique. Ne versionne jamais de jeton, mot de passe, session ou fichier `.env`. Les dépendances, bundles générés et exécutables `release/` restent hors du code versionné.
 
+La construction de l’application vérifie aussi le paquet EffectCraft modifié. Avant un premier `build:desktop` ou `dist:win`, lance `npm run vendor:effectcraft` avec les [prérequis Rust et WASM](docs/avance.md#motion-design-avec-effectcraft--bêta). Les workflows reconstruisent et mettent en cache ce paquet depuis la révision et le correctif épinglés ; ils ne substituent pas l’interface officielle non adaptée.
+
 ## Proposer une amélioration
 
 Ouvre une pull request dans ce fork. Décris le problème, le comportement obtenu et les vérifications réalisées. Pour un bogue, indique la version, le système et les étapes de reproduction, sans identifiants ni données sensibles.

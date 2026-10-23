@@ -1,6 +1,6 @@
 {
   "name": "project-frstcli",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "FranceStudent Code : agent de programmation en ligne de commande",
   "main": "index.js",
   "bin": {
@@ -21,12 +21,12 @@
     "start:tui": "npm run build:tui && node bin/frst.js",
     "build:tui": "node scripts/build-tui.js",
     "vendor:renderer": "node scripts/copy-vendor.js",
-    "vendor:effectcraft": "node scripts/fetch-effectcraft.js",
+    "vendor:effectcraft": "node scripts/build-effectcraft.js",
     "build:renderer": "node scripts/copy-vendor.js && node scripts/build-renderer.js",
     "check:renderer": "node scripts/build-renderer.js --check",
     "rebuild:native": "electron-builder install-app-deps",
     "lint": "eslint .",
-    "prebuild:desktop": "npm run build:renderer",
+    "prebuild:desktop": "npm run check:effectcraft && npm run build:renderer",
     "build:desktop": "electron-builder --dir --publish never",
     "prepare": "npm run build:tui",
     "pretest": "npm run build:tui",
@@ -36,10 +36,12 @@
     "test:e2e": "node --test e2e/*.e2e.test.js",
     "predesktop": "npm run build:renderer",
     "desktop": "electron desktop/main.js",
-    "predist:win": "npm run build:renderer",
-    "predist:mac": "npm run build:renderer",
+    "predist:win": "npm run check:effectcraft && npm run build:renderer",
+    "predist:mac": "npm run check:effectcraft && npm run build:renderer",
     "dist:win": "electron-builder --win portable nsis --publish never",
-    "dist:mac": "electron-builder --mac dmg zip --x64 --publish never"
+    "dist:mac": "electron-builder --mac dmg zip --x64 --publish never",
+    "vendor:effectcraft:upstream": "node scripts/fetch-effectcraft.js",
+    "check:effectcraft": "node scripts/build-effectcraft.js --check"
   },
   "keywords": [
     "cli",

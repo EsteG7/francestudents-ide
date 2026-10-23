@@ -16,8 +16,8 @@ test("le motion design est un module séparé chargé avant le démarrage", () =
 
 test("l'onglet motion design affiche un avertissement expérimental à l'ouverture", () => {
     const source = read("src", "36-motion-design.js");
-    assert.match(source, /Ultra bêta/);
-    assert.match(source, /Fonctionnalité expérimentale/);
+    assert.match(source, /Bêta/);
+    assert.match(source, /expérimentale/);
     assert.match(source, /J’ai compris, continuer/);
     assert.match(source, /role="alertdialog"/);
     assert.match(source, /function openMotionDesign[\s\S]*?hidden-consent/);
@@ -26,10 +26,10 @@ test("l'onglet motion design affiche un avertissement expérimental à l'ouvertu
 test("EffectCraft est chargé dans une iframe isolée depuis le serveur local, avec repli explicite", () => {
     const source = read("src", "36-motion-design.js");
     assert.match(source, /createElement\("iframe"\)/);
-    assert.match(source, /window\.frst\.effectCraft\("start"\)/);
-    assert.match(source, /url\.hostname !== "127\.0\.0\.1"/);
-    assert.match(source, /sandbox", "allow-scripts allow-same-origin allow-downloads"/);
-    assert.match(source, /EffectCraft n’est pas encore branché/);
+    assert.match(source, /api\.effectCraft\("start"\)/);
+    assert.match(source, /url\.hostname!=="127\.0\.0\.1"/);
+    assert.match(source, /sandbox","allow-scripts allow-same-origin allow-downloads"/);
+    assert.match(source, /EffectCraft indisponible/);
     assert.doesNotMatch(source, /<webview|WebAssembly\.instantiate/);
 });
 
@@ -49,5 +49,5 @@ test("la feuille de style est liée et la CSP n'est pas élargie", () => {
 });
 
 test("app.js généré contient le motion design", () => {
-    assert.match(read("app.js"), /id = "motion-view"/);
+    assert.match(read("app.js"), /id="motion-view"/);
 });

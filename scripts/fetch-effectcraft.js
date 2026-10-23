@@ -13,10 +13,10 @@ const zlib = require("node:zlib");
 const crypto = require("node:crypto");
 
 const PINNED = Object.freeze({
-    version: "0.14.0",
-    url: "https://github.com/storytold/effectcraft/releases/download/v0.14.0/effectcraft-web-0.14.0.zip",
-    sha256: "1dedb401b47b1689dbade1c7dbccd73af1b84e3e083a16b765d72343fc212f83",
-    root: "effectcraft-web-0.14.0/"
+    version: "0.16.0",
+    url: "https://github.com/storytold/effectcraft/releases/download/v0.16.0/effectcraft-web-0.16.0.zip",
+    sha256: "b6d08ea9168dbca3257c4f68b658e1ec37e4a83718312e420c1cb99f38868a74",
+    root: "effectcraft-web-0.16.0/"
 });
 const TARGET = path.join(__dirname, "..", "desktop", "vendor-effectcraft");
 

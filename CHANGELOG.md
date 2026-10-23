@@ -2,6 +2,19 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
+## [1.3.0] — 23 octobre 2026 · EffectCraft piloté par le chat motion design
+
+- Remplacement du studio canvas natif par le véritable éditeur EffectCraft 0.16.0, reconstruit depuis une révision épinglée avec une interface interne adaptée à FranceStudent. Sources des modifications et procédure de compilation incluses.
+- Mode Simple par défaut : quatre outils lisibles, une grande composition et une timeline allégée. Le bouton Avancé retrouve les panneaux et outils complets. Palette, espacements et traductions des panneaux harmonisés avec l’IDE.
+- Trois petits tutos : premier titre, mouvement, enregistrement et export. Ils préparent une demande modifiable sans déclencher l’IA ni consommer de quota.
+- Chat spécialisé dans l’animation, consignes accessibles aux débutants, actions lisibles et contexte de code exclu des demandes motion.
+- Interface harmonisée : thème sombre EffectCraft, en-tête compact, contrôles Lecture / Arrêter / Annuler / Enregistrer, éditeur sur toute la hauteur disponible, chat à droite.
+- Conversations, modèles, brouillons et exports de conversation distincts entre code et motion design. Une tâche ou des demandes en attente doivent être terminées avant de changer de chat.
+- Outil `effectcraft` pour l’agent : inspection, découverte des schémas de commandes, compositions, calques, textes, propriétés, keyframes, effets, lecture et rendus PNG consultables avec `view_image`. Les confirmations habituelles s’appliquent aux modifications ; Full accès reste disponible.
+- Enregistrer sauvegarde dans le stockage local d’EffectCraft. Origine locale stable entre lancements pour retrouver ce stockage ; fermer l’onglet conserve le moteur et le projet ouvert. Le menu File d’EffectCraft permet les imports et copies de projet.
+- Compatibilité WebGL activée pour éviter la perte de périphérique WebGPU constatée dans Electron. Les rendus lourds peuvent être plus lents ; l’intégration reste en bêta.
+- Vérification du terminal PowerShell et du véritable moteur dans le paquet Windows 1.3.0. Test Electron avec des réponses IA contrôlées : création de composition, ajout d’un titre, rendu PNG, sauvegarde, modes Simple / Avancé, tutos et conservation du projet au retour dans l’onglet.
+
 ## [1.2.1] — 22 octobre 2026 · Studio motion design natif et message de budget épuisé
 
 - Onglet **Motion design** : nouveau studio natif qui ne dépend plus d’EffectCraft. Il s’appuie sur un moteur sans DOM (easings, interpolation de keyframes, presets) couvert par des tests automatiques. Le rendu et l’ergonomie dans l’IDE n’ont pas encore été vérifiés visuellement.

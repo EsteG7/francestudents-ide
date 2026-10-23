@@ -31,7 +31,7 @@ function resolveStatic(root, relative) {
     return target;
 }
 
-function createEffectCraftHost({ root = DEFAULT_ROOT } = {}) {
+function createEffectCraftHost({ root = DEFAULT_ROOT, bindingFile = null } = {}) {
     let active = null;
     const available = () => fs.existsSync(path.join(root, "index.html")) && fs.existsSync(path.join(root, "effectcraft_web_bg.wasm"));
     const version = () => {
@@ -45,7 +45,10 @@ function createEffectCraftHost({ root = DEFAULT_ROOT } = {}) {
     async function start() {
         if (!available()) throw new Error("Le build EffectCraft est absent. Lance « npm run vendor:effectcraft » puis relance l’application.");
         if (active) return status();
-        const token = randomBytes(18).toString("hex");
+        let binding=null;
+        if(bindingFile){try{binding=JSON.parse(fs.readFileSync(bindingFile,"utf8"));}catch(error){if(error.code!=="ENOENT")throw error;}}
+        if(binding && (!Number.isInteger(binding.port) || binding.port<1024 || binding.port>65535 || !/^[a-f0-9]{36}$/.test(binding.token)))throw new Error("Configuration locale EffectCraft invalide.");
+        const token = binding?.token || randomBytes(18).toString("hex");
  const prefix = `/${token}/`;
         const server = http.createServer((req, res) => {
      const fail = (code) => { res.writeHead(code, { "Cache-Control": "no-store" }); res.end(); };
@@ -57,6 +60,11 @@ function createEffectCraftHost({ root = DEFAULT_ROOT } = {}) {
      if (!target) return fail(403);
      fs.stat(target, (error, info) => {
          if (error || !info.isFile()) return fail(404);
+         if(path.basename(target)==="index.html" && url.searchParams.has("webgl")) {
+             const html=fs.readFileSync(target,"utf8").replace('<script type="module">','<script>Object.defineProperty(navigator,"gpu",{value:undefined});</script><script type="module">');
+             res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"});
+             return res.end(req.method==="HEAD"?undefined:html);
+         }
          res.writeHead(200, {
       "Content-Type": MIME[path.extname(target).toLowerCase()] || "application/octet-stream",
       "Content-Length": info.size,
@@ -72,9 +80,10 @@ function createEffectCraftHost({ root = DEFAULT_ROOT } = {}) {
         });
         await new Promise((resolve, reject) => {
      server.once("error", reject);
-            server.listen(0, "127.0.0.1", resolve);
+            server.listen(binding?.port || 0, "127.0.0.1", resolve);
  });
  const { port } = server.address();
+        if(bindingFile && !binding){try{fs.mkdirSync(path.dirname(bindingFile),{recursive:true});fs.writeFileSync(bindingFile,JSON.stringify({port,token}),{mode:0o600});}catch(error){server.close();throw error;}}
         active = { server, url: `http://127.0.0.1:${port}${prefix}` };
         return status();
     }

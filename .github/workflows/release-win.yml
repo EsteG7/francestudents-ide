@@ -53,6 +53,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build:renderer
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: ./.github/actions/build-effectcraft
+        if: steps.release.outputs.ready != 'true'
       - name: Construire sans publier de fichiers intermédiaires
         if: steps.release.outputs.ready != 'true'
         run: npx electron-builder --win nsis --publish never --config.npmRebuild=false

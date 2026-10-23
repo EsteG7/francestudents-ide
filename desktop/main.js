@@ -60,7 +60,9 @@ const projectStudio = require("./project-studio").createProjectStudio({workspace
 const previewServer = require("./preview-server").createPreviewServer();
 const conversationImporter = require("./conversation-import").createConversationImporter();
 const localBrowser = require("./local-browser").createLocalBrowser({getWindow:()=>win,onState:data=>send("localBrowser",data)});
-const effectCraftHost = require("./effectcraft-host").createEffectCraftHost();
+const effectCraftHost = require("./effectcraft-host").createEffectCraftHost({bindingFile:path.join(require("../src/config").CONFIG.dataDir,"effectcraft-host.json")});
+const effectCraftControl = require("./effectcraft-control").createEffectCraftControl({getWindow:()=>win,host:effectCraftHost});
+const motionConversations = require("./motion-conversations").createMotionConversations(require("../src/state").state);
 let updates=null;
 const webResearch=require("../src/tools/web-research").manager;
 webResearch.subscribe(data=>send("webResearch",data));
@@ -299,6 +301,7 @@ async function openProject(directory) {
     pushStatus();
     try {
         await require("../src/tools/tools").setProject(dir);
+        motionConversations.reset();
     } finally {
         busy = false;
         pushStatus();
@@ -753,6 +756,7 @@ async function logoutAccount() {
         if (bootstrapPromise) await bootstrapPromise.catch(() => {});
         booted = false;
         await require("../src/api/auth").logout();
+        motionConversations.reset();
         send("signedOut");
         return { ok: true };
     } finally {
@@ -765,6 +769,12 @@ async function logoutAccount() {
 function registerIpc() {
     handle("localBrowser", (action,payload)=>localBrowser.action(String(action),payload||{}));
     handle("effectCraft", action=>action === "stop" ? effectCraftHost.stop() : action === "start" ? effectCraftHost.start() : effectCraftHost.status());
+    handle("effectCraftControl", request=>{if(busy)throw new Error("L’agent travaille déjà dans EffectCraft.");return effectCraftControl(request);});
+    handle("motionConversation",mode=>{
+        const snapshot=taskQueue.action("list");
+        if(snapshot.tasks.some(task=>["pending","steering"].includes(task.status)))throw new Error("Termine ou retire les demandes en attente avant de changer de chat.");
+        const result=motionConversations.select(mode,busy);pushStatus();return result;
+    });
     handle("inspectFile",rel=>require("./file-assets").inspectFile(require("../src/state").state.workspace,String(rel)));
     handle("openFileInApp",async rel=>{
         const file=String(rel);
@@ -1268,6 +1278,7 @@ if (!gotLock) {
         }
 
         backend = createDesktopBackend(send);
+        backend.effectCraftControl = effectCraftControl;
         setUiBackend(backend);
         session = require("../src/core/session");
         const updateSettings=require("../src/settings");

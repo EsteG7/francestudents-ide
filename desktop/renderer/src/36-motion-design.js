@@ -1,198 +1,75 @@
-/* ---------- Motion design (ULTRA BÊTA) : onglet à part, aucune modification des vues existantes ---------- */
-/* Cet onglet charge le build web d’EffectCraft (serveur local, iframe isolée) et prépare des demandes pour le chat. */
-const motionNav = document.createElement("button");
-motionNav.type = "button";
-motionNav.className = "activity";
-motionNav.dataset.view = "motion";
-motionNav.id = "btn-motion";
-motionNav.title = "Motion design (ultra bêta, expérimental)";
-motionNav.setAttribute("aria-label", "Motion design, ultra bêta expérimental");
-motionNav.innerHTML = '<svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg><span class="activity-badge motion-badge" aria-hidden="true">β</span>';
-(() => {
-    const spacer = document.querySelector("#activity-bar .spacer");
-    if (spacer) $("activity-bar").insertBefore(motionNav, spacer);
-    else $("activity-bar").append(motionNav);
-})();
-
-const motionView = document.createElement("section");
-motionView.id = "motion-view";
-motionView.className = "motion-page";
-motionView.setAttribute("aria-label", "Motion design (expérimental)");
-motionView.innerHTML = `
- <header class="motion-header">
-  <div><span class="motion-eyebrow">MOTION DESIGN · EXPÉRIMENTAL</span><h1>Motion design <span class="motion-pill">Ultra bêta</span></h1></div>
-  <div class="motion-actions"><button type="button" id="motion-close">Retour au code</button></div>
- </header>
- <div class="motion-warning" role="note">
-  <b>Fonctionnalité expérimentale.</b>
-  <span>Cet espace est en ultra bêta : il peut être incomplet, instable, changer d’un jour à l’autre ou disparaître. Ne l’utilise pas pour un travail important sans copie de sauvegarde.</span>
- </div>
- <div class="motion-stage" aria-label="Zone de travail motion design">
-  <div class="motion-stage-inner">
-   <h2>EffectCraft n’est pas encore branché</h2>
-   <p>Cette zone est réservée au moteur de motion graphics EffectCraft (lui-même en développement). Pour l’instant, aucun moteur de rendu n’est chargé : rien n’est animé ni exporté ici.</p>
-   <p>Tu peux déjà préparer ton projet avec l’agent : le chat de droite reste le même, seules les demandes ci-dessous sont orientées motion design.</p>
-  </div>
- </div>
- <div id="motion-engine" class="motion-engine" hidden>
-  <div class="motion-engine-bar"><span id="motion-engine-status" role="status">EffectCraft : chargement…</span><button type="button" id="motion-engine-reload">Recharger</button></div>
-  <div id="motion-engine-frame" class="motion-engine-frame"></div>
- </div>
- <h2 class="motion-section-title">Démarrer une demande à l’agent</h2>
- <div class="motion-starters">
-  <button type="button" data-motion-prompt="Je veux animer un titre (apparition, mouvement, sortie). Propose une timeline avec durées, easings et keyframes, puis le code pour la réaliser dans ce projet."><b>Animer un titre</b><small>Timeline, easings et keyframes</small></button>
-  <button type="button" data-motion-prompt="Je veux créer une transition entre deux scènes. Propose plusieurs options simples, avec durées et courbes d’animation, puis implémente la meilleure dans ce projet."><b>Créer une transition</b><small>Entre deux scènes ou deux écrans</small></button>
-  <button type="button" data-motion-prompt="Aide-moi à découper mon animation en scènes et en calques : liste les éléments, leur ordre d’apparition et la durée totale. N’écris pas de code pour l’instant."><b>Planifier une animation</b><small>Scènes, calques et durées</small></button>
- </div>
- <p class="motion-note">Les demandes sont seulement pré-remplies dans la zone de saisie du chat : rien n’est envoyé sans ton accord. L’agent à droite reste visible pendant que tu travailles dans EffectCraft.</p>
- <div id="motion-consent" class="motion-consent" role="alertdialog" aria-modal="true" aria-labelledby="motion-consent-title" aria-describedby="motion-consent-text" tabindex="-1">
-  <div class="motion-consent-card">
-   <span class="motion-pill">Ultra bêta</span>
-   <h2 id="motion-consent-title">Fonctionnalité expérimentale</h2>
-   <p id="motion-consent-text">Le motion design est en ultra bêta. Il peut être instable, incomplet, changer ou être retiré sans préavis. Un studio natif (calques, keyframes, timeline, export HTML et WebM) est disponible ici. Le moteur EffectCraft (lui-même en alpha) reste optionnel : il ne se charge que si tu cliques sur le bouton EffectCraft du studio. Tu peux l’essayer, mais ne compte pas dessus pour un travail important.</p>
-   <div class="motion-consent-actions"><button type="button" id="motion-consent-back">Retour au code</button><button type="button" id="motion-consent-ok" class="primary">J’ai compris, continuer</button></div>
-  </div>
- </div>`;
+/* The official EffectCraft editor, embedded next to its specialized agent chat. */
+const motionNav=document.createElement("button");
+motionNav.type="button";motionNav.className="activity";motionNav.dataset.view="motion";motionNav.id="btn-motion";
+motionNav.title="Motion design · EffectCraft (Bêta)";motionNav.setAttribute("aria-label","Motion design · EffectCraft, Bêta");
+motionNav.innerHTML='<svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>';
+$("activity-bar").insertBefore(motionNav,document.querySelector("#activity-bar .spacer"));
+const motionView=document.createElement("section");motionView.id="motion-view";motionView.className="motion-page";motionView.setAttribute("aria-label","EffectCraft et agent motion design");
+motionView.innerHTML=`<header class="motion-header"><div class="motion-brand"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 17 8-13 8 13H4Zm4-1 4-7 4 7"/></svg><h1>EffectCraft</h1><span class="motion-pill">Bêta</span></div><div class="motion-actions"><button type="button" id="motion-local-save" title="Enregistrer dans le stockage local d’EffectCraft">Enregistrer</button><button type="button" id="motion-close">Retour au code</button></div></header>
+<div class="motion-commandbar"><div role="group" aria-label="Contrôles de composition"><button type="button" id="motion-undo" title="Annuler la dernière modification">↶ Annuler</button><button type="button" id="motion-play">▶ Lecture</button><button type="button" id="motion-stop">■ Arrêter</button></div><span id="motion-engine-status" role="status">EffectCraft attend ton ouverture.</span><button type="button" id="motion-engine-reload" title="Recharger EffectCraft">Recharger</button></div>
+<div class="motion-stage" aria-label="Chargement d’EffectCraft"><div><h2>Chargement d’EffectCraft…</h2><p>Le véritable éditeur se prépare. Le chat motion design reste à droite.</p><button type="button" id="motion-retry">Réessayer</button></div></div>
+<div id="motion-engine" class="motion-engine" hidden><div id="motion-engine-frame" class="motion-engine-frame"></div></div>
+<div id="motion-consent" class="motion-consent" role="alertdialog" aria-modal="true" aria-labelledby="motion-consent-title" tabindex="-1"><div class="motion-consent-card"><span class="motion-pill">Bêta</span><h2 id="motion-consent-title">Ton espace motion design</h2><p>EffectCraft à gauche, ton agent spécialisé à droite. Le chat peut modifier les compositions, les calques, les keyframes et les effets. Cette intégration reste expérimentale : conserve une copie des projets importants.</p><div class="motion-consent-actions"><button type="button" id="motion-consent-back">Retour au code</button><button type="button" id="motion-consent-ok" class="primary">J’ai compris, continuer</button></div></div></div>`;
 $("app").append(motionView);
-
-function isMotionOpen() { return $("app").classList.contains("view-motion"); }
-
-function openMotionDesign() {
-    setActivity(null);
-    $("app").classList.add("view-motion");
-    motionNav.classList.add("active");
-    $("motion-consent").classList.remove("hidden-consent");
-    setTimeout(() => $("motion-consent-ok").focus(), 0);
+const motionEngine={frame:null,loading:false,accepted:false};
+function isMotionOpen(){return $("app").classList.contains("view-motion");}
+function setMotionEngineStatus(text){$("motion-engine-status").textContent=text;$("motion-engine-status").title=text;}
+async function openMotionDesign(){
+    if(!await selectMotionChat("motion"))return;
+    setActivity(null);$("app").classList.add("view-motion");motionNav.classList.add("active");
+    $("motion-consent").classList.toggle("hidden-consent",motionEngine.accepted);
+    if(motionEngine.accepted)loadMotionEngine();else $("motion-consent-ok").focus({preventScroll:true});
+    syncMotionChat();
 }
-
-function closeMotionDesign() {
-    if (!isMotionOpen()) return;
-    $("app").classList.remove("view-motion");
-    motionNav.classList.remove("active");
-    setActivity($("app").classList.contains("no-sidebar") ? null : ui.sideView);
+async function closeMotionDesign(){
+    if(!isMotionOpen() || !await selectMotionChat("code"))return;
+    $("app").classList.remove("view-motion");motionNav.classList.remove("active");
+    setActivity($("app").classList.contains("no-sidebar")?null:ui.sideView);syncMotionChat();
 }
-
-motionNav.onclick = () => { if (isMotionOpen()) closeMotionDesign(); else openMotionDesign(); };
-$("motion-close").onclick = closeMotionDesign;
-$("motion-consent-back").onclick = closeMotionDesign;
-$("motion-consent-ok").onclick = () => {
-    $("motion-consent").classList.add("hidden-consent");
-    motionView.querySelector("[data-motion-prompt]")?.focus();
-};
-
-/* Les autres boutons de la barre d'activité ferment simplement cet onglet ; leur comportement reste inchangé. */
-for (const button of document.querySelectorAll("#activity-bar .activity")) {
-    if (button !== motionNav) button.addEventListener("click", closeMotionDesign);
+motionNav.onclick=()=>isMotionOpen()?closeMotionDesign():openMotionDesign();
+$("motion-close").onclick=closeMotionDesign;$("motion-consent-back").onclick=closeMotionDesign;
+$("motion-consent-ok").onclick=()=>{motionEngine.accepted=true;$("motion-consent").classList.add("hidden-consent");loadMotionEngine();input.focus({preventScroll:true});};
+for(const button of document.querySelectorAll("#activity-bar .activity"))if(button!==motionNav)button.addEventListener("click",event=>{
+    if(isMotionOpen() && ui.status.busy){event.preventDefault();event.stopImmediatePropagation();studioFeedback("Attends la fin de la tâche ou utilise Stop avant de changer de chat.");return;}
+    closeMotionDesign();
+},true);
+function showMotionEngineFallback(message){$("motion-engine").hidden=true;motionView.querySelector(".motion-stage").hidden=false;motionView.querySelector(".motion-stage h2").textContent="EffectCraft indisponible";motionView.querySelector(".motion-stage p").textContent=message;setMotionEngineStatus(message);}
+async function loadMotionEngine(force=false){
+    if(motionEngine.loading || motionEngine.frame && !force)return;
+    if(force && ui.status.busy){studioFeedback("Arrête d’abord la tâche pour recharger EffectCraft.");return;}
+    motionEngine.loading=true;
+    try{
+        if(motionEngine.frame){motionEngine.frame.remove();motionEngine.frame=null;}
+        const info=await api.effectCraft("start"),url=new URL(info.url);
+        if(url.protocol!=="http:" || url.hostname!=="127.0.0.1")throw new Error("Adresse EffectCraft inattendue.");
+        url.search="?nosw&frameworkers=0&webgl";
+        const frame=document.createElement("iframe");frame.className="motion-engine-iframe";frame.title="EffectCraft · Motion design";
+        frame.setAttribute("sandbox","allow-scripts allow-same-origin allow-downloads");frame.setAttribute("allow","fullscreen");frame.referrerPolicy="no-referrer";
+        frame.addEventListener("load",async()=>{
+            for(let attempt=0;attempt<60 && motionEngine.frame===frame;attempt++){
+                try{await api.effectCraftControl({method:"host.info",params:{}});await api.effectCraftControl({method:"ui.set",params:{theme:"Dark"}});await applyMotionInterface(motionEngine.advanced,true);setMotionEngineStatus("Prêt · décris ton animation dans le chat");return;}
+                catch(error){if(attempt===59){setMotionEngineStatus(error.message);return;}await new Promise(resolve=>setTimeout(resolve,200));}
+            }
+        });
+        frame.src=url.toString();$("motion-engine-frame").replaceChildren(frame);motionEngine.frame=frame;
+        $("motion-engine").hidden=false;motionView.querySelector(".motion-stage").hidden=true;setMotionEngineStatus(`EffectCraft ${info.version} · chargement…`);
+    }catch(error){showMotionEngineFallback(error.message);}finally{motionEngine.loading=false;}
 }
-
-motionView.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") { event.preventDefault(); closeMotionDesign(); motionNav.focus(); }
-});
-
-for (const button of motionView.querySelectorAll("[data-motion-prompt]")) {
-    button.onclick = () => {
-        const input = $("input");
-        if (!input) return;
-        input.value = `[Motion design, expérimental] ${button.dataset.motionPrompt}`;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
- input.focus();
-    };
+$("motion-engine-reload").onclick=()=>loadMotionEngine(true);$("motion-retry").onclick=()=>loadMotionEngine(true);
+async function motionControl(request){
+    if(ui.status.busy){studioFeedback("L’agent travaille sur la composition ; attends ou utilise Stop.");return;}
+    try{await api.effectCraftControl(request);setMotionEngineStatus("EffectCraft · action effectuée");}catch(error){studioFeedback(error.message);}
 }
-
-/* ---------- Moteur EffectCraft : build web officiel hébergé en local, affiché dans une iframe d'une autre origine ---------- */
-const motionEngine = { frame: null, loading: false };
-
-function setMotionEngineStatus(text) { $("motion-engine-status").textContent = text; }
-
-function showMotionEngineFallback(message) {
-    $("motion-engine").hidden = true;
-    const stage = motionView.querySelector(".motion-stage");
-    stage.hidden = false;
-    stage.querySelector("h2").textContent = "EffectCraft indisponible";
-    stage.querySelector("p").textContent = message;
+$("motion-play").onclick=()=>motionControl({method:"ui.playback",params:{action:"play"}});
+$("motion-stop").onclick=()=>motionControl({method:"ui.playback",params:{action:"stop"}});
+$("motion-undo").onclick=()=>motionControl({method:"engine.execute",params:{command:"edit.undo",params:{}}});
+$("motion-local-save").onclick=()=>motionControl({method:"host.save",params:{path:"FranceStudent.ecproj"}});
+const motionChat={placeholder:null,badge:null};
+function syncMotionChat(){
+    const bar=document.querySelector("#agent .agent-context-bar");if(!bar)return;
+    if(!motionChat.badge){const badge=document.createElement("span");badge.id="agent-motion-badge";badge.className="agent-motion-badge";badge.textContent="Motion design";bar.insertBefore(badge,$("agent-access"));motionChat.badge=badge;}
+    const open=isMotionOpen();motionChat.badge.hidden=!open;
+    if(open){if(motionChat.placeholder===null)motionChat.placeholder=input.placeholder;input.placeholder="Décris ton animation… l’agent agit dans EffectCraft.";}
+    else if(motionChat.placeholder!==null){input.placeholder=motionChat.placeholder;motionChat.placeholder=null;}
 }
-
-function unloadMotionEngine() {
-    if (motionEngine.frame) { motionEngine.frame.remove(); motionEngine.frame = null; }
-    window.frst?.effectCraft?.("stop").catch(() => {});
-}
-
-/* EffectCraft rend avec WebGPU quand il est disponible ; sinon il retombe sur le processeur (plus lent). On l’indique dans la barre d’état. */
-async function describeMotionGpu() {
-    try {
-        if (!navigator.gpu) return "WebGPU absent : rendu sur processeur, plus lent";
-        const adapter = await navigator.gpu.requestAdapter();
- return adapter ? "WebGPU disponible" : "aucune carte WebGPU compatible : rendu sur processeur, plus lent";
-    } catch {
-        return "WebGPU non vérifiable";
-    }
-}
-
-async function loadMotionEngine(force = false) {
-    if (motionEngine.loading || (motionEngine.frame && !force)) return;
-    if (!window.frst?.effectCraft) { showMotionEngineFallback("Le pont EffectCraft n’est pas disponible dans cette fenêtre."); return; }
-    motionEngine.loading = true;
-    try {
-        if (motionEngine.frame) { motionEngine.frame.remove(); motionEngine.frame = null; }
-        const info = await window.frst.effectCraft("start");
-        const url = new URL(info.url);
-        if (url.protocol !== "http:" || url.hostname !== "127.0.0.1") throw new Error("Adresse EffectCraft inattendue.");
- url.search = "?nosw";
-        $("motion-engine").hidden = false;
-        motionView.querySelector(".motion-stage").hidden = true;
- setMotionEngineStatus(`EffectCraft ${info.version || ""} · chargement du moteur (≈ 63 Mo)…`);
- const frame = document.createElement("iframe");
-        frame.className = "motion-engine-iframe";
- frame.title = "EffectCraft (motion design, ultra bêta)";
-        frame.setAttribute("allow", "fullscreen; clipboard-read; clipboard-write");
-        frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-downloads");
- frame.setAttribute("referrerpolicy", "no-referrer");
-        frame.addEventListener("load", async () => {
-     const gpu = await describeMotionGpu();
-     if (motionEngine.frame === frame) setMotionEngineStatus(`EffectCraft ${info.version || ""} · page chargée (ultra bêta) · ${gpu}`);
- });
-        frame.src = url.toString();
-        $("motion-engine-frame").replaceChildren(frame);
- motionEngine.frame = frame;
-    } catch (error) {
-        showMotionEngineFallback(String(error?.message || error));
-    } finally {
-        motionEngine.loading = false;
-    }
-}
-
-$("motion-engine-reload").onclick = () => loadMotionEngine(true);
-motionNav.addEventListener("click", () => { if (!isMotionOpen()) unloadMotionEngine(); });
-$("motion-close").addEventListener("click", unloadMotionEngine);
-$("motion-consent-back").addEventListener("click", unloadMotionEngine);
-
-/* ---------- Chat de l'agent : même principe, simplement adapté au motion design tant que l'onglet est ouvert ---------- */
-const motionChat = { placeholder: null, badge: null };
-
-function syncMotionChat() {
-    const input = $("input");
-    const bar = document.querySelector("#agent .agent-context-bar");
-    if (!input || !bar) return;
-    if (!motionChat.badge) {
-        const badge = document.createElement("span");
-        badge.id = "agent-motion-badge";
-        badge.className = "agent-motion-badge";
- badge.hidden = true;
-        badge.textContent = "Motion design · bêta";
- badge.title = "Le chat fonctionne comme d’habitude ; les suggestions et la saisie sont orientées motion design.";
- bar.insertBefore(badge, bar.querySelector("#agent-access"));
-        motionChat.badge = badge;
-    }
-    const open = isMotionOpen();
-    motionChat.badge.hidden = !open;
-    if (open) {
- if (motionChat.placeholder === null) motionChat.placeholder = input.placeholder;
-        input.placeholder = "Décris ton animation (titre, transition, scènes, durées…) · / pour les commandes";
-    } else if (motionChat.placeholder !== null) {
-        input.placeholder = motionChat.placeholder;
- motionChat.placeholder = null;
-    }
-}
-
-new MutationObserver(syncMotionChat).observe($("app"), { attributes: true, attributeFilter: ["class"] });
-syncMotionChat();
+new MutationObserver(syncMotionChat).observe($("app"),{attributes:true,attributeFilter:["class"]});syncMotionChat();

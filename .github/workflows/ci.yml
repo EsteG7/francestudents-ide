@@ -23,4 +23,5 @@ jobs:
       - run: npm run lint
       - run: npm run check:renderer
       - run: npm test
+      - uses: ./.github/actions/build-effectcraft
       - run: npm run build:desktop

@@ -34,6 +34,22 @@ L’import porte sur la conversation, pas sur les fichiers du projet. Il n’acc
 
 ## Éditeur, exécutions et aperçu web
 
+### Motion design avec EffectCraft — bêta
+
+Le bouton Motion design ouvre **EffectCraft à gauche et un agent spécialisé à droite**. Le véritable moteur est conservé ; son interface interne a été adaptée à FranceStudent. Le mode **Simple**, proposé au départ, garde quatre outils, la composition et une timeline allégée. **Avancé** retrouve les panneaux et outils complets. Le choix est mémorisé.
+
+Le bouton **Tutos** explique comment créer un titre, donner du mouvement et enregistrer ou exporter. **Préparer la demande** ajoute un exemple au brouillon, sans envoyer de message. Tu peux le modifier avant d’appuyer sur Envoyer. Consulter les tutos ne consomme pas de quota.
+
+Le chat utilise le modèle sélectionné et le quota FranceStudent habituel. L’agent peut inspecter le moteur, découvrir les commandes et leurs paramètres, puis agir directement sur les compositions, calques, textes, keyframes et effets. Exemple : « Crée un titre qui apparaît progressivement, puis glisse vers la droite ». Les modifications suivent les permissions de l’IDE. Les comptes rendus ne garantissent pas un rendu correct : l’agent doit vérifier ses actions et examiner un rendu PNG lorsqu’une vérification visuelle est nécessaire.
+
+Les conversations, modèles et brouillons du code et du motion sont séparés. Termine la tâche et les demandes en attente avant de changer de chat. Revenir au code conserve EffectCraft en mémoire ; tu peux reprendre l’animation en rouvrant l’onglet.
+
+**Enregistrer** écrit un projet `FranceStudent.ecproj` dans le stockage local du moteur. Le menu File d’EffectCraft propose les imports et copies de fichiers ; les médias et exports suivent ses capacités. Le stockage local reste lié aux données de l’application : conserve des copies `.ecproj` et des médias pour les travaux importants. La persistance de la conversation motion après un redémarrage utilise l’historique de conversations habituel ; les brouillons restent locaux.
+
+Le moteur est fourni dans l’installateur : aucun outil de compilation n’est nécessaire pour l’utiliser. Le mode WebGL évite le problème WebGPU reproduit ici ; les calculs lourds peuvent être plus lents. Les rendus vidéo restent soumis aux capacités d’EffectCraft et ne sont pas tous validés par cette intégration.
+
+Pour reconstruire le moteur modifié depuis les sources : installe Rust 1.95 ou plus récent, la cible `wasm32-unknown-unknown` et `wasm-bindgen-cli` 0.2.129, disponibles dans le PATH. Lance `npm run vendor:effectcraft`, puis `npm run check:effectcraft`. Le script clone la révision `9581b53c3f8945683252af0eb5fac79e0e43aed4` d’EffectCraft 0.16.0, applique le correctif versionné et compile le paquet web. Il refuse les modifications locales imprévues. La compilation initiale prend plusieurs minutes. Les sources et produits intermédiaires restent dans `release/` ; les empreintes du correctif et du WASM sont enregistrées dans le paquet généré. `vendor:effectcraft:upstream` télécharge uniquement le paquet officiel non adapté, pour diagnostic ; il ne doit pas servir à construire cette distribution.
+
 Le cockpit rassemble les commandes du projet, leur sortie, les diagnostics et les actions de vérification. L’éditeur propose notamment la recherche, les symboles, les diagnostics JS/TS, Prettier et la comparaison de versions.
 
 Le navigateur intégré ouvre les serveurs locaux. Lorsqu’une réponse contient une commande reconnue et une adresse locale non ambiguë, des boutons permettent de démarrer le serveur, de l’arrêter et d’ouvrir le site. La commande n’est jamais exécutée simplement parce qu’elle apparaît dans une réponse. [Contrôles de serveur](server-controls.md).

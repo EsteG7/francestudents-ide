@@ -474,7 +474,10 @@ async function runAgent(task, options = {}) {
         }
     }
     const signatures = new Map();
-    const { projectText, env, instructions } = await loadAgentContext(state.workspace);
+    const { projectText: codeProjectText, env, instructions } = await loadAgentContext(state.workspace);
+    const projectText = state.motionDesign
+        ? "Espace Motion design : le projet actif est dans EffectCraft. Inspecte-le avec effectcraft project.summary ; les fichiers de code ouverts ne décrivent pas cette composition."
+        : codeProjectText;
 
     // Pré-prompt utilisateur/projet et faits appris (vide si rien n'est configuré).
     // Il n'entre que dans le message complet (fullPrompt), pas dans les relances de suivi.
@@ -573,7 +576,7 @@ async function runAgent(task, options = {}) {
         }
     }
 
-    await preloadContext(task, observations);
+    if (!state.motionDesign) await preloadContext(task, observations);
 
     // Mode normal sans plafond ; Éco borne le travail automatique à quatre tours.
     const maxTurns = state.ecoMode ? 4 : 0;
@@ -609,7 +612,7 @@ async function runAgent(task, options = {}) {
                     env,
                     task,
                     history: state.history.slice(-6),
-                    memorySummary: memory.summary(),
+                    memorySummary: state.motionDesign ? "" : memory.summary(),
                     projectContext: withProject ? (state.ecoMode && projectText.length > 20000 ? projectText.slice(0, 20000) + "\n[Mode Éco : contexte projet réduit. Lire les fichiers nécessaires avec les outils.]" : projectText) : "",
                     projectOmitted: !withProject,
                     instructions,
@@ -620,8 +623,8 @@ async function runAgent(task, options = {}) {
                     turn,
                     maxTurns,
                     correction,
-                    activeFile: state.activeFile,
-                    editorFiles: state.openFiles
+                    activeFile: state.motionDesign ? null : state.activeFile,
+                    editorFiles: state.motionDesign ? [] : state.openFiles
                 });
 
                 // Une conversation agent existe côté serveur (identifiant reçu) : elle garde

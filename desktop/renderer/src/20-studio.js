@@ -21,8 +21,9 @@ function writeStudioStorage(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch { studioFeedback("Le stockage local est indisponible."); }
 }
 function studioFeedback(message) { $("composer-feedback").textContent = message || ""; }
+function studioDraftKey(workspace,mode=typeof motionChatMode!=="undefined"?motionChatMode:"code") {return `frst.draft:${workspace || "global"}${mode==="motion"?":motion":""}`;}
 function saveStudioDraft() {
-    if (studioWorkspace !== undefined) writeStudioStorage(`frst.draft:${studioWorkspace || "global"}`, input.value);
+    if (studioWorkspace !== undefined) writeStudioStorage(studioDraftKey(studioWorkspace), input.value);
 }
 function setAgentTab(tab) {
     studioTab = ["conversation", "activity", "usage"].includes(tab) ? tab : "conversation";
@@ -45,7 +46,7 @@ function updateStudioStatus(status) {
     if (studioWorkspace !== workspace) {
         saveStudioDraft();
         studioWorkspace = workspace;
-        input.value = readStudioStorage(`frst.draft:${workspace || "global"}`, "");
+        input.value = readStudioStorage(studioDraftKey(workspace), "");
         autosizeInput();
         if (studioRun && studioRun.workspace !== workspace) { studioRun = null; renderAgentActivity(null); }
     }

@@ -1,6 +1,7 @@
 /* ---------- Rendu du texte ---------- */
 
 const TOOL_LABELS = {
+    effectcraft: "EffectCraft",
     list_directory: "Lister", read_file: "Lire", search_files: "Chercher",web_search_result:"Résultat web",view_image:"Examiner l’image",
     create_directory: "Créer le dossier", write_file: "Écrire", edit_file: "Éditer",
     move_path: "Déplacer", copy_path: "Copier", delete_path: "Supprimer",

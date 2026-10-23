@@ -69,7 +69,8 @@ const MODULES = [
     require("./browse"),
     require("./diagnostics"),
     require("./semantic-search"),
-    require("./github")
+    require("./github"),
+    require("./effectcraft")
 ];
 
 const TOOLS = {};

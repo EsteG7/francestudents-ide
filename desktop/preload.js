@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld("frst", {
     updates: (action,payload)=>call("updates",String(action||"status"),payload||{}),
     localBrowser: (action,payload)=>call("localBrowser",String(action||"status"),payload||{}),
     effectCraft: action=>call("effectCraft",String(action||"status")),
+    effectCraftControl: request=>call("effectCraftControl",request),
+    motionConversation: mode=>call("motionConversation",String(mode)),
     webResearch: (action,payload)=>call("webResearch",String(action||"list"),payload||{}),
     captureWebPage: payload=>call("captureWebPage",payload||{}),
     browserPermission: (action,value)=>call("browserPermission",String(action||"get"),String(value||"")),

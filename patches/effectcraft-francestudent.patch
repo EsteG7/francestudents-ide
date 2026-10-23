@@ -1,0 +1,479 @@
+diff --git a/apps/effectcraft-web/src/app.rs b/apps/effectcraft-web/src/app.rs
+index 1a69524..6c39ee7 100644
+--- a/apps/effectcraft-web/src/app.rs
++++ b/apps/effectcraft-web/src/app.rs
+@@ -199,6 +199,7 @@ pub async fn start(canvas_id: String) -> Result<(), JsValue> {
+         }
+     };
+     api::set_info("storage", json!({"backend": persist::backend(), "entries": stored, "loadMs": js_sys::Date::now() - t0}));
++    api::set_info("integration", json!({"host": "FranceStudent", "theme": "francestudent-v1"}));
+     audio::install_unlock();
+     browse::restore();
+     diskcache::init();
+@@ -237,7 +238,7 @@ pub async fn start(canvas_id: String) -> Result<(), JsValue> {
+                 // `?empty`: a blank project; `?demo`: the demo project; otherwise the last visit's
+                 // project (the demo on a first visit).
+                 let restored = !empty && !query_flag("demo") && persist::restore(&mut session);
+-                if !restored && !empty {
++                if !restored && query_flag("demo") {
+                     let _ = session.execute("file.openDemoProject", json!({}));
+                 }
+                 api::set_info("restored", json!(restored));
+diff --git a/crates/engine/src/menus.rs b/crates/engine/src/menus.rs
+index bc486a0..6338ff9 100644
+--- a/crates/engine/src/menus.rs
++++ b/crates/engine/src/menus.rs
+@@ -1169,6 +1169,7 @@ Window
+     Default | window.workspace {"name":"Default"} | Shift+F10
+     Review | window.workspace {"name":"Review"}
+     Learn | window.workspace {"name":"Learn"}
++    FranceStudent | window.workspace {"name":"FranceStudent"}
+     Small Screen | window.workspace {"name":"Small Screen"} | Shift+F12
+     Standard | window.workspace {"name":"Standard"} | Shift+F11
+     ---
+diff --git a/crates/engine/src/prefs.rs b/crates/engine/src/prefs.rs
+index a2ce579..3c28a3e 100644
+--- a/crates/engine/src/prefs.rs
++++ b/crates/engine/src/prefs.rs
+@@ -95,7 +95,7 @@ macro_rules! page {
+ page!(General {
+     /// Interface language: `system` (the operating system's, where EffectCraft has it, else
+     /// English), or a language code from `LANGUAGES`.
+-    language: String = "system".into(),
++    language: String = "fr".into(),
+     /// Levels of Undo (1–99).
+     undo_levels: u32 = 32,
+     /// Path Point and Handle Size (px).
+@@ -185,7 +185,7 @@ page!(Appearance {
+     use_label_color_for_handles: bool = true,
+     use_label_color_for_tabs: bool = true,
+     cycle_mask_colors: bool = true,
+-    use_gradients: bool = true,
++    use_gradients: bool = false,
+     /// macOS: draw the menu bar inside the window instead of the system menu bar.
+     in_window_menu_bar_mac: bool = false,
+ });
+diff --git a/crates/ui-egui/src/dock.rs b/crates/ui-egui/src/dock.rs
+index ae66eae..c4abf67 100644
+--- a/crates/ui-egui/src/dock.rs
++++ b/crates/ui-egui/src/dock.rs
+@@ -279,6 +279,7 @@ fn vsplit(size: SplitSize, a: DockNode, b: DockNode) -> DockNode {
+ /// Essential Graphics uses the Properties panel; Undocked Panels floats the panels over the
+ /// Composition panel.
+ pub const WORKSPACES: &[&str] = &[
++    "FranceStudent",
+     "Default",
+     "Standard",
+     "Small Screen",
+@@ -318,6 +319,7 @@ pub fn workspace(name: &str) -> DockNode {
+     use SplitSize::*;
+     let right = |p: &[PanelKind], q: &[PanelKind]| vsplit(Ratio(0.45), tabs(p, 0), tabs(q, 0));
+     match name {
++        "FranceStudent" => vsplit(Ratio(0.68), tabs(&[Composition], 0), tabs(&[Timeline], 0)),
+         "Animation" => vsplit(
+             Ratio(0.55),
+             hsplit(
+@@ -448,8 +450,8 @@ pub fn workspace(name: &str) -> DockNode {
+         // Default (as in After Effects): Project/Effect Controls | Composition over the Timeline,
+         // and a full-height right column with Preview above the Properties panel.
+         _ => hsplit(
+-            FixedB(300.0),
+-            vsplit(Ratio(0.56), hsplit(FixedA(300.0), tabs(&[Project, EffectControls], 0), tabs(&[Composition, Layer], 0)), tabs(&[Timeline, RenderQueue], 0)),
++            Ratio(0.76),
++            vsplit(Ratio(0.62), hsplit(Ratio(0.29), tabs(&[Project, EffectControls], 0), tabs(&[Composition, Layer], 0)), tabs(&[Timeline, RenderQueue], 0)),
+             stack(&[(Preview, true, Some(46.0)), (Properties, true, None), (Align, false, None), (Audio, false, None), (EffectsPresets, false, None)]),
+         ),
+     }
+diff --git a/crates/ui-egui/src/header.rs b/crates/ui-egui/src/header.rs
+index fb381cf..a0067e3 100644
+--- a/crates/ui-egui/src/header.rs
++++ b/crates/ui-egui/src/header.rs
+@@ -5,17 +5,21 @@ use crate::i18n::{tr, tr_args};
+ use egui::{Align2, Color32, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
+ use serde_json::json;
+ 
++use crate::EffectcraftApp;
+ use crate::icons::{self, Icon};
+ use crate::state::Tool;
+ use crate::theme::Tokens;
+ use crate::widgets;
+-use crate::{Dialog, EffectcraftApp};
+ use effectcraft_color::BlendMode;
+ use effectcraft_engine::commands::shape_tool::{PaintKind, ToolPaint};
+ use effectcraft_engine::project::{LayerId, LayerSource, PropGroup};
+ use effectcraft_engine::viewer as vw;
+ 
+ pub fn show(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
++    if app.ui.workspace == "FranceStudent" {
++        show_simple(app, ui, rect);
++        return;
++    }
+     let t = app.tokens;
+     let p = ui.painter().clone();
+     p.rect_filled(rect, 0.0, t.header_bg);
+@@ -23,17 +27,6 @@ pub fn show(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
+     let cy = rect.center().y;
+     let mut x = rect.min.x + if app.integrated_titlebar && !app.ui.show_menu_bar { 80.0 } else { 10.0 };
+ 
+-    // Brand mark.
+-    let brand = Rect::from_min_size(pos2(x, cy - 12.0), vec2(24.0, 24.0));
+-    paint_logo(&p, brand);
+-    let bresp = ui.interact(brand, egui::Id::new("brand"), Sense::click());
+-    app.auto.add_response("header.about", &bresp, "About EffectCraft");
+-    widgets::focus_outline(ui, &bresp, &t);
+-    if bresp.on_hover_text(tr("About EffectCraft")).clicked() {
+-        app.dialog = Some(Dialog::About);
+-    }
+-    x += 32.0;
+-
+     // Home.
+     let home = Rect::from_min_size(pos2(x, cy - 13.0), vec2(26.0, 26.0));
+     let home_response = widgets::icon_button(ui, home, Icon::Home, app.ui.start_screen, &t, egui::Id::new("tool-home")).on_hover_text(tr("Home"));
+@@ -182,32 +175,8 @@ pub fn show(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
+     let label = p.text(pos2(snap.max.x + 4.0, cy), Align2::LEFT_CENTER, tr("Snapping"), Tokens::ui(12.0), t.text_dim);
+     snapping_options(app, ui, Rect::from_min_size(pos2(label.max.x + 2.0, cy - 9.0), vec2(18.0, 18.0)));
+ 
+-    // Right side: community buttons, workspaces.
++    // The workbench owns branding and community navigation.
+     let mut rx = rect.max.x - 10.0;
+-    // The pill fits its label (icon, gap, text) with even padding: it was a fixed 104 px with the
+-    // text at its left, which left a wide gap on the right (#581).
+-    let label = p.layout_no_wrap(tr("Discord").to_string(), Tokens::semibold(12.0), Color32::WHITE);
+-    let discord = Rect::from_min_max(pos2(rx - (10.0 + 14.0 + 6.0 + label.size().x + 12.0), cy - 13.0), pos2(rx, cy + 13.0));
+-    let dresp = ui.interact(discord, egui::Id::new("hdr-discord"), Sense::click());
+-    let dc = Color32::from_rgb(0x58, 0x65, 0xf2);
+-    p.rect_filled(discord, 13.0, if dresp.hovered() { dc.gamma_multiply(1.2) } else { dc });
+-    icons::paint(&p, Rect::from_center_size(pos2(discord.min.x + 17.0, cy), vec2(14.0, 14.0)), Icon::Chat, Color32::WHITE);
+-    p.galley(pos2(discord.min.x + 30.0, cy - label.size().y / 2.0), label, Color32::WHITE);
+-    app.auto.add("header.discord", discord, "Join the ArtCraft Discord");
+-    if dresp.on_hover_text(tr("Join the ArtCraft community on Discord")).clicked() {
+-        let _ = app.session.execute("help.discord", json!({}));
+-    }
+-    rx = discord.min.x - 6.0;
+-    for (id, icon, tip, cmd) in
+-        [("hdr-github", Icon::Code, "EffectCraft on GitHub", "help.github"), ("hdr-web", Icon::Globe, "EffectCraft on getartcraft.com", "help.appPage")]
+-    {
+-        let r = Rect::from_min_max(pos2(rx - 26.0, cy - 13.0), pos2(rx, cy + 13.0));
+-        if widgets::icon_button(ui, r, icon, false, &t, egui::Id::new(id)).on_hover_text(tip).clicked() {
+-            let _ = app.session.execute(cmd, json!({}));
+-        }
+-        app.auto.add(&format!("header.{}", &id[4..]), r, tip);
+-        rx = r.min.x - 4.0;
+-    }
+     // Appearance: Sync with System, Light, Dark (a monitor, sun or moon), one click to the next.
+     let (icon, mode) = match app.session.prefs.appearance.appearance_mode.as_str() {
+         "auto" => (Icon::Monitor, tr("Sync with System")),
+@@ -301,6 +270,38 @@ pub fn show(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
+     }
+ }
+ 
++/// The introductory toolbar keeps the real tools and their command/automation identities.
++fn show_simple(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
++    let t = app.tokens;
++    ui.painter().rect_filled(rect, 0.0, t.header_bg);
++    let mut x = rect.min.x + 10.0;
++    for (tool, label, width) in
++        [(Tool::Selection, "Sélection", 84.0), (Tool::Hand, "Déplacer", 80.0), (Tool::Type, "Texte", 64.0), (Tool::Rectangle, "Forme", 68.0)]
++    {
++        let r = Rect::from_min_size(pos2(x, rect.center().y - 14.0), vec2(width, 28.0));
++        let response = widgets::text_button(ui, r, label, app.ui.tool == tool, &t, egui::Id::new(("frst-tool", tool)));
++        app.auto.add_response(&format!("tools.{tool:?}"), &response, label);
++        if response.clicked() {
++            if matches!(tool, Tool::Type | Tool::Rectangle) && app.session.active_comp().is_none() {
++                if let Err(error) = app.session.execute("comp.new", json!({})) {
++                    app.ui.status = error.to_string();
++                    return;
++                }
++            }
++            app.ui.tool = tool;
++        }
++        x += width + 6.0;
++    }
++    let r = Rect::from_min_size(pos2(x, rect.center().y - 14.0), vec2(82.0, 28.0));
++    let response = widgets::text_button(ui, r, "Importer", false, &t, egui::Id::new("frst-import"));
++    app.auto.add_response("file.import", &response, "Importer une image, une vidéo ou un son");
++    if response.clicked() {
++        if let Err(error) = crate::menus::invoke(app, ui.ctx(), "file.import", json!({})) {
++            app.ui.status = error;
++        }
++    }
++}
++
+ /// The Snapping options menu beside the checkbox: After Effects' Snap Edges Extended and Snap to
+ /// Features in Collapsed Compositions and Text Layers (`view.snappingOptions`).
+ fn snapping_options(app: &mut EffectcraftApp, ui: &mut egui::Ui, r: Rect) {
+@@ -654,27 +655,9 @@ fn ws_menu(app: &mut EffectcraftApp, ui: &mut egui::Ui) {
+     }
+ }
+ 
+-/// The ArtCraft mark as supplied in `docs/brand` (the README's and getartcraft.com's logo; used
+-/// unmodified, see `docs/brand/LICENSE-brand.txt`).
+-static ARTCRAFT_MARK: &[u8] = include_bytes!("../../../docs/brand/artcraft-mark.png");
+-
+-/// The ArtCraft mark in `r` (decoded once into a mipmapped texture, so it stays crisp from the
+-/// 24 px Tools bar to the About dialog). Nothing is drawn if it can't be decoded.
++/// A generic open-source tool mark for the integrated edition.
+ pub fn paint_logo(p: &egui::Painter, r: Rect) {
+-    let ctx = p.ctx();
+-    let id = egui::Id::new("artcraft-mark");
+-    let tex = ctx.data(|d| d.get_temp::<Option<egui::TextureHandle>>(id)).unwrap_or_else(|| {
+-        let tex = image::load_from_memory_with_format(ARTCRAFT_MARK, image::ImageFormat::Png).ok().map(|img| {
+-            let img = img.to_rgba8();
+-            let ci = egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], img.as_raw());
+-            ctx.load_texture("artcraft-mark", ci, egui::TextureOptions::LINEAR.with_mipmap_mode(Some(egui::TextureFilter::Linear)))
+-        });
+-        ctx.data_mut(|d| d.insert_temp(id, tex.clone()));
+-        tex
+-    });
+-    if let Some(t) = tex {
+-        p.image(t.id(), r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+-    }
++    icons::paint(p, r, Icon::Sparkle, Color32::from_rgb(0x86, 0xb7, 0xff));
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/ui-egui/src/i18n/ui.rs b/crates/ui-egui/src/i18n/ui.rs
+index 434f2b7..3c7e04f 100644
+--- a/crates/ui-egui/src/i18n/ui.rs
++++ b/crates/ui-egui/src/i18n/ui.rs
+@@ -40,6 +40,7 @@ type Index = HashMap<&'static str, &'static str>;
+ /// The catalog for `language`, indexed by English source (built on first use: panels translate
+ /// hundreds of strings a frame); `None` for English and any language that has no rows yet.
+ fn catalog(language: &str) -> Option<&'static Index> {
++    static FR: OnceLock<Index> = OnceLock::new();
+     static JA: OnceLock<Index> = OnceLock::new();
+     static HANS: OnceLock<Index> = OnceLock::new();
+     static HANT: OnceLock<Index> = OnceLock::new();
+@@ -48,6 +49,7 @@ fn catalog(language: &str) -> Option<&'static Index> {
+     static CS: OnceLock<Index> = OnceLock::new();
+     static ES: OnceLock<Index> = OnceLock::new();
+     let (index, rows) = match language {
++        "fr" => (&FR, FRENCH),
+         "ja" => (&JA, JAPANESE),
+         "zh-hans" => (&HANS, SIMPLIFIED_CHINESE),
+         "zh-hant" => (&HANT, TRADITIONAL_CHINESE),
+@@ -60,6 +62,96 @@ fn catalog(language: &str) -> Option<&'static Index> {
+     Some(index.get_or_init(|| rows.iter().copied().collect()))
+ }
+ 
++/// French labels for the integrated FranceStudent workspace and its advanced panels.
++const FRENCH: &[(&str, &str)] = &[
++    ("Project", "Projet"),
++    ("Composition", "Composition"),
++    ("Layer", "Calque"),
++    ("Timeline", "Chronologie"),
++    ("Effect Controls", "Réglages des effets"),
++    ("Effects & Presets", "Effets et préréglages"),
++    ("Properties", "Propriétés"),
++    ("Preview", "Aperçu"),
++    ("Info", "Informations"),
++    ("Audio", "Audio"),
++    ("Character", "Texte"),
++    ("Paragraph", "Paragraphe"),
++    ("Align", "Alignement"),
++    ("History", "Historique"),
++    ("Render Queue", "File de rendu"),
++    ("Media Browser", "Médias"),
++    ("Progress", "Progression"),
++    ("Markers", "Repères"),
++    ("Footage", "Média"),
++    ("Search", "Rechercher"),
++    ("Name", "Nom"),
++    ("Type", "Type"),
++    ("Layer Name", "Nom du calque"),
++    ("Source Name", "Nom de la source"),
++    ("Show Layer Name", "Afficher le nom du calque"),
++    ("Show Source Name", "Afficher la source"),
++    ("Comment", "Commentaire"),
++    ("Parent", "Parent"),
++    ("Duration", "Durée"),
++    ("Start", "Début"),
++    ("End", "Fin"),
++    ("Width", "Largeur"),
++    ("Height", "Hauteur"),
++    ("Position", "Position"),
++    ("Scale", "Échelle"),
++    ("Rotation", "Rotation"),
++    ("Opacity", "Opacité"),
++    ("Anchor Point", "Point d’ancrage"),
++    ("Layer Transform", "Transformation"),
++    ("Transform", "Transformation"),
++    ("Text", "Texte"),
++    ("Text Animation", "Animation du texte"),
++    ("Font", "Police"),
++    ("Size", "Taille"),
++    ("Fill", "Remplissage"),
++    ("Stroke", "Contour"),
++    ("Tracking", "Espacement"),
++    ("Leading", "Interligne"),
++    ("Regular", "Normal"),
++    ("Reset", "Réinitialiser"),
++    ("More", "Plus"),
++    ("... More", "… Plus"),
++    ("Snapping", "Magnétisme"),
++    ("Selection", "Sélection"),
++    ("Hand", "Déplacement"),
++    ("Rectangle", "Rectangle"),
++    ("Ellipse", "Ellipse"),
++    ("Pen", "Plume"),
++    ("Home", "Accueil"),
++    ("Play", "Lecture"),
++    ("Stop", "Arrêter"),
++    ("Full", "Complète"),
++    ("Half", "Moitié"),
++    ("Third", "Tiers"),
++    ("Quarter", "Quart"),
++    ("Auto", "Auto"),
++    ("Fit", "Adapter"),
++    ("Zoom", "Zoom"),
++    ("Save", "Enregistrer"),
++    ("Save As", "Enregistrer sous"),
++    ("Saved {}", "Enregistré {}"),
++    ("Open", "Ouvrir"),
++    ("Import", "Importer"),
++    ("Export", "Exporter"),
++    ("Cancel", "Annuler"),
++    ("Close", "Fermer"),
++    ("Apply", "Appliquer"),
++    ("Delete", "Supprimer"),
++    ("Duplicate", "Dupliquer"),
++    ("Rename", "Renommer"),
++    ("Select a layer to see its properties", "Sélectionne un calque pour voir ses réglages"),
++    ("Toggle Switches / Modes", "Afficher les options des calques"),
++    ("Frame Render Time", "Temps de rendu"),
++    ("No composition", "Aucune composition"),
++    ("Create Composition", "Créer une composition"),
++    ("New Composition", "Nouvelle composition"),
++];
++
+ /// Translate one interface string: the current language's row for `text`, or `text` itself.
+ pub(crate) fn tr(text: &str) -> &str {
+     catalog(current()).and_then(|c| c.get(text)).copied().unwrap_or(text)
+diff --git a/crates/ui-egui/src/state.rs b/crates/ui-egui/src/state.rs
+index 1e2f572..7df7e41 100644
+--- a/crates/ui-egui/src/state.rs
++++ b/crates/ui-egui/src/state.rs
+@@ -699,8 +699,8 @@ impl Default for UiState {
+             tool: Tool::Selection,
+             script_console: Default::default(),
+             slot_tools: Tool::SLOTS.iter().map(|s| s[0]).collect(),
+-            workspace: "Default".into(),
+-            dock: crate::dock::workspace("Default"),
++            workspace: "FranceStudent".into(),
++            dock: crate::dock::workspace("FranceStudent"),
+             saved_workspaces: Default::default(),
+             floating: vec![],
+             saved_floating: Default::default(),
+@@ -713,7 +713,7 @@ impl Default for UiState {
+             viewer: ViewerState::default(),
+             timeline: TimelineState::default(),
+             theme: Default::default(),
+-            show_menu_bar: true,
++            show_menu_bar: false,
+             status: String::new(),
+             effects_search: String::new(),
+             effects_open: BTreeSet::new(),
+diff --git a/crates/ui-egui/src/theme.rs b/crates/ui-egui/src/theme.rs
+index f5a0664..cfd3cda 100644
+--- a/crates/ui-egui/src/theme.rs
++++ b/crates/ui-egui/src/theme.rs
+@@ -131,57 +131,57 @@ impl Tokens {
+     pub fn for_kind(kind: ThemeKind) -> Self {
+         let dark = Tokens {
+             kind,
+-            app_bg: Color32::from_rgb(0x12, 0x12, 0x12),
+-            header_bg: Color32::from_rgb(0x1f, 0x1f, 0x1f),
+-            panel_bg: Color32::from_rgb(0x23, 0x23, 0x23),
+-            tab_text: Color32::from_rgb(0x9a, 0x9a, 0x9a),
+-            tab_text_active: Color32::from_rgb(0xe3, 0xe3, 0xe3),
+-            focus: Color32::from_rgb(0x2d, 0x8c, 0xeb),
+-            accent: Color32::from_rgb(0x2d, 0x8c, 0xeb),
+-            accent_hover: Color32::from_rgb(0x4a, 0xa0, 0xf5),
+-            text: Color32::from_rgb(0xc8, 0xc8, 0xc8),
+-            text_dim: Color32::from_rgb(0x9a, 0x9a, 0x9a),
+-            text_faint: Color32::from_rgb(0x8c, 0x8c, 0x8c),
+-            icon: Color32::from_rgb(0xb4, 0xb4, 0xb4),
+-            icon_active: Color32::from_rgb(0xf0, 0xf0, 0xf0),
+-            hover: Color32::from_rgb(0x30, 0x30, 0x30),
+-            pressed: Color32::from_rgb(0x45, 0x45, 0x45),
+-            field_bg: Color32::from_rgb(0x17, 0x17, 0x17),
+-            field_border: Color32::from_rgb(0x3a, 0x3a, 0x3a),
+-            separator: Color32::from_rgb(0x34, 0x34, 0x34),
+-            row: Color32::from_rgb(0x23, 0x23, 0x23),
+-            row_alt: Color32::from_rgb(0x27, 0x27, 0x27),
+-            row_selected: Color32::from_rgb(0x3a, 0x3a, 0x3a),
+-            hot_text: Color32::from_rgb(0x3d, 0x8f, 0xf5),
+-            tl_bg: Color32::from_rgb(0x1b, 0x1b, 0x1b),
+-            tl_ruler_bg: Color32::from_rgb(0x23, 0x23, 0x23),
+-            tl_ruler_tick: Color32::from_rgb(0x70, 0x70, 0x70),
+-            tl_ruler_text: Color32::from_rgb(0x9a, 0x9a, 0x9a),
+-            cti: Color32::from_rgb(0x2d, 0x8c, 0xeb),
++            app_bg: Color32::from_rgb(0x1b, 0x1d, 0x22),
++            header_bg: Color32::from_rgb(0x17, 0x19, 0x1e),
++            panel_bg: Color32::from_rgb(0x20, 0x23, 0x2a),
++            tab_text: Color32::from_rgb(0xa4, 0xad, 0xbb),
++            tab_text_active: Color32::from_rgb(0xf0, 0xf3, 0xf8),
++            focus: Color32::from_rgb(0x39, 0x79, 0xdc),
++            accent: Color32::from_rgb(0x39, 0x79, 0xdc),
++            accent_hover: Color32::from_rgb(0x45, 0x86, 0xeb),
++            text: Color32::from_rgb(0xd1, 0xd6, 0xdf),
++            text_dim: Color32::from_rgb(0xa4, 0xad, 0xbb),
++            text_faint: Color32::from_rgb(0x93, 0x9d, 0xad),
++            icon: Color32::from_rgb(0xa4, 0xad, 0xbb),
++            icon_active: Color32::from_rgb(0xf0, 0xf3, 0xf8),
++            hover: Color32::from_rgb(0x2b, 0x30, 0x39),
++            pressed: Color32::from_rgb(0x30, 0x37, 0x44),
++            field_bg: Color32::from_rgb(0x25, 0x29, 0x31),
++            field_border: Color32::from_rgb(0x41, 0x49, 0x57),
++            separator: Color32::from_rgb(0x2c, 0x30, 0x39),
++            row: Color32::from_rgb(0x20, 0x23, 0x2a),
++            row_alt: Color32::from_rgb(0x25, 0x29, 0x31),
++            row_selected: Color32::from_rgb(0x30, 0x37, 0x44),
++            hot_text: Color32::from_rgb(0x86, 0xb7, 0xff),
++            tl_bg: Color32::from_rgb(0x17, 0x19, 0x1e),
++            tl_ruler_bg: Color32::from_rgb(0x20, 0x23, 0x2a),
++            tl_ruler_tick: Color32::from_rgb(0x93, 0x9d, 0xad),
++            tl_ruler_text: Color32::from_rgb(0xa4, 0xad, 0xbb),
++            cti: Color32::from_rgb(0x86, 0xb7, 0xff),
+             work_area: Color32::from_rgb(0x4a, 0x4a, 0x4a),
+             cache_green: Color32::from_rgb(0x3c, 0xa6, 0x4c),
+             cache_blue: Color32::from_rgb(0x3a, 0x6f, 0xd8),
+-            keyframe: Color32::from_rgb(0xa8, 0xa8, 0xa8),
+-            keyframe_selected: Color32::from_rgb(0x3d, 0x8f, 0xf5),
+-            pasteboard: Color32::from_rgb(0x1a, 0x1a, 0x1a),
+-            timecode: Color32::from_rgb(0x3d, 0x8f, 0xf5),
++            keyframe: Color32::from_rgb(0xa4, 0xad, 0xbb),
++            keyframe_selected: Color32::from_rgb(0x86, 0xb7, 0xff),
++            pasteboard: Color32::from_rgb(0x1b, 0x1d, 0x22),
++            timecode: Color32::from_rgb(0x86, 0xb7, 0xff),
+             danger: Color32::from_rgb(0xe0, 0x4a, 0x3c),
+             warning: Color32::from_rgb(0xe8, 0x9a, 0x2c),
+-            fx_header: Color32::from_rgb(0x2a, 0x2a, 0x2a),
+-            fx_header_active: Color32::from_rgb(0x2f, 0x3a, 0x52),
+-            tl_graph_selected: Color32::from_rgb(0x2a, 0x2a, 0x2a),
+-            switch_well: Color32::from_rgb(0x19, 0x19, 0x19),
++            fx_header: Color32::from_rgb(0x25, 0x29, 0x31),
++            fx_header_active: Color32::from_rgb(0x30, 0x37, 0x44),
++            tl_graph_selected: Color32::from_rgb(0x30, 0x37, 0x44),
++            switch_well: Color32::from_rgb(0x17, 0x19, 0x1e),
+             tl_nav_bar: Color32::from_rgb(0x55, 0x55, 0x55),
+             tl_work_area_bar: Color32::from_rgb(0x5c, 0x5c, 0x5c),
+-            expr_bg: Color32::from_rgb(0x1a, 0x1a, 0x1a),
++            expr_bg: Color32::from_rgb(0x17, 0x19, 0x1e),
+             expr_text: Color32::from_rgb(0xe8, 0x7c, 0x5c),
+             labels: default_labels(),
+-            radius: 6.0,
+-            radius_sm: 3.0,
+-            gap: 4.0,
+-            tab_h: 30.0,
+-            row_h: 19.0,
+-            gradients: true,
++            radius: 8.0,
++            radius_sm: 5.0,
++            gap: 6.0,
++            tab_h: 32.0,
++            row_h: 22.0,
++            gradients: false,
+         };
+         match kind {
+             ThemeKind::Dark => dark,

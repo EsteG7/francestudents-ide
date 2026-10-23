@@ -92,4 +92,15 @@ Sous macOS, Cmd remplace Ctrl dans les raccourcis ci-dessous.
 
 Clic droit dans l'explorateur : nouveau fichier ou dossier, renommer, mettre à la corbeille, mentionner à l'agent, copier le chemin, afficher le fichier dans le gestionnaire de fichiers du système (Explorateur Windows ou Finder). Double-clic sur un bloc de code de la conversation pour le copier. Les tailles des panneaux sont mémorisées.
 
+## Créer une animation — bêta
+
+1. Ouvre **Motion design** dans la barre de gauche. EffectCraft apparaît à gauche et le chat spécialisé à droite.
+2. Garde le mode **Simple** pour commencer. Décris ton idée, par exemple : « Fais apparaître le titre de mon association en douceur ».
+3. Clique sur **Lecture** pour regarder le résultat, puis demande des ajustements dans le chat.
+4. Clique sur **Enregistrer** pour garder le projet modifiable dans le stockage local d’EffectCraft.
+
+Le bouton **Tutos** propose trois exemples guidés. **Préparer la demande** remplit ton brouillon ; rien n’est envoyé avant ton clic sur **Envoyer**. Les tutos ne consomment pas de quota, les messages à l’IA utilisent le quota habituel.
+
+**Avancé** affiche les outils et panneaux complets d’EffectCraft, dont les fonctions de fichier pour conserver une copie `.ecproj`. Enregistrer un projet et exporter une vidéo sont deux opérations différentes : pour obtenir un fichier à partager, demande à l’agent de vérifier les formats d’export disponibles. **Retour au code** conserve l’animation ouverte et retrouve ta conversation de programmation.
+
 
