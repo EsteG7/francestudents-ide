@@ -15,6 +15,7 @@ function call(name, ...args) {
 }
 
 contextBridge.exposeInMainWorld("frst", {
+    platform: process.platform,
     releaseHighlights: (action="get",version)=>call("releaseHighlights",action,version),
     bootstrap: () => call("bootstrap"),
     loginAccount: credentials => call("loginAccount", { email: String(credentials?.email ?? ""), password: String(credentials?.password ?? "") }),

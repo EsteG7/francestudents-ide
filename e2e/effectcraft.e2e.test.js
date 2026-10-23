@@ -8,6 +8,10 @@ test("EffectCraft real engine is controlled through the specialized agent chat",
     const app=await _electron.launch({executablePath:process.env.FRST_PACKAGED_EXE || require("electron"),args:process.env.FRST_PACKAGED_EXE?["--user-data-dir="+path.join(dir,"electron")]:[harness,"--user-data-dir="+path.join(dir,"electron")],cwd:root,env});
     try{
         const page=await app.firstWindow(),errors=[];page.on("pageerror",e=>errors.push(e.message));
+        if(process.platform==="darwin"){
+            await page.locator("#mac-beta-notice").waitFor();
+            await page.locator("#mac-beta-notice").getByRole("button",{name:"Continuer",exact:true}).click();
+        }
         await page.locator("#startup-loading").waitFor({state:"hidden"});
         if(await page.locator("#guide-close").isVisible())await page.locator("#guide-close").click();
         if(await page.locator("#release-highlights[open]").isVisible())await page.locator("#release-highlights").getByRole("button",{name:"C’est parti !",exact:true}).click();

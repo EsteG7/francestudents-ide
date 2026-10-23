@@ -2,6 +2,7 @@
 function parseApiErrorNotice(raw){
     const text=String(raw || ""),match=/(?:HTTP|status(?:Code)?["']?\s*[:=])\s*["']?(\d{3})\b/i.exec(text);
     const status=match?Number(match[1]):null;
+    if(/\bCHAT_LOCKED\b|flagged by the AI provider|"chat_flagged"\s*:\s*true/i.test(text))return {title:"Conversation verrouillée",detail:"Le fournisseur d’IA a signalé puis verrouillé cette conversation selon ses règles de sécurité ou de modération. L’API ne précise pas le motif exact. Ce fil ne peut plus être utilisé : ouvre une nouvelle conversation avec le bouton + pour poursuivre.",kind:"locked",status};
     if(!status && !/erreur (?:du flux|API)|\bAPI\b|fetch failed|failed to fetch|network|ECONN|ENOTFOUND|ETIMEDOUT|timeout|timed out|Unsupported tool ignored by the backend|invalid[_ ]api[_ ]key|^\s*\{[\s\S]*"(?:error|message|errorCode)"\s*:/i.test(text))return null;
     let title="La requête n’a pas abouti",detail="Le service a renvoyé une erreur. Ton historique et les modifications déjà effectuées sont conservés.",kind="service";
     if(status===401 || /invalid[_ ]api[_ ]key/i.test(text)){title="Connexion à renouveler";detail="Ta session ou ta clé d’accès n’est plus acceptée. Vérifie la connexion dans les paramètres avant de réessayer.";kind="auth";}
@@ -16,6 +17,7 @@ function parseApiErrorNotice(raw){
     return {title,detail,kind,status};
 }
 function apiNoticeIcon(kind){
+    if(kind==="locked")return apiNoticeIcon("auth");
     if(kind==="trash")return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></svg>';
     if(kind==="spark")return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></svg>';
     if(kind==="chat")return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 3V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg>';
@@ -25,11 +27,18 @@ function apiNoticeIcon(kind){
 }
 function renderApiErrorEntry(info,raw){
     const entry=addEntry("api-error-notice","");entry.setAttribute("role","status");
+    if(info.kind==="locked"){entry.classList.add("chat-locked-notice");entry.setAttribute("role","alert");}
     const icon=centerNode("span","api-notice-icon");icon.innerHTML=apiNoticeIcon(info.kind);
     const body=centerNode("div","api-notice-body");body.append(centerNode("strong","",info.title),centerNode("p","",info.detail));
     const actions=centerNode("div","api-notice-actions");
+    if(info.kind==="locked"){
+        const understood=centerNode("button","","J’ai bien compris");understood.type="button";
+        understood.onclick=()=>{entry.dataset.acknowledged="true";understood.textContent="Compris";understood.disabled=true;};actions.append(understood);
+    }else{
     const settings=centerNode("button","",info.kind==="auth"?"Vérifier ma connexion":"Voir l’usage");settings.type="button";
-    settings.onclick=()=>{if(info.kind==="auth")showSideView("settings");else setAgentTab("usage");};actions.append(settings);body.append(actions);
+    settings.onclick=()=>{if(info.kind==="auth")showSideView("settings");else setAgentTab("usage");};actions.append(settings);
+    }
+    body.append(actions);
     const details=centerNode("details","api-notice-tech");details.append(centerNode("summary","",info.status?`Détails techniques · HTTP ${info.status}`:"Détails techniques"),centerNode("pre","",String(raw || "")));body.append(details);entry.append(icon,body);scrollDown();return entry;
 }
 

@@ -15,3 +15,9 @@ test("quota countdown follows hours and minutes, unknown dates and expiry",()=>{
     assert.match(quotaCountdown(null,now),/non communiquée/);
     assert.match(quotaCountdown("invalid",now),/non communiquée/);
 });
+test("provider-flagged locked conversations override generic HTTP errors",()=>{
+    for(const raw of ['Erreur du flux : {"message":"This conversation was flagged by the AI provider and is locked.","code":"CHAT_LOCKED","retryable":false,"chat_flagged":true}','HTTP 403: {"code":"CHAT_LOCKED"}','{"chat_flagged":true}','CHAT_LOCKED']){
+        const notice=parseApiErrorNotice(raw);assert.equal(notice.kind,"locked");assert.equal(notice.title,"Conversation verrouillée");assert.match(notice.detail,/nouvelle conversation/);assert.match(notice.detail,/ne précise pas le motif exact/);
+    }
+    assert.equal(parseApiErrorNotice('HTTP 403: {"chat_flagged":false}').kind,"auth");
+});

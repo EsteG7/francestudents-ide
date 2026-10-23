@@ -2,6 +2,10 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
+## À publier
+
+- Carte rouge « Conversation verrouillée » pour CHAT_LOCKED et les signalements du fournisseur, avec explication, indication d’ouvrir un nouveau chat et bouton « J’ai bien compris ». Aucun nouveau chat ni renvoi de demande n’est déclenché par ce bouton.
+
 ## [1.3.3] — 23 octobre 2026 · FranceStudent IDE et interface simplifiée
 
 - Guide de reprise pour les contributeurs et assistants IA : point d’entrée AGENTS.md, contexte commun, repères d’architecture, tests et publication. Entrées légères Claude, Gemini et Copilot sans duplication de l’historique privé. Le workflow Windows lit désormais le nom attendu de l’installeur dans package.json.

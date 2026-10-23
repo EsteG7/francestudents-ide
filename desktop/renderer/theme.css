@@ -2762,3 +2762,10 @@ button.primary:active,
 .release-notes-footer button { background: var(--bg-input); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 8px; padding: 10px 14px; font: inherit; font-size: 12px; cursor: pointer; }
 .release-notes-footer button.primary { color: white; background: var(--accent); border-color: var(--accent); }
 .release-highlights button:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; }
+
+.entry.api-error-notice.chat-locked-notice { border-color: #f8514960; border-left-color: var(--danger); background: linear-gradient(135deg, #f8514914, var(--bg-panel)); }
+.chat-locked-notice .api-notice-icon { background: #f8514920; color: var(--danger); }
+.chat-locked-notice .api-notice-body > strong { color: #ffaaa5; }
+.chat-locked-notice .api-notice-actions button { background: #b4232d; border-color: #b4232d; color: white; }
+.chat-locked-notice .api-notice-actions button:hover:not(:disabled) { background: #921c25; }
+.chat-locked-notice[data-acknowledged="true"] .api-notice-actions button { background: transparent; border-color: #f8514960; color: var(--fg-dim); }

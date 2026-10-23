@@ -38,6 +38,16 @@ test("usage meter opens a live dashboard, distinguishes estimates and handles un
         assert.match(await page.locator(".api-error-notice").innerText(),/Service momentanément indisponible/);
         assert.equal(await page.locator(".api-error-notice svg").count(),1);
         assert.equal(await page.locator(".api-error-notice details").getAttribute("open"),null);
+        await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].webContents.send("frst:event",{channel:"entry",data:{type:"error",text:'Erreur du flux : {"message":"This conversation was flagged by the AI provider and is locked.","code":"CHAT_LOCKED","retryable":false,"chat_flagged":true}'}}));
+        await page.locator(".chat-locked-notice").waitFor();
+        assert.match(await page.locator(".chat-locked-notice").innerText(),/Conversation verrouillée[\s\S]*nouvelle conversation/);
+        assert.equal(await page.locator(".chat-locked-notice").getAttribute("role"),"alert");
+        if(process.env.FRST_LOCKED_SCREENSHOT)await page.locator("#agent").screenshot({path:process.env.FRST_LOCKED_SCREENSHOT,animations:"disabled"});
+        await page.locator(".chat-locked-notice").getByRole("button",{name:"J’ai bien compris",exact:true}).click();
+        assert.equal(await page.locator(".chat-locked-notice").getAttribute("data-acknowledged"),"true");
+        assert.equal(await page.locator(".chat-locked-notice").getByRole("button",{name:"Compris",exact:true}).isDisabled(),true);
+        assert.equal(await page.locator("#input").inputValue(),"Brouillon conservé");
+        assert.equal(await app.evaluate(()=>globalThis.usageSubmissions),0);
         if(process.env.FRST_API_SCREENSHOT)await page.locator("#agent").screenshot({path:process.env.FRST_API_SCREENSHOT,animations:"disabled"});
         await page.locator('[data-agent-tab="usage"]').click();
         await page.locator("#usage-dashboard .quota-reset-check").click();
