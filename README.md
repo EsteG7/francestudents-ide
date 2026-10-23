@@ -1,66 +1,89 @@
-<div align="center">
+﻿<div align="center">
 
-<img src="desktop/icon.png" width="80" alt="FranceStudent IDE" />
+<img src="desktop/icon.png" width="80" alt="Logo FranceStudent IDE" />
 
 # FranceStudent IDE
 
-**Crée et améliore tes projets avec une IA, dans une application en français.**
+**Du code aux animations, crée tes projets avec un assistant IA en français.**
 
-[Télécharger pour Windows](https://github.com/extraopaa/francestudents-ide/releases/latest) · [Guide d’utilisation](docs/guide-utilisation.md) · [Guide avancé](docs/avance.md)
+[Télécharger pour Windows](https://github.com/extraopaa/francestudents-ide/releases/latest) · [Télécharger pour Mac — bêta](https://github.com/extraopaa/francestudents-ide/releases/tag/v1.3.3-mac.2) · [Guide d’utilisation](docs/guide-utilisation.md)
+
+Un éditeur de code, un studio EffectCraft et un chat adapté à chaque espace.
 
 </div>
 
-![L’éditeur et l’assistant FranceStudent](docs/images/cockpit.png)
+## Le mode Code
 
-## Commencer
+Ouvre ton dossier, retrouve tes fichiers et explique ce que tu veux construire. L’assistant peut t’aider à comprendre le projet, modifier le code et lancer les vérifications. L’éditeur, le terminal et l’aperçu des sites restent à portée de main.
 
-1. [Télécharge la dernière version](https://github.com/extraopaa/francestudents-ide/releases/latest) et ouvre le fichier **setup.exe** pour l’installer.
-2. Lance l’application et suis le guide pour te connecter à ton **compte FranceStudent**.
-3. Clique sur **Ouvrir un dossier** pour choisir ton projet, puis explique à l’IA ce que tu veux faire.
+![Mode Code : fichier HTML ouvert dans l’éditeur, explorateur du projet et assistant à droite](docs/images/mode-code.png)
 
-Par exemple : « Crée une page pour présenter mon association » ou « Aide-moi à comprendre ce projet ».
+## Le mode Motion design · Bêta
 
-L’application est distribuée pour **Windows 64 bits**. Aucun Node.js ni aucune clé API ne sont nécessaires pour la connexion au chat. Certains projets peuvent demander leurs propres outils pour fonctionner.
+Passe dans **EffectCraft** pour préparer tes compositions avec un chat spécialisé. Commence avec le mode **Simple**, suis les petits tutos et ouvre le mode **Avancé** pour retrouver les outils complets de l’éditeur.
 
-## Ce que tu peux faire
+Les conversations Code et Motion sont séparées : l’assistant motion travaille dans son propre espace.
 
-- Discuter avec l’IA et choisir ton modèle.
-- Créer, comprendre et modifier les fichiers de ton projet.
-- Joindre des documents ou des images, y compris par glisser-déposer.
-- Modifier ton code dans l’éditeur et voir ton site dans le navigateur intégré.
-- Suivre le travail de l’IA, ajouter une demande à la suite ou arrêter une tâche.
-- Retrouver tes conversations et exporter leur contenu.
+![Mode Motion : composition Aurora dans EffectCraft, calques et chat spécialisé](docs/images/mode-motion.png)
 
-### Ce que ce fork ajoute
+## Installer l’application
 
-- Une interface harmonisée, des réglages par catégorie et un onglet Usage pour suivre ton quota.
-- Plus de formats de fichiers, le glisser-déposer et l’envoi des pièces jointes en lots.
-- Un mode Éco et un avertissement avant d’envoyer beaucoup de fichiers.
-- L’import de conversations Codex et un connecteur GitHub, tous deux en **bêta**.
-- Des boutons pour lancer les sites locaux et annuler une action de l’agent en Full accès.
-- Une bibliothèque de skills avec installation, désinstallation et suivi des téléchargements.
-- **EffectCraft intégré**, en bêta : mode Simple, bouton Avancé, petits tutos, chat spécialisé et sélection de skills motion design dans la marketplace.
+| Ton ordinateur | Fichier à télécharger |
+| --- | --- |
+| **Windows 64 bits** | [Dernière version stable](https://github.com/extraopaa/francestudents-ide/releases/latest) → `setup.exe` |
+| **Mac Apple Silicon** — M1 et suivants | [Bêta Mac](https://github.com/extraopaa/francestudents-ide/releases/tag/v1.3.3-mac.2) → `mac-arm64.dmg` |
+| **Mac Intel** | [Bêta Mac](https://github.com/extraopaa/francestudents-ide/releases/tag/v1.3.3-mac.2) → `mac-x64.dmg` |
 
-La sélection motion propose des skills pour EffectCraft et Remotion. Les [notes de version](CHANGELOG.md) précisent les changements et leurs limites ; les versions publiées sont disponibles dans les [releases](https://github.com/extraopaa/francestudents-ide/releases).
+1. Sur Windows, ouvre l’installateur. Sur Mac, ouvre le DMG et déplace l’application dans **Applications**.
+2. Lance FranceStudent IDE et suis le guide de connexion à ton **compte FranceStudent**.
+3. Ouvre un dossier pour coder, ou passe dans le studio Motion pour commencer une composition.
+
+Pas besoin d’installer Node.js ni de fournir une clé API pour utiliser le chat FranceStudent. Certains projets et outils peuvent demander leurs propres dépendances.
+
+**Mises à jour :** Windows peut télécharger et installer les nouvelles versions automatiquement. À partir de la bêta Mac 2, l’IDE détecte les versions Mac et propose le bon installateur ; son installation reste manuelle. La version Mac est en bêta et n’est pas notariée par Apple. [Détails pour macOS](docs/macos.md).
+
+## Ce que ce fork ajoute
+
+- **Une interface harmonisée** : conversations récentes, réglages organisés et suivi du quota.
+- **Des pièces jointes plus pratiques** : glisser-déposer, conversion de nombreux formats et envoi en lots quand le service l’exige.
+- **Un mode Éco** et un avertissement avant les envois volumineux pour mieux maîtriser la consommation.
+- **Des conversations qui se reprennent** : historique lisible, compaction du contexte et import de conversations Codex en bêta.
+- **Des outils pour agir** : contrôle des serveurs locaux, annulation des actions et connecteur GitHub en bêta.
+- **Une bibliothèque de skills** pour le code et une sélection dédiée au motion design, avec installation et désinstallation.
+- **EffectCraft intégré** : chat motion spécialisé, mode Simple, outils avancés et tutos.
+
+Les [notes de version](CHANGELOG.md) détaillent les ajouts et leurs limites.
+
+## Les skills et le suivi d’usage
+
+### Des outils pour tes animations
+
+La sélection motion propose des skills pour les titres, logos, transitions, mouvements et exports. Les skills **EffectCraft** accompagnent le studio intégré ; les skills **Remotion** s’utilisent dans les projets de code. Le marketplace Code conserve **SkillsMP**.
+
+![Sélection de skills Motion : titres animés, animation de logo, transitions et autres outils à installer](docs/images/skills-motion.png)
+
+### Ton quota, visible dans l’IDE
+
+Clique sur la jauge pour ouvrir l’onglet **Usage** : budget disponible, compteurs de session et réinitialisation lorsque le service la communique. Le mode Éco réduit les capacités proposées pour limiter la consommation, sans garantir une économie précise.
+
+![Onglet Usage avec jauge du budget de chat et compteurs de la session](docs/images/suivi-usage.png)
+
+<sub>Captures réalisées dans l’application sous Windows, avec le projet fictif Aurora. Les échanges et les chiffres d’usage sont des exemples de démonstration ; le code affiché et la composition EffectCraft sont réels.</sub>
 
 ## Garder le contrôle
 
-Les réponses et les fichiers joints utilisent le quota de ton compte FranceStudent. Le mode Éco vise à réduire cette consommation, avec des capacités limitées ; il ne garantit pas une économie précise.
+Les réponses de l’IA et les pièces jointes consomment le quota de ton compte. Commence avec les confirmations activées et vérifie les modifications. Le mode **Full accès** autorise l’agent à agir sans confirmation : utilise-le avec des projets et outils auxquels tu fais confiance.
 
-Pour commencer, garde les demandes de confirmation activées et vérifie les modifications proposées. Le mode **Full accès** permet à l’IA d’agir sans confirmation, y compris sur les fichiers et les commandes : réserve-le aux projets et outils auxquels tu fais confiance.
+Télécharge les installateurs depuis les releases de ce fork. Windows et macOS peuvent afficher un avertissement pour une application sans signature d’éditeur reconnue.
 
-Windows peut afficher un avertissement pour un exécutable sans signature d’éditeur reconnue. Télécharge l’application depuis les releases de ce dépôt.
+## Pour aller plus loin
 
-## Besoin d’aide ?
+- [Guide d’utilisation](docs/guide-utilisation.md) : connexion, interface et premiers pas.
+- [Guide avancé](docs/avance.md) : installation depuis les sources, réglages, formats et extensions.
+- [Signaler un problème](https://github.com/extraopaa/francestudents-ide/issues) : indique ta version, ton système et les étapes pour reproduire le souci, sans identifiants.
+- [Contribuer](CONTRIBUTING.md) · [Nouveautés](CHANGELOG.md) · [Crédits](CREDITS.md).
 
-- [Guide d’utilisation](docs/guide-utilisation.md) : connexion, interface et premiers usages.
-- [Guide avancé](docs/avance.md) : réglages, formats, limites, extensions et installation depuis les sources.
-- [Signaler un problème](https://github.com/extraopaa/francestudents-ide/issues) : indique ta version et les étapes pour reproduire le souci, sans partager tes identifiants.
-- [Nouveautés](CHANGELOG.md) · [Contribuer](CONTRIBUTING.md) · [Crédits](CREDITS.md).
-
-## Reprendre le développement, avec ou sans IA
-
-Lis [le guide de contribution](CONTRIBUTING.md). Pour donner le contexte du projet à n’importe quel assistant, commence par [AGENTS.md](AGENTS.md) et [le contexte de reprise](docs/AI_CONTEXT.md) : architecture, fichiers importants, tests et publication. Aucune conversation privée ni aucun compte auprès d’un fournisseur d’IA n’est nécessaire pour lire ces documents.
+Pour reprendre le développement avec n’importe quel assistant IA, commence par [AGENTS.md](AGENTS.md) et [le contexte du projet](docs/AI_CONTEXT.md).
 
 ## Origine du projet
 
