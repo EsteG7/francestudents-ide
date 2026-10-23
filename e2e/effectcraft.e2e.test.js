@@ -15,16 +15,17 @@ test("EffectCraft real engine is controlled through the specialized agent chat",
         if(process.env.FRST_PACKAGED_EXE){
             assert.equal(await app.evaluate(({app})=>app.getVersion()),require("../package.json").version);
             assert.equal(await page.evaluate(()=>window.frst.ptyAvailable()),true);
-            const output=await page.evaluate(async()=>{
+            const terminalCommand=process.platform==="win32"?"Write-Output ('FRST_'+(40+2)+'_PACKAGED')\r":"printf FRST_%s_PACKAGED 42\r";
+            const output=await page.evaluate(async(command)=>{
                 let text="",id=null;
                 const off=window.frst.onEvent((channel,data)=>{if(channel==="ptyData" && data.id===id)text+=data.data;});
                 try{
                     id=(await window.frst.ptyCreate(".",100,30)).id;
-                    await window.frst.ptyWrite(id,"Write-Output ('FRST_'+(40+2)+'_PACKAGED')\r");
+                    await window.frst.ptyWrite(id,command);
                     const start=Date.now();while(!text.includes("FRST_42_PACKAGED") && Date.now()-start<15000)await new Promise(resolve=>setTimeout(resolve,100));
                     return text;
                 }finally{if(id!==null)await window.frst.ptyKill(id);off();}
-            });
+            },terminalCommand);
             assert.match(output,/FRST_42_PACKAGED/);
         }
         await page.locator("#input").fill("Code draft stays here");

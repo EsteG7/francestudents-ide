@@ -1,30 +1,53 @@
-name: Build macOS (Intel x64)
-
+name: Build and test macOS
 on:
   workflow_dispatch:
   push:
     tags:
       - "v*"
-
+permissions:
+  contents: read
 jobs:
-  build-mac-x64:
-    runs-on: macos-latest
+  build-mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x64
+            app: release/mac/FranceStudent IDE.app
+          - runner: macos-15
+            arch: arm64
+            app: release/mac-arm64/FranceStudent IDE.app
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Verify native architecture
+        run: node -e "if(process.arch!=='${{ matrix.arch }}')process.exit(1)"
       - run: npm install
       - run: npm test
       - uses: ./.github/actions/build-effectcraft
-      - name: Construire le .dmg et le .zip pour Mac Intel (x64)
-        run: npm run dist:mac
+      - name: Build native installers
+        run: npm run dist:mac -- --${{ matrix.arch }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Test packaged application and EffectCraft
+        run: node --test e2e/effectcraft.e2e.test.js
+        env:
+          FRST_PACKAGED_EXE: ${{ github.workspace }}/${{ matrix.app }}/Contents/MacOS/FranceStudent IDE
+          FRST_QA_SCREENSHOT: ${{ github.workspace }}/release/qa-mac-${{ matrix.arch }}
+      - name: Checksums
+        run: shasum -a 256 release/*.dmg release/*.zip > release/SHA256SUMS-mac-${{ matrix.arch }}.txt
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: FranceStudentCode-mac-x64
+          name: FranceStudentIDE-mac-${{ matrix.arch }}
           path: |
             release/*.dmg
             release/*.zip
-          if-no-files-found: error
+            release/SHA256SUMS-mac-*.txt
+            release/qa-mac-*.png
+          if-no-files-found: warn

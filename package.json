@@ -39,7 +39,7 @@
     "predist:win": "npm run check:effectcraft && npm run build:renderer",
     "predist:mac": "npm run check:effectcraft && npm run build:renderer",
     "dist:win": "electron-builder --win portable nsis --publish never",
-    "dist:mac": "electron-builder --mac dmg zip --x64 --publish never",
+    "dist:mac": "electron-builder --mac dmg zip --publish never",
     "vendor:effectcraft:upstream": "node scripts/fetch-effectcraft.js",
     "check:effectcraft": "node scripts/build-effectcraft.js --check"
   },
@@ -158,20 +158,23 @@
         {
           "target": "dmg",
           "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         },
         {
           "target": "zip",
           "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         }
       ],
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "artifactName": "FranceStudentIDE-${version}-mac-${arch}.${ext}"
+      "artifactName": "FranceStudentIDE-${version}-mac-${arch}.${ext}",
+      "minimumSystemVersion": "12.0.0"
     },
     "dmg": {
       "title": "FranceStudent IDE ${version}",
