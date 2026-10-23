@@ -20,6 +20,7 @@ test("e2e : bibliothèque, profils, marketplace, MCP réel et paramètres persis
         session.bootstrap = async () => ({ok:true});
         require(${JSON.stringify(path.join(root, "src/api/agents"))}).listAgents = async () => ({agents:[{id:-1002,name:'GPT 6 Luna'},{id:-1003,name:'GPT 6.1 Sol'}],source:'local'});
         const marketModule = require(${JSON.stringify(path.join(root, "desktop/marketplace"))});
+        require(${JSON.stringify(path.join(root,"desktop/motion-marketplace"))}).downloadBundle=async()=>({content:'---\\nname: remotion-render\\ndescription: Render videos\\ndisabled: true\\napplication: code\\n---\\n\\nRead rules/render.md',files:[{path:'rules/render.md',data:Buffer.from('Render reference QA')}]});
         const original = marketModule.createMarketplace;
         marketModule.createMarketplace = options => original({...options, fetchFn:async url => {
             if (String(url).includes('raw.githubusercontent.com')) return new Response('---\\nname: community-qa\\ndescription: Communauté QA\\n---\\n\\nInstructions communautaires QA');
@@ -38,7 +39,7 @@ test("e2e : bibliothèque, profils, marketplace, MCP réel et paramètres persis
         await page.evaluate(project => window.frst.openProject(project), project);
         await page.locator('[data-view="extensions"]').click();
         await page.waitForSelector('[data-library-id="web-quality"]');
-        assert.equal(await page.locator("#library-list .center-card").count(), 14);
+        assert.equal(await page.locator("#library-list .center-card").count(), 22);
         await page.locator("#library-search").fill("interface");
         assert.equal(await page.locator("#library-list .center-card").count(), 1);
         await page.locator('[data-library-id="web-quality"]').getByRole("button", {name:"Voir les instructions"}).click();
@@ -67,7 +68,29 @@ test("e2e : bibliothèque, profils, marketplace, MCP réel et paramètres persis
         await page.waitForSelector("#skill-editor:not([open])", {state:"attached"});
         assert.match(fs.readFileSync(path.join(project,".frst/skills/web-quality/SKILL.md"),"utf8"), /Instructions modifiées QA/);
         if (process.env.FRST_QA_SCREENSHOT) await page.screenshot({path:process.env.FRST_QA_SCREENSHOT.replace(/\.png$/, "-skills.png")});
+        await page.locator('[data-center-tab="motion"]').click();
+        assert.equal(await page.locator("#motion-marketplace-list .center-card").count(),8);
+        await page.locator("#motion-skill-scope").selectOption("projet");
+        const titleSkill=page.locator('[data-motion-skill-id="motion-titles"]');
+        await titleSkill.getByRole("button",{name:"Voir les instructions",exact:true}).click();
+        assert.match(await page.locator("#skill-editor-content").inputValue(),/application: effectcraft/);
+        await page.locator("#skill-editor-cancel").click();
+        await titleSkill.getByRole("button",{name:"Installer",exact:true}).click();
+        await titleSkill.getByRole("button",{name:"Installé",exact:true}).waitFor();
+        assert.ok(fs.existsSync(path.join(project,".frst/skills/motion-titles/SKILL.md")));
+        await page.locator('[data-motion-collection="code"]').click();
+        assert.equal(await page.locator("#motion-marketplace-list .center-card").count(),5);
+        assert.match(await page.locator("#motion-marketplace-note").innerText(),/ne pilotent pas EffectCraft/);
+        if(process.env.FRST_QA_SCREENSHOT)await page.screenshot({path:process.env.FRST_QA_SCREENSHOT.replace(/\.png$/,"-motion-marketplace.png")});
+        await page.locator('[data-motion-skill-id="remotion-render"]').getByRole("button",{name:"Lire et installer",exact:true}).click();
+        await page.locator("#skill-editor[open]").waitFor();
+        assert.match(await page.locator("#skill-editor-description").innerText(),/1 ressources annexes incluses/);
+        await page.locator("#skill-editor-save").click();
+        await page.locator("#skill-editor:not([open])").waitFor({state:"attached"});
+        assert.equal(fs.readFileSync(path.join(project,".frst/skills/remotion-render/rules/render.md"),"utf8"),"Render reference QA");
+        assert.match(fs.readFileSync(path.join(project,".frst/skills/remotion-render/SKILL.md"),"utf8"),/disabled: true/);
         await page.locator('[data-center-tab="marketplace"]').click();
+        assert.equal(await page.locator("#motion-marketplace").isVisible(),false);
         await page.locator("#marketplace-query").fill("qa");
         await page.locator("#marketplace-search-button").click();
         await page.waitForSelector("#marketplace-results .center-card");

@@ -37,9 +37,10 @@ async function downloadSkillPreview(item) {
     // Keep only recent completed entries; in-flight downloads are always visible.
     for (const [id, old] of extensionDownloads) if (extensionDownloads.size > 8 && old.state !== "loading") { old.card.remove(); extensionDownloads.delete(id); }
     try {
-        const preview = await api.marketplace("preview", {githubUrl:item.githubUrl, requestId:job.id});
+        const preview = await api.marketplace("preview", {githubUrl:item.githubUrl, curatedId:item.curatedId, requestId:job.id});
         job.state = "ready"; job.message = "Téléchargé · lis les instructions avant de choisir Installer. Le skill sera désactivé.";
         showSkillDownload(job); openSkillEditor({kind:"remote", item:{...item, ...preview}});
+        if(preview.resourceCount)$("skill-editor-message").textContent=`Ressources incluses : ${preview.resourceNames.join(", ")}`;
     } catch (error) {
         job.state = error.message.includes("annulé") ? "canceled" : "failed"; job.message = error.message; showSkillDownload(job);
     }

@@ -506,7 +506,7 @@ async function runAgent(task, options = {}) {
     // Skills (SKILL.md utilisateur et projet) : catalogue injecté dans le message complet.
     let skillsCatalog = "";
     try {
-        skillsCatalog = await require("../skills").catalog(state.workspace || null);
+        skillsCatalog = await require("../skills").catalog(state.workspace || null, state.motionDesign ? "effectcraft" : "code");
     } catch (error) {
         ui.warn(`Skills indisponibles : ${error.message}`);
     }

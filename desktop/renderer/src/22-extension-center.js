@@ -65,7 +65,7 @@ function renderExtensionCenter() {
     }
     $("skill-profile").value = selectedProfile;
     for (const select of [$("library-scope"), $("skill-editor-scope")]) select.querySelector('[value="projet"]').disabled = !centerData.workspace;
-    renderLibrary(); renderInstalledSkills();
+    renderLibrary(); renderInstalledSkills(); renderMotionMarketplace();
 }
 function renderLibrary() {
     if (!centerData) return;
@@ -137,7 +137,7 @@ function openSkillEditor(state) {
     const remote = state.kind === "remote";
     const library = state.kind === "library";
     $("skill-editor-title").textContent = library ? item.title : remote ? item.name : state.kind === "edit" ? `Modifier ${item.name}` : "Créer ou importer un skill";
-    $("skill-editor-description").textContent = remote ? "Skill communautaire : vérifie les instructions et la licence du dépôt. Il sera installé désactivé. Seul le SKILL.md est copié." : library ? `${item.description} · ${item.category}` : "Écris ou colle les instructions que l’agent doit suivre quand il utilise ce skill.";
+    $("skill-editor-description").textContent = remote ? item.resourceCount ? `Remotion pour le chat code · ${item.resourceCount} ressources annexes incluses. Le skill sera installé désactivé. Lis les instructions avant de l’activer.` : "Skill communautaire : vérifie les instructions et la licence du dépôt. Il sera installé désactivé. Seul le SKILL.md est copié." : library ? `${item.description} · ${item.category}` : "Écris ou colle les instructions que l’agent doit suivre quand il utilise ce skill.";
     $("skill-editor-name").value = item.id || item.name || "mon-skill";
     $("skill-editor-name").disabled = !["new", "remote"].includes(state.kind);
     if (remote) $("skill-editor-name").value = item.name.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "community-skill";

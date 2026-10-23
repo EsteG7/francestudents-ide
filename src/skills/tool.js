@@ -11,6 +11,7 @@ async function run(args) {
     const { state } = require("../state");
     const skills = require("./index");
 const skill = await skills.getSkill(args.name, state.workspace || null);
+    if(skill.application && skill.application!==(state.motionDesign?"effectcraft":"code"))throw new Error("Ce skill appartient à l’autre espace : utilise le chat Motion design pour EffectCraft et le chat code pour Remotion.");
 
     return {
         name: skill.name,

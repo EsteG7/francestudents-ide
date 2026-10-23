@@ -39,9 +39,9 @@ L’application est distribuée pour **Windows 64 bits**. Aucun Node.js ni aucun
 - L’import de conversations Codex et un connecteur GitHub, tous deux en **bêta**.
 - Des boutons pour lancer les sites locaux et annuler une action de l’agent en Full accès.
 - Une bibliothèque de skills avec installation, désinstallation et suivi des téléchargements.
-- **EffectCraft intégré**, en bêta : mode Simple, bouton Avancé, petits tutos et chat spécialisé pour créer tes animations.
+- **EffectCraft intégré**, en bêta : mode Simple, bouton Avancé, petits tutos, chat spécialisé et sélection de skills motion design dans la marketplace.
 
-La [version 1.3.0](https://github.com/extraopaa/francestudents-ide/releases/tag/v1.3.0) ajoute le véritable EffectCraft dans une interface harmonisée avec l’IDE. Les [notes de version](CHANGELOG.md) précisent les changements et leurs limites.
+La [version 1.3.1](https://github.com/extraopaa/francestudents-ide/releases/tag/v1.3.1) ajoute une sélection de skills pour EffectCraft et Remotion. Les [notes de version](CHANGELOG.md) précisent les changements et leurs limites.
 
 ## Garder le contrôle
 

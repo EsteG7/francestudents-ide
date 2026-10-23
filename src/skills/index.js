@@ -106,6 +106,7 @@ async function readSkillDir(dir, folder, scope) {
         dir: path.join(dir, folder),
         file,
         disabled: isTrue(meta.disabled),
+        application: ["effectcraft","code"].includes(meta.application) ? meta.application : null,
         body
     };
 }
@@ -153,8 +154,8 @@ function catalogText(skills) {
         }, "");
 }
 
-async function catalog(workspace) {
-    return catalogText(await loadSkills(workspace));
+async function catalog(workspace, application) {
+    return catalogText((await loadSkills(workspace)).filter(skill=>!application || !skill.application || skill.application===application));
 }
 
 async function listExtraFiles(dir) {
@@ -207,6 +208,7 @@ async function getSkill(name, workspace) {
     return {
         name: skill.name,
         description: skill.description,
+        application: skill.application,
         scope: skill.scope,
         dir: skill.dir,
         instructions: body,

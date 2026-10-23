@@ -45,20 +45,33 @@ function createExtensionCenter({ workspace = () => null, busy = () => false } = 
         const saved = settings.load();
         return {
             skills: (await skills.listSkills(workspace())).map(s => ({ ...s, key: keyOf(s), favorite: (saved.skillFavorites || []).includes(keyOf(s)) })),
-            library, profiles: saved.skillProfiles || {}, workspace: workspace(),
+            library, motionCommunity:require("./motion-marketplace").catalog, profiles: saved.skillProfiles || {}, workspace: workspace(),
             userDir: skills.userSkillsDir(), projectDir: skills.projectSkillsDir(workspace())
         };
     }
-    async function install({ name, content, scope }) {
+    async function install({ name, content, scope, files = [] }) {
         const folder = safeName(name).toLowerCase();
+        validateContent(content);
+        if(!Array.isArray(files) || files.length>200)throw new Error("Trop de ressources dans le skill.");
+        let bytes=0;const names=new Set(["skill.md"]);
+        for(const file of files){
+            if(typeof file.path!=="string" || file.path.includes("\\") || file.path.split("/").some(part=>!part || part==="." || part===".." || /[:\x00-\x1f]|[. ]$/.test(part) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)) || path.isAbsolute(file.path) || !Buffer.isBuffer(file.data))throw new Error("Ressource de skill invalide.");
+            const key=file.path.toLowerCase();if(names.has(key))throw new Error("Ressource de skill en double.");names.add(key);
+            bytes+=file.data.length;if(bytes>4000000)throw new Error("Ressources du skill trop volumineuses.");
+        }
         const base = scope === "projet" ? skills.projectSkillsDir(workspace()) : skills.userSkillsDir();
         if (!base) throw new Error("Ouvre un projet pour y installer un skill.");
         // mkdir non récursif sur le dossier cible empêche d’écraser un skill existant.
         await fs.mkdir(base, { recursive: true });
         const dir = path.join(base, folder);
+        const relativeDir=path.relative(path.resolve(base),path.resolve(dir));
+        if(!relativeDir || relativeDir.startsWith("..") || path.isAbsolute(relativeDir))throw new Error("Dossier de skill hors de la destination.");
         await fs.mkdir(dir);
-        try { await fs.writeFile(path.join(dir, "SKILL.md"), validateContent(content), { flag: "wx" }); }
-        catch (error) { await fs.rmdir(dir).catch(() => {}); throw error; }
+        try {
+            await fs.writeFile(path.join(dir, "SKILL.md"), content, { flag: "wx" });
+            for(const file of files){const target=path.resolve(dir,file.path);const rel=path.relative(dir,target);if(!rel || rel.startsWith("..") || path.isAbsolute(rel))throw new Error("Ressource hors du dossier du skill.");await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,file.data,{flag:"wx"});}
+        }
+        catch (error) { await fs.rm(dir,{recursive:true,force:true}).catch(() => {}); throw error; }
         return list();
     }
     async function action(type, payload = {}) {

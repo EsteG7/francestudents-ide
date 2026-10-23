@@ -16,7 +16,7 @@ test.before(async () => {
 test.after(async () => { await fs.rm(dir, {recursive:true, force:true}); });
 test("bibliothèque : installation projet, refus d’écrasement, désactivation appliquée à l’agent", async () => {
     let data = await center.action("install", {id:"web-quality", scope:"projet"});
-    assert.equal(data.library.length, 14);
+    assert.equal(data.library.length, 22);
     assert.ok(data.skills.some(s => s.key === "projet:web-quality"));
     await assert.rejects(center.action("install", {id:"web-quality", scope:"projet"}), /EEXIST/);
     await center.action("toggle", {key:"projet:web-quality", disabled:true});
@@ -46,6 +46,27 @@ test("imports bornés, chemins refusés et aucune modification pendant une tâch
     await assert.rejects(center.action("read", {key:"../../outside"}), /introuvable/);
     const busy = require("../desktop/extension-center").createExtensionCenter({busy:() => true});
     await assert.rejects(busy.action("install", {id:"web-quality"}), /fin de la tâche/);
+});
+
+test("motion collection installs native skills and keeps code and EffectCraft catalogs separate",async()=>{
+    const data=await center.action("install",{id:"motion-titles",scope:"projet"});
+    assert.equal(data.library.filter(item=>item.application==="effectcraft").length,8);
+    assert.equal(data.motionCommunity.length,5);
+    assert.match(await skills.catalog(project,"effectcraft"),/motion-titles/);
+    assert.doesNotMatch(await skills.catalog(project,"code"),/motion-titles/);
+    const loaded=await skills.getSkill("motion-titles",project);assert.match(loaded.instructions,/command.describe/);assert.equal(loaded.application,"effectcraft");
+    const state=require("../src/state").state;const previous={workspace:state.workspace,motionDesign:state.motionDesign};
+    try{state.workspace=project;state.motionDesign=false;await assert.rejects(require("../src/skills/tool").run({name:"motion-titles"}),/autre espace/);}
+    finally{Object.assign(state,previous);}
+});
+
+test("community resources are copied with the skill and unsafe paths are rejected before writing",async()=>{
+    const payload={name:"motion-resources",scope:"projet",content:"---\nname: motion-resources\ndisabled: true\napplication: code\n---\n\nSee rules/timing.md",files:[{path:"rules/timing.md",data:Buffer.from("Timing guidance")} ]};
+    await center.action("import",payload);
+    assert.equal(await fs.readFile(path.join(project,".frst/skills/motion-resources/rules/timing.md"),"utf8"),"Timing guidance");
+    assert.doesNotMatch(await skills.catalog(project,"effectcraft"),/motion-resources/);
+    for(const file of ["../outside.md","/outside.md","rules/../../outside.md","C:/outside.md","rules\\outside.md","SKILL.md","rules/CON.txt"]){await assert.rejects(center.action("import",{...payload,name:"unsafe-resource",files:[{path:file,data:Buffer.from("bad")}]}),/Ressource/);}
+    await assert.rejects(fs.access(path.join(project,".frst/skills/unsafe-resource")));
 });
 test("MCP : validation, activation, suppression, sauvegarde sans perdre les autres propriétés", async () => {
     const file = process.env.FS_MCP_CONFIG;

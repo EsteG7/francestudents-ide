@@ -28,6 +28,7 @@ function rawSkillUrl(value) {
 function createMarketplace({ fetchFn = (...args) => fetch(...args), getKey = async () => process.env.SKILLSMP_API_KEY || "", onProgress = () => {} } = {}) {
     const previews = new Map();
     const downloads = new Map();
+    const bundles = new Map();
     return {
         async search({ query, page = 1, sort = "stars" }) {
             const q = String(query || "").trim();
@@ -49,12 +50,19 @@ function createMarketplace({ fetchFn = (...args) => fetch(...args), getKey = asy
             return {items, page, hasNext:data.data.pagination?.hasNext === true, remaining:response.headers.get("x-ratelimit-daily-remaining")};
         },
         cancel(requestId) { const controller = downloads.get(requestId); if (!controller) return false; controller.abort(); return true; },
-        async preview({ githubUrl, requestId = require("node:crypto").randomUUID() }) {
-            const url = rawSkillUrl(githubUrl);
+        async preview({ githubUrl, curatedId, requestId = require("node:crypto").randomUUID() }) {
+            const curated = curatedId ? require("./motion-marketplace").catalog.find(item=>item.id===curatedId) : null;
+            if(curatedId && !curated)throw new Error("Skill motion inconnu.");
+            const url = curated ? curated.githubUrl : rawSkillUrl(githubUrl);
             if (typeof requestId !== "string" || requestId.length > 100 || downloads.has(requestId) || downloads.size >= 8) throw new Error("Téléchargement déjà en cours ou limite de téléchargements atteinte.");
             const controller = new AbortController(); downloads.set(requestId, controller);
             try {
             const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]);
+            if(curated){
+                const bundle=await require("./motion-marketplace").downloadBundle({id:curated.id,fetchFn,signal,onProgress:(received,total)=>onProgress({requestId,received,total})});
+                bundles.set(url,bundle);if(bundles.size>8)bundles.delete(bundles.keys().next().value);
+                return {url,content:bundle.content,resourceCount:bundle.files.length,resourceNames:bundle.files.map(file=>file.path)};
+            }
             const response = await fetchFn(url, {redirect:"error", signal});
             if (!response.ok) throw new Error(`SKILL.md inaccessible sur GitHub (HTTP ${response.status}). Tu peux ouvrir le dépôt ou importer son contenu manuellement.`);
             const length = Number(response.headers.get("content-length"));
@@ -75,6 +83,10 @@ function createMarketplace({ fetchFn = (...args) => fetch(...args), getKey = asy
             const content = previews.get(url);
             if (!content) throw new Error("Ouvre les instructions avant d’installer ce skill.");
             return content;
+        },
+        takeBundle(url) {
+            const bundle=bundles.get(url);
+            return bundle || {content:this.takePreview(url),files:[]};
         }
     };
 }

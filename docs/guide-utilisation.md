@@ -101,6 +101,10 @@ Clic droit dans l'explorateur : nouveau fichier ou dossier, renommer, mettre à 
 
 Le bouton **Tutos** propose trois exemples guidés. **Préparer la demande** remplit ton brouillon ; rien n’est envoyé avant ton clic sur **Envoyer**. Les tutos ne consomment pas de quota, les messages à l’IA utilisent le quota habituel.
 
+Le bouton **Skills** ouvre **Extensions → Motion design**. Choisis EffectCraft pour installer des méthodes prêtes à l’emploi : titres animés, logos, transitions, mouvements, vidéos pour les réseaux, infographies, sous-titres ou export. Tu peux lire leurs instructions avant installation et les désactiver ou les désinstaller dans **Mes skills**. L’installation ne lance pas l’IA. L’onglet **Marketplace code** conserve la recherche communautaire **SkillsMP**.
+
+La collection **Remotion · chat code** propose cinq skills populaires de l’équipe Remotion. Ils servent aux vidéos créées en React, pas à l’éditeur EffectCraft. Leurs fichiers annexes sont inclus et ils sont installés désactivés : active-les dans **Mes skills** après lecture. Les chiffres d’installations sont datés et le classement source est consultable.
+
 **Avancé** affiche les outils et panneaux complets d’EffectCraft, dont les fonctions de fichier pour conserver une copie `.ecproj`. Enregistrer un projet et exporter une vidéo sont deux opérations différentes : pour obtenir un fichier à partager, demande à l’agent de vérifier les formats d’export disponibles. **Retour au code** conserve l’animation ouverte et retrouve ta conversation de programmation.
 
 

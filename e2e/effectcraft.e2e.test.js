@@ -4,7 +4,7 @@ test("EffectCraft real engine is controlled through the specialized agent chat",
     const root=path.resolve(__dirname,".."),dir=fs.mkdtempSync(path.join(os.tmpdir(),"frst-effectcraft-")),project=path.join(dir,"project");fs.mkdirSync(project);
     const harness=path.join(dir,"launch.cjs");
     fs.writeFileSync(harness,`require(${JSON.stringify(path.join(root,"src/core/session"))}).bootstrap=async()=>({ok:true});require(${JSON.stringify(path.join(root,"src/state"))}).state.fullAccess=true;let turn=0;require(${JSON.stringify(path.join(root,"src/api/api"))}).requestModel=async(prompt,options={})=>{if(options.fresh || options.conversationMode!=='agent')return 'Project summary';globalThis.motionPrompts=(globalThis.motionPrompts||[]).concat(prompt);return ++turn===1?JSON.stringify({type:'tool',name:'effectcraft',args:{method:'engine.execute',params:{command:'comp.new',params:{}}},reason:'Create a composition in EffectCraft'}):JSON.stringify({type:'final',message:'Composition created in EffectCraft.',completed:true});};require(${JSON.stringify(path.join(root,"desktop/main.js"))});`);
-    const env={...process.env,FS_DATA_DIR:dir,FS_STATE_DIR:dir};delete env.ELECTRON_RUN_AS_NODE;
+    const env={...process.env,FS_DATA_DIR:dir,FS_STATE_DIR:dir,FS_SKILLS_DIR:path.join(dir,"skills")};delete env.ELECTRON_RUN_AS_NODE;
     const app=await _electron.launch({executablePath:process.env.FRST_PACKAGED_EXE || require("electron"),args:process.env.FRST_PACKAGED_EXE?["--user-data-dir="+path.join(dir,"electron")]:[harness,"--user-data-dir="+path.join(dir,"electron")],cwd:root,env});
     try{
         const page=await app.firstWindow(),errors=[];page.on("pageerror",e=>errors.push(e.message));
@@ -12,7 +12,7 @@ test("EffectCraft real engine is controlled through the specialized agent chat",
         if(await page.locator("#guide-close").isVisible())await page.locator("#guide-close").click();
         await page.evaluate(p=>window.frst.openProject(p),project);
         if(process.env.FRST_PACKAGED_EXE){
-            assert.equal(await app.evaluate(({app})=>app.getVersion()),"1.3.0");
+            assert.equal(await app.evaluate(({app})=>app.getVersion()),require("../package.json").version);
             assert.equal(await page.evaluate(()=>window.frst.ptyAvailable()),true);
             const output=await page.evaluate(async()=>{
                 let text="",id=null;
@@ -74,6 +74,14 @@ test("EffectCraft real engine is controlled through the specialized agent chat",
         await page.locator("#btn-motion").click();
         const restored=await page.evaluate(()=>window.frst.effectCraftControl({method:"engine.execute",params:{command:"project.summary",params:{}}}));
         assert.equal(restored.activeComp,rendered.comp);
+        await page.locator("#motion-skills").click();
+        await page.locator("#motion-marketplace").waitFor({state:"visible"});
+        assert.equal(await page.locator("#motion-marketplace-list .center-card").count(),8);
+        assert.equal(await page.locator('[data-motion-collection="effectcraft"]').getAttribute("aria-pressed"),"true");
+        const skillCard=page.locator('[data-motion-skill-id="motion-titles"]');
+        await skillCard.getByRole("button",{name:"Installer",exact:true}).click();
+        await skillCard.getByRole("button",{name:"Installé",exact:true}).waitFor();
+        assert.match(fs.readFileSync(path.join(dir,"skills/motion-titles/SKILL.md"),"utf8"),/application: effectcraft/);
         assert.deepEqual(errors,[]);
     }finally{await app.close();fs.rmSync(dir,{recursive:true,force:true});}
 });

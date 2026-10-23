@@ -21,4 +21,5 @@ const library = definitions.map(([id, title, category, description, body]) => ({
     id, title, category, description, version: "1.0", author: "FranceStudent Code",
     content: `---\nname: ${id}\ndescription: ${description}\n---\n\n# ${title}\n\n${body}\n`
 }));
+library.push(...require("./motion-library").motionLibrary);
 module.exports = { library };

@@ -823,7 +823,7 @@ function registerIpc() {
         if (action === "search") return marketplace.search(payload);
         if (action === "preview") return marketplace.preview(payload);
         if (action === "cancel") return marketplace.cancel(payload.requestId);
-        if (action === "install") return extensionCenter.action("import", {name:payload.name, scope:payload.scope, content:marketplace.takePreview(payload.url)});
+        if (action === "install") return extensionCenter.action("import", {name:payload.name, scope:payload.scope, ...marketplace.takeBundle(payload.url)});
         throw new Error("Action de marketplace inconnue.");
     });
     handle("marketplaceKey", async (action, value) => {

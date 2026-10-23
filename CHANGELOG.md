@@ -2,6 +2,14 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
+## [1.3.1] — 23 octobre 2026 · Sélection de skills motion design
+
+- Nouvel onglet Motion design dans le centre d’extensions, accessible aussi par le bouton Skills d’EffectCraft. Le marketplace code SkillsMP reste séparé et conserve sa recherche habituelle.
+- Huit skills natifs hors ligne : titres, logos, transitions, mouvements fluides, réseaux sociaux, infographies, sous-titres et export.
+- Cinq skills de la collection officielle Remotion, sélectionnés selon les installations affichées sur Skills.sh au 23 octobre 2026 : bases, rendu, création, sous-titres et animation/mise en page. Source du classement et compatibilité affichées.
+- Import Remotion avec ses ressources annexes, depuis une archive épinglée et vérifiée par SHA-256. Aperçu obligatoire, annulation et installation désactivée conservés. La recherche SkillsMP habituelle importe toujours seulement le SKILL.md.
+- Catalogues de l’agent adaptés au moteur : EffectCraft dans le chat motion, Remotion dans le chat code. Aucun skill n’est installé automatiquement.
+
 ## [1.3.0] — 23 octobre 2026 · EffectCraft piloté par le chat motion design
 
 - Remplacement du studio canvas natif par le véritable éditeur EffectCraft 0.16.0, reconstruit depuis une révision épinglée avec une interface interne adaptée à FranceStudent. Sources des modifications et procédure de compilation incluses.
