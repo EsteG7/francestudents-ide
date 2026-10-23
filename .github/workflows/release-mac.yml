@@ -29,6 +29,8 @@ jobs:
         run: node -e "if(process.arch!=='${{ matrix.arch }}')process.exit(1)"
       - run: npm install
       - run: npm test
+      - name: Test update offers in the Mac interface
+        run: npm run build:renderer && node --test e2e/startup-update-offer.e2e.test.js
       - uses: ./.github/actions/build-effectcraft
       - name: Build native installers
         run: npm run dist:mac -- --${{ matrix.arch }}

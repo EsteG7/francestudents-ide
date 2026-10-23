@@ -6,7 +6,7 @@ test("startup offers an available update, supports later, download and explicit 
     const env={...process.env,FS_DATA_DIR:dir,FS_STATE_DIR:dir};delete env.ELECTRON_RUN_AS_NODE;
     const app=await _electron.launch({executablePath:require("electron"),args:[h,"--user-data-dir="+path.join(dir,"electron")],env,cwd:root});
     try{
-        const page=await app.firstWindow();await page.getByRole("button",{name:"Mettre à jour maintenant",exact:true}).waitFor();
+        const page=await app.firstWindow();if(process.platform==="darwin")await page.locator("#mac-beta-notice").getByRole("button",{name:"Continuer",exact:true}).click();await page.getByRole("button",{name:"Mettre à jour maintenant",exact:true}).waitFor();
         await page.waitForTimeout(1300);assert.equal(await page.locator("#startup-loading").isVisible(),true);
         assert.equal(await app.evaluate(()=>globalThis.updateDownloads),0);
         await page.screenshot({path:path.join(root,"release/startup-update-offer.png")});
@@ -28,7 +28,7 @@ test("Mac startup offers the matching DMG without a restart or automatic install
     const env={...process.env,FS_DATA_DIR:dir,FS_STATE_DIR:dir};delete env.ELECTRON_RUN_AS_NODE;
     const app=await _electron.launch({executablePath:require("electron"),args:[h,"--user-data-dir="+path.join(dir,"electron")],env,cwd:root});
     try{
-        const page=await app.firstWindow();
+        const page=await app.firstWindow();if(process.platform==="darwin")await page.locator("#mac-beta-notice").getByRole("button",{name:"Continuer",exact:true}).click();
         await page.getByRole("button",{name:"Télécharger l’installateur",exact:true}).waitFor();
         assert.match(await page.locator("#startup-message").innerText(),/Mac Apple Silicon/);
         assert.doesNotMatch(await page.locator("#startup-message").innerText(),/Windows|portable/);
