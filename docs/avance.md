@@ -1,5 +1,12 @@
 # Guide avancé
 
+[← Les guides](README.md) · [Premiers pas](guide-utilisation.md)
+
+Ce guide conserve les réglages techniques et les détails de développement. Pour installer l’application et te connecter, commence par les [étapes illustrées](connexion.md).
+
+![Éditeur Code et conversation de démonstration](images/mode-code.png)
+
+
 [Retour au README](../README.md) · [Guide d’utilisation](guide-utilisation.md)
 
 Cette page regroupe les réglages et les détails techniques de FranceStudent IDE. Elle décrit le code source actuel ; l’installateur d’une release antérieure peut proposer moins de fonctions.
@@ -88,9 +95,9 @@ npm run desktop
 | `npm run test:e2e` | Tester les parcours Electron dans un environnement graphique |
 | `npm run build:desktop` | Générer une application locale non empaquetée en installateur |
 | `npm run dist:win` | Générer le portable et l’installateur Windows dans `release/` |
-| `npm run dist:mac` | Construire pour macOS Intel dans un environnement adapté |
+| `npm run dist:mac` | Construire les cibles Mac ; utiliser `-- --x64` ou `-- --arm64` sur un Mac adapté |
 
-Les modules natifs peuvent nécessiter les outils de compilation du système. Sous Windows, une erreur MSB8040 signale l’absence de bibliothèques Spectre dans Visual Studio Build Tools. Les exécutables macOS ne sont pas fournis par la release Windows.
+Les modules natifs peuvent nécessiter les outils de compilation du système. Sous Windows, une erreur MSB8040 signale l’absence de bibliothèques Spectre dans Visual Studio Build Tools. Les versions Mac sont distribuées dans des préversions séparées de la stable Windows. Voir [le guide Mac](macos.md).
 
 Les sources de l’interface sont dans `desktop/renderer/src/`. Après modification, lance `npm run build:renderer` pour mettre à jour `desktop/renderer/app.js`.
 

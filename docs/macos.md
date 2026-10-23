@@ -1,4 +1,9 @@
-﻿# Version macOS bêta
+# Version macOS bêta
+
+[← Les guides](README.md) · [Installation](installation.md) · [Connexion](connexion.md)
+
+Choisis **arm64** pour une puce Apple Silicon, ou **x64** pour un Mac Intel. Le DMG s’ouvre avant de déplacer l’application dans Applications.
+
 
 La version Mac est une préversion distincte de la version Windows stable. Elle affiche un avertissement bêta à chaque démarrage.
 

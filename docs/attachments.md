@@ -1,5 +1,21 @@
 # Pièces jointes
 
+[← Les guides](README.md) · [Usage et quota](usage.md)
+
+## Joindre un fichier
+
+1. Ouvre une conversation et précise ce que l’IA doit examiner.
+2. Clique sur le trombone ou glisse les fichiers dans le chat.
+3. Vérifie les pièces jointes du brouillon et les éventuels avertissements.
+4. Envoie ta demande quand tout est prêt.
+
+Le nombre sélectionné n’est pas plafonné, mais les limites de taille, de contexte et de quota restent applicables. Pour un gros document, indique les pages ou feuilles utiles.
+
+![Deux pièces jointes dans un brouillon, avant envoi](images/pieces-jointes.png)
+
+## Formats et traitement
+
+
 Les fichiers sont préparés localement à l’envoi, sans service de conversion
 externe. Leur nom et leur contenu original restent inchangés. La sélection,
 le collage et le glisser-déposer utilisent le même circuit, y compris dans la

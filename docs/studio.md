@@ -1,5 +1,12 @@
 # Le cockpit et les outils de FranceStudent Code
 
+[← Les guides](README.md) · [Premiers pas](guide-utilisation.md) · [Motion design](motion-design.md)
+
+Le cockpit regroupe les commandes et outils du dossier ouvert. Tu peux revenir à l’éditeur sans fermer ton projet.
+
+![Vue d’ensemble du cockpit du projet Aurora](images/cockpit-projet.png)
+
+
 Le bouton **Cockpit du projet** ouvre une vue centrale qui conserve le chat à droite. `Ctrl+Maj+D` y donne accès. Le thème sombre d’origine reste sélectionné par défaut.
 
 ## Exécuter et vérifier
@@ -52,6 +59,8 @@ La conversation se compacte également automatiquement entre deux appels au mod�
 
 ## Mises à jour de l’application installée
 
+**Sur Mac :** à partir de la bêta 2, les nouvelles versions sont détectées avec un bouton vers le DMG Intel ou Apple Silicon. L’installation reste manuelle. [Installer et mettre à jour](installation.md). Les explications ci-dessous concernent Windows installé.
+
 Le mécanisme utilise [electron-updater](https://www.electron.build/v26/docs/features/auto-update/) et la source GitHub `extraopaa/francestudents-ide`. Il est activé pour les distributions Windows NSIS installées et configurées avec `app-update.yml`. Le mode développement et le portable ne sont pas mis à jour automatiquement.
 
 Une fois une version compatible publiée, le réglage automatique vérifie au démarrage puis périodiquement, télécharge la nouvelle version en arrière-plan et l’installe à la fermeture. Le bouton d’installation immédiate enregistre les onglets ; il refuse de redémarrer pendant une tâche. Les projets et réglages restent hors des fichiers de l’application.
@@ -66,7 +75,7 @@ Pour une future livraison Windows :
 4. Publier ensemble l’installateur NSIS, son `.blockmap` et `latest.yml` dans la release GitHub correspondant à cette version. Une release publique est nécessaire si aucun accès privé n’est prévu pour les clients.
 5. Vérifier une mise à jour réelle depuis une installation de la version précédente.
 
-Les métadonnées et le téléchargement réel n’ont pas été testés sur une release publique pendant ce développement ; les états du contrôleur sont testés avec un fournisseur simulé.
+Les états de mise à jour sont testés avec un fournisseur simulé. Les fichiers Mac ont été construits et lancés sur les deux architectures ; la détection a aussi été vérifiée sur les releases publiques. Une installation complète par-dessus une version précédente n’a pas été validée sur toutes les plateformes.
 
 Au démarrage, une version disponible reste affichée avec **Mettre à jour maintenant** et **Plus tard**. Le téléchargement ne démarre pas automatiquement pendant cette proposition. Après téléchargement, **Redémarrer et installer** enregistre les fichiers ouverts et demande l’installation ; les tâches en cours empêchent le redémarrage. Si tu continues dans l’IDE, le bouton **Mise à jour** de la barre supérieure permet de rouvrir cette proposition. En version portable, ce bouton dirige vers l’installateur de la release, sans tenter de remplacer le portable.
 

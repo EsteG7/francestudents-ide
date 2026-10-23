@@ -1,5 +1,16 @@
 # Connexion à GitHub · connecteur Bêta
 
+[← Les guides](README.md) · [Guide avancé](avance.md)
+
+## Le connecteur en un coup d’œil
+
+Connecte ton compte dans le panneau Git, vérifie le dépôt associé, puis ouvre le connecteur. Prépare et relis un brouillon avant toute publication. La capture utilise un compte fictif et ne publie rien sur GitHub.
+
+![Connecteur GitHub avec une release de démonstration en brouillon](images/connecteur-github.png)
+
+## Utiliser le connecteur
+
+
 Dans le panneau **Git**, clique sur **Connecteur GitHub · Bêta** après avoir connecté ton compte. Il utilise le dépôt `origin` du projet ouvert. Tu peux consulter les releases, PR, issues et dépôts, préparer un brouillon de release, y ajouter un fichier du projet puis choisir **Publier la release**.
 
 L’agent dispose aussi d’un outil natif `github` : lecture de fichiers, mise à jour distante avec branche et SHA explicites, commit de fichiers choisis, push/pull/fetch, création d’issues et de PR. Pour modifier un README du projet, préfère une modification locale suivie d’un commit et d’un push. Une modification distante ne change pas la copie locale : récupère ensuite les changements.

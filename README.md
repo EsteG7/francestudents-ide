@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 <img src="desktop/icon.png" width="80" alt="Logo FranceStudent IDE" />
 
@@ -11,6 +11,10 @@
 Un éditeur de code, un studio EffectCraft et un chat adapté à chaque espace.
 
 </div>
+
+> [!IMPORTANT]
+> **Ce dépôt est un fork du projet [FranceStudent IDE créé par EsteG7](https://github.com/EsteG7/francestudents-ide).**
+> La création du projet revient à **EsteG7 et aux contributeurs d’origine**. Ce fork, maintenu par [extraopaa](https://github.com/extraopaa), ajoute ses propres améliorations et ne constitue pas une version officielle du dépôt original.
 
 ## Le mode Code
 
@@ -78,7 +82,8 @@ Télécharge les installateurs depuis les releases de ce fork. Windows et macOS 
 
 ## Pour aller plus loin
 
-- [Guide d’utilisation](docs/guide-utilisation.md) : connexion, interface et premiers pas.
+- [Les guides illustrés](docs/README.md) : installation, connexion, Code, Motion et fonctions principales.
+- [Connexion pas à pas](docs/connexion.md) · [Premiers pas](docs/guide-utilisation.md) · [Dépannage](docs/depannage.md).
 - [Guide avancé](docs/avance.md) : installation depuis les sources, réglages, formats et extensions.
 - [Signaler un problème](https://github.com/extraopaa/francestudents-ide/issues) : indique ta version, ton système et les étapes pour reproduire le souci, sans identifiants.
 - [Contribuer](CONTRIBUTING.md) · [Nouveautés](CHANGELOG.md) · [Crédits](CREDITS.md).

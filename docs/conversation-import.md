@@ -1,5 +1,19 @@
 # Continuer une conversation Codex (bêta)
 
+[← Les guides](README.md) · [Premiers pas](guide-utilisation.md)
+
+## Reprendre en quatre étapes
+
+1. Ouvre le dossier de ton projet existant.
+2. Clique sur **Importer Codex · Bêta**.
+3. Ajoute le lien, le texte ou un export et analyse l’aperçu.
+4. Prépare la reprise, puis relis ton brouillon avant de l’envoyer.
+
+![Import d’une conversation de démonstration et préparation de la reprise](images/import-codex.png)
+
+## Fonctionnement et limites
+
+
 Ouvre le dossier de ton projet existant dans FranceStudent IDE, puis clique sur **Importer Codex · Bêta**, près du bouton d’export de conversation.
 
 Colle un lien de partage accessible (notamment `https://chatgpt.com/s/cx_…`), sélectionne un export Markdown, JSON ou JSONL, ou colle directement la conversation. Vérifie l’aperçu, choisis le modèle et le mode, puis clique sur **Préparer la reprise**. Le contexte complet devient une pièce jointe du brouillon ; tu peux modifier ta demande avant de cliquer sur **Envoyer**.
