@@ -58,6 +58,7 @@ test("13 files produce hidden lots of four and one visible final response, with 
         const body = JSON.parse(init.body);
         requests.push(body);
         assert.ok(body.images.length + body.files.length <= 4);
+        if(body.images.length)return response(JSON.stringify({images:body.images.map((_,index)=>({index:index+1,status:"seen",description:"A document image with a visible title and text."}))}),"batch-chat",{input_tokens:requests.length*10000,output_tokens:10});
         if (/^Réception des pièces jointes/.test(body.initialContent)) return response("Reçu", "batch-chat", { input_tokens: requests.length * 10000, output_tokens: 10 });
         if (++finalAttempts === 1) return new Response("temporary", { status: 500 });
         return response("Réponse finale", "batch-chat", { input_tokens: 60000, output_tokens: 500 });
@@ -70,7 +71,7 @@ test("13 files produce hidden lots of four and one visible final response, with 
         assert.equal(requests[0].chatId, null);
         assert.ok(requests.slice(1).every(r => r.chatId === "batch-chat"));
         assert.deepEqual(requests.slice(0, 4).flatMap(r => r.images), expectedImages);
-        assert.deepEqual(requests[4].images, expectedImages.slice(-4));
+        assert.deepEqual(requests[4].images, []);
         assert.deepEqual(requests.flatMap(r => r.files), ["legacy-1", "legacy-2"]);
         assert.ok(requests.slice(0, 4).every(r => r.enableWebSearch === false));
         assert.match(requests[4].initialContent, /Compare tous ces fichiers/);
@@ -121,6 +122,7 @@ test("cancelling a receiving lot stops before the final request", async () => {
     let requests = 0;
     global.fetch = async url => {
         if (String(url).endsWith("/stream/cancel")) return Response.json({});
+        if (String(url).endsWith("/usage")) return Response.json({contextUsagePercent:10});
         requests++;
         throw new Error("aborted");
     };

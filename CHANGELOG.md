@@ -2,13 +2,16 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
-## [1.3.1] — 23 octobre 2026 · Sélection de skills motion design
+## [1.3.1] — 23 octobre 2026 · Skills motion, contexte et historique
 
 - Nouvel onglet Motion design dans le centre d’extensions, accessible aussi par le bouton Skills d’EffectCraft. Le marketplace code SkillsMP reste séparé et conserve sa recherche habituelle.
 - Huit skills natifs hors ligne : titres, logos, transitions, mouvements fluides, réseaux sociaux, infographies, sous-titres et export.
 - Cinq skills de la collection officielle Remotion, sélectionnés selon les installations affichées sur Skills.sh au 23 octobre 2026 : bases, rendu, création, sous-titres et animation/mise en page. Source du classement et compatibilité affichées.
 - Import Remotion avec ses ressources annexes, depuis une archive épinglée et vérifiée par SHA-256. Aperçu obligatoire, annulation et installation désactivée conservés. La recherche SkillsMP habituelle importe toujours seulement le SKILL.md.
 - Catalogues de l’agent adaptés au moteur : EffectCraft dans le chat motion, Remotion dans le chat code. Aucun skill n’est installé automatiquement.
+- Images : suppression de la question de mémoire périodique. Description visuelle vérifiée une seule fois à la réception ; images non renvoyées sur les tours suivants. Cette réception initiale utilise une requête par lot d’images. Un refus de vision est signalé avant d’exécuter la tâche.
+- Compaction : suivi distinct de chaque conversation, restauration à la réouverture et consultation de l’occupation serveur pendant les tâches. L’erreur « maximum token limit of 250000 » déclenche une compaction et une reprise ; la limite réelle est mémorisée par modèle et service. Une reprise échouée conserve l’identifiant initial.
+- Historique visible enregistré localement avec les messages, actions et résultats, indépendant du contexte compacté. Réouverture complète et récupération des anciens messages via l’API si aucun journal local n’existe. Les actions anciennes non conservées par le serveur ne peuvent pas être recréées.
 
 ## [1.3.0] — 23 octobre 2026 · EffectCraft piloté par le chat motion design
 

@@ -552,6 +552,7 @@ function scheduleHighlight() {
 /* ---------- Transcript ---------- */
 
 function scrollDown() {
+    if(ui.replayingConversation)return;
     transcript.scrollTop = transcript.scrollHeight;
 }
 
@@ -640,6 +641,8 @@ function renderEntry(e) {
             if (e.type === "error") {
                 const budget = parseBudgetNotice(e.text);
                 if (budget) return renderBudgetEntry(budget, e.text);
+                const context=parseContextLimitNotice(e.text);
+                if(context)return renderContextLimitEntry(context,e.text);
             }
             return addEntry(e.type, escapeHtml(e.text));
         }
@@ -1175,13 +1178,17 @@ function renderHistoryRow(item) {
     sub.textContent = [when, item.mode, item.model, `${item.messages} message(s)`].filter(Boolean).join(" · ");
     main.appendChild(sub);
     open.appendChild(main);
-    open.onclick = () => {
+    open.onclick = async () => {
         hideModelMenu();
         if (ui.status && ui.status.busy) {
             renderEntry({ type: "error", text: "Une demande est en cours : attends sa fin avant de changer de conversation." });
             return;
         }
-        send(`/chat-id ${item.id}`);
+        try{
+            if(item.motionDesign && !isMotionOpen())await openMotionDesign();
+            else if(!item.motionDesign && isMotionOpen())await closeMotionDesign();
+            await api.conversationsOpen(item.id);
+        }catch(error){renderEntry({type:"error",text:error.message});}
     };
 
     const actions = document.createElement("span");
@@ -2305,6 +2312,7 @@ async function confirmImageReadability(attachments){
 }
 
 async function send(text) {
+    if(ui.replayingConversation){studioFeedback("L’historique de la conversation est encore en cours de chargement.");return;}
     if(typeof motionChatSwitch!=="undefined" && motionChatSwitch){studioFeedback("Le changement de chat est en cours.");return;}
     const value = text ?? input.value;
     const withFiles = text === undefined && pendingAttachments.length > 0;
@@ -8064,6 +8072,35 @@ const motionSkillsButton=centerButton("Skills",async()=>{
     await closeMotionDesign();if(isMotionOpen())return;
     showSideView("extensions");setCenterTab("motion");motionCollection="effectcraft";await loadExtensionCenter();motionMarket.scrollIntoView({block:"start"});
 });motionSkillsButton.id="motion-skills";motionSkillsButton.title="Choisir des skills pour ton animation";document.querySelector(".motion-actions").prepend(motionSkillsButton);
+/* Visible history is independent of the model's compacted context. */
+let replayGeneration=0;
+api.onEvent((channel,data)=>{
+    if(channel==="clear"){replayGeneration++;ui.replayingConversation=false;return;}
+    if(channel!=="conversationReplay")return;
+    const generation=++replayGeneration,entries=data.entries || [];let cursor=0;
+    ui.replayingConversation=true;
+    function draw(){
+        if(generation!==replayGeneration)return;
+        const end=Math.min(cursor+50,entries.length);
+        while(cursor<end)renderEntry({...entries[cursor++],replayed:true});
+        studioFeedback(`Historique : ${cursor}/${entries.length} éléments chargés.`);
+        if(cursor<entries.length)requestAnimationFrame(draw);
+        else{ui.replayingConversation=false;scrollDown();}
+    }
+    draw();
+});
+function parseContextLimitNotice(text){
+    const value=String(text || "");
+    if(!/maximum.{0,20}(?:context|token)|context[_ ]length[_ ]exceeded|conversation.{0,50}token.{0,20}limit/i.test(value))return null;
+    const match=/(?:maximum|max)\s+(?:context\s+)?tokens?\s+limit\s*(?:of|is|:|=)?\s*([\d,_ ]+)/i.exec(value);
+    const limit=match?Number(match[1].replace(/[, _]/g,"")):null;
+    return {limit:Number.isFinite(limit)?limit:null};
+}
+function renderContextLimitEntry(info,raw){
+    const entry=addEntry("error context-limit-notice","");
+    entry.append(centerNode("strong","","Limite de contexte atteinte"),centerNode("p","",info.limit?`Le serveur limite cette conversation à ${info.limit.toLocaleString("fr-FR")} tokens.`:"La conversation dépasse la capacité acceptée par le serveur."),centerNode("p","","La reprise automatique n’a pas abouti. L’historique reste conservé ; tu peux réessayer après une compaction ou préciser la partie du travail à reprendre."));
+    const details=centerNode("details");details.append(centerNode("summary","","Détail technique"),centerNode("pre","",raw));entry.append(details);return entry;
+}
 /* ---------- Démarrage ---------- */
 
 (async () => {

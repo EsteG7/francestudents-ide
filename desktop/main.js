@@ -63,6 +63,8 @@ const localBrowser = require("./local-browser").createLocalBrowser({getWindow:()
 const effectCraftHost = require("./effectcraft-host").createEffectCraftHost({bindingFile:path.join(require("../src/config").CONFIG.dataDir,"effectcraft-host.json")});
 const effectCraftControl = require("./effectcraft-control").createEffectCraftControl({getWindow:()=>win,host:effectCraftHost});
 const motionConversations = require("./motion-conversations").createMotionConversations(require("../src/state").state);
+const transcriptStore=require("./conversation-transcript").createTranscriptStore(path.join(require("../src/config").CONFIG.dataDir,"conversation-transcripts"));
+let recordingTranscript=false,transcriptMode="agent",transcriptLive="",transcriptFailure=null;
 let updates=null;
 const webResearch=require("../src/tools/web-research").manager;
 webResearch.subscribe(data=>send("webResearch",data));
@@ -80,6 +82,13 @@ const taskQueue = require("./task-queue").createTaskQueue({
 });
 
 function send(channel, data) {
+    if(recordingTranscript){
+        const id=require("../src/state").state.chatIds[transcriptMode];
+        if(channel==="entry")transcriptStore.capture(id,data).catch(error=>{transcriptFailure=error.message;});
+        else if(channel==="liveStart")transcriptLive="";
+        else if(channel==="liveAppend")transcriptLive+=data;
+        else if(channel==="liveEnd" && transcriptLive){transcriptStore.capture(id,{type:"assistant",text:transcriptLive}).catch(error=>{transcriptFailure=error.message;});transcriptLive="";}
+    }
     if (win && !win.isDestroyed()) win.webContents.send("frst:event", { channel, data });
 }
 
@@ -237,6 +246,10 @@ async function submit(raw, attachments, { queued = false } = {}) {
     busy = true;
     submissionInterrupted = false;
     supportsSteering = !text.trim().startsWith("/") && state.mode !== "chat";
+    if(!text.trim().startsWith("/") || /^\/plan\s/i.test(text.trim())){
+        transcriptMode=state.mode==="chat"?"chat":"agent";transcriptFailure=null;
+        await transcriptStore.begin(state.chatIds[transcriptMode],{mode:transcriptMode,model:state.model,workspace:state.workspace,motionDesign:!!state.motionDesign,settings:state.conversationSettings[transcriptMode]});recordingTranscript=true;
+    }
     backend.startRun(display || text);
     pushStatus();
     send("entry", { type: "user", text: display });
@@ -265,6 +278,7 @@ async function submit(raw, attachments, { queued = false } = {}) {
         backend.error(error && error.message ? error.message : String(error));
     } finally {
         if (stream) stream.end();
+        if(recordingTranscript){recordingTranscript=false;await transcriptStore.finish(state.chatIds[transcriptMode]).catch(error=>{transcriptFailure=error.message;});if(transcriptFailure)backend.warn(`Historique local non enregistré : ${transcriptFailure}`);}
         // Images et fichiers non consommés (commande, erreur, interruption) : jamais réutilisés.
         state.pendingImages = [];
         state.pendingFiles = [];
@@ -766,6 +780,31 @@ async function logoutAccount() {
     }
 }
 
+async function openDesktopConversation(id,fromCommand=false){
+        if((busy && !fromCommand) || loginBusy)throw new Error("Attends la fin de la tâche avant de reprendre une conversation.");
+        const conversations=require("../src/project/conversations"),st=require("../src/state");
+        const target=await conversations.find(String(id));
+        const saved=await transcriptStore.load(String(id));
+        let entries=saved?.entries || [];
+        const latestId=saved?.latestId || String(id),metadata=saved?.metadata || {};
+        if(!saved){
+            const detail=await require("../src/api/account").getJson(`/chats/${encodeURIComponent(latestId)}`);
+            entries=require("./conversation-transcript").serverEntries(detail);
+            if(!entries.length)throw new Error("Cette conversation ne contient aucun message récupérable. Son identifiant a été conservé.");
+            await transcriptStore.begin(latestId,{mode:target?.mode || "agent",model:target?.model,workspace:target?.workspace});
+            for(const entry of entries)await transcriptStore.capture(latestId,entry);
+            await transcriptStore.finish(latestId);
+        }
+        const mode=metadata.mode || target?.mode || "agent";
+        st.resetConversation(mode);st.setConversation(mode,latestId,metadata.settings || target?.settings || {model:metadata.model ?? target?.model ?? st.state.model});st.state.mode=mode;
+        const history=entries.filter(entry=>["user","assistant"].includes(entry.type)).map(entry=>({role:entry.type,content:entry.text || ""}));
+        st.state.history=history.slice(-30);
+        const api=require("../src/api/api");api.requestModel.compactor ||= new (require("../src/agent/auto-compact").AutoCompact)();api.requestModel.compactor.restore(mode,latestId,history);
+        send("clear");send("conversationReplay",{entries,id:latestId});pushStatus();
+        return {id:latestId,entries:entries.length,source:saved?"local":"api"};
+
+}
+
 function registerIpc() {
     handle("localBrowser", (action,payload)=>localBrowser.action(String(action),payload||{}));
     handle("effectCraft", action=>action === "stop" ? effectCraftHost.stop() : action === "start" ? effectCraftHost.start() : effectCraftHost.status());
@@ -1155,17 +1194,19 @@ function registerIpc() {
             const known = require("../src/api/agents").agentName(id[1]);
             return model?.name || (known !== id[1] ? known : "Modèle indisponible");
         };
-        return items.map((entry, i) => ({
+        return Promise.all(items.map(async (entry, i) => ({
             number: i + 1,
             id: entry.id,
             title: entry.title || "(sans titre)",
             updatedAt: entry.updatedAt || null,
             model: modelLabel(entry.model),
             mode: entry.mode || "chat",
+            motionDesign:!!(await transcriptStore.metadata(entry.id))?.metadata?.motionDesign,
             workspace: entry.workspace || null,
             messages: Array.isArray(entry.messages) ? entry.messages.length : Number(entry.messages) || 0
-        }));
+        })));
     });
+    handle("conversationsOpen",id=>openDesktopConversation(id));
     handle("conversationsRename", async (id, title) => {
         const entry = await require("../src/project/conversations").rename(String(id || ""), String(title ?? ""));
         if (!entry) throw new Error("Conversation introuvable.");
@@ -1279,6 +1320,7 @@ if (!gotLock) {
 
         backend = createDesktopBackend(send);
         backend.effectCraftControl = effectCraftControl;
+        backend.resumeConversation=id=>openDesktopConversation(id,true);
         setUiBackend(backend);
         session = require("../src/core/session");
         const updateSettings=require("../src/settings");

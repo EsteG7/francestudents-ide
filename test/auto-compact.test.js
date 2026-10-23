@@ -83,3 +83,28 @@ test("server context reduction invalidates a cached high occupancy", async () =>
     compact.record("chat", "one", "next", "answer", { inputTokens: 1000, outputTokens: 200 });
     assert.equal(compact.shouldCompact("chat", "one", "continue", policy), false);
 });
+
+test("switching conversations preserves both contexts and can restore a reopened chat",async()=>{
+    const compact=new AutoCompact();
+    compact.record("agent","code","Keep original code requirement","Tool result");
+    compact.record("agent","motion","Animate logo","Created text");
+    assert.match(compact.get("agent","code").history[0].content,/original code/);
+    compact.restore("agent","reopened",[{role:"user",content:"My original task"},{role:"assistant",content:"Still working"}]);
+    assert.equal(await compact.check("agent","reopened","continue",{model:"large",contextWindowTokens:1000000},async()=>({contextUsagePercent:98})),true);
+    const text=await compact.prepare("agent","reopened","continue",null,async()=>{throw Error("summary unavailable");});
+    assert.match(text,/My original task/);assert.match(text,/Still working/);assert.match(text,/continue/);
+});
+
+test("server occupancy is polled during fast tasks even below the provider's advertised window",async()=>{
+    const compact=new AutoCompact();
+    for(let i=0;i<4;i++)compact.record("agent","one","tool input","result");
+    let calls=0;
+    assert.equal(await compact.check("agent","one","continue",{model:"flash",contextWindowTokens:1048576},async()=>{calls++;return {contextUsagePercent:96};}),true);
+    assert.equal(calls,1);
+});
+
+test("long initial prompts retain the task at their end and exact backend overflow wording is recognized",async()=>{
+    const compact=new AutoCompact();compact.record("agent","one","Instructions "+"x".repeat(30000)+" ORIGINAL_USER_GOAL","result");
+    await compact.prepare("agent","one","continue",null,async prompt=>{assert.match(prompt,/ORIGINAL_USER_GOAL/);return "Goal preserved";});
+    assert.equal(isContextOverflow(new Error('Erreur du flux : {"message":"This conversation has reached the maximum token limit of 250000."}')),true);
+});

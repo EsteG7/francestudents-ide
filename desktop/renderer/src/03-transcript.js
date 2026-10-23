@@ -1,6 +1,7 @@
 /* ---------- Transcript ---------- */
 
 function scrollDown() {
+    if(ui.replayingConversation)return;
     transcript.scrollTop = transcript.scrollHeight;
 }
 
@@ -89,6 +90,8 @@ function renderEntry(e) {
             if (e.type === "error") {
                 const budget = parseBudgetNotice(e.text);
                 if (budget) return renderBudgetEntry(budget, e.text);
+                const context=parseContextLimitNotice(e.text);
+                if(context)return renderContextLimitEntry(context,e.text);
             }
             return addEntry(e.type, escapeHtml(e.text));
         }

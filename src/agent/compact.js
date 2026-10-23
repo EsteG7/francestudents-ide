@@ -23,7 +23,7 @@ function buildCompactPrompt(history, focus = "") {
     ].filter(Boolean).join("\n");
 }
 
-function cleanSummary(text) {
+function cleanSummary(text, maxChars = SUMMARY_CHARS) {
     let s = String(text ?? "").trim();
     try {
         const parsed = JSON.parse(s);
@@ -31,7 +31,7 @@ function cleanSummary(text) {
     } catch {
         // texte brut attendu
     }
-    return s.length > SUMMARY_CHARS ? `${s.slice(0, SUMMARY_CHARS)} …` : s;
+    return s.length > maxChars ? `${s.slice(0, maxChars)} …` : s;
 }
 
 /**

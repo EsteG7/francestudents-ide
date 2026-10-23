@@ -180,19 +180,22 @@ test("converted Excel and SVG reach the model as text and image instead of raw u
     state.pendingImages = [];
     state.pendingFiles = [file("bilan.xlsx", xlsx.write(workbook, { type: "buffer", bookType: "xlsx" })), file("logo.svg", svg, "image/svg+xml")];
     const original = global.fetch;
-    let uploads = 0, body;
+    let uploads = 0, body;const bodies=[];
     global.fetch = async (url, init) => {
         if (String(url).endsWith("/files/upload")) { uploads++; return Response.json({ uuid: "11111111-2222-3333-4444-555555555555" }); }
         assert.ok(String(url).endsWith("/chats/stream"));
         body = JSON.parse(init.body);
-        return new Response('event: response.output_text.delta\ndata: {"delta":"ok"}\n\ndata: [DONE]\n\n');
+        bodies.push(body);
+        const answer=body.images.length?JSON.stringify({images:[{index:1,status:"seen",description:"An SVG logo with its shapes and colors visible."}]}):"ok";
+        return new Response('event: response.output_text.delta\ndata: '+JSON.stringify({chat_id:"converted-docs",delta:answer})+'\n\ndata: [DONE]\n\n');
     };
     try {
         assert.equal(await requestModel("Lis les fichiers"), "ok");
-        assert.match(body.initialContent, /Feuille : Synthèse/);
-        assert.match(body.initialContent, /Bilan/);
-        assert.match(body.initialContent, /<svg/);
-        assert.equal(body.images.length, 1);
+        const content=bodies.map(item=>item.initialContent).join("\n");
+        assert.match(content, /Feuille : Synthèse/);
+        assert.match(content, /Bilan/);
+        assert.match(content, /<svg/);
+        assert.equal(bodies.flatMap(item=>item.images).length, 1);
         assert.deepEqual(body.files, []);
         assert.equal(uploads, 1);
     } finally { global.fetch = original; state.pendingImages = []; state.pendingFiles = []; }

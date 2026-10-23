@@ -387,13 +387,17 @@ function renderHistoryRow(item) {
     sub.textContent = [when, item.mode, item.model, `${item.messages} message(s)`].filter(Boolean).join(" · ");
     main.appendChild(sub);
     open.appendChild(main);
-    open.onclick = () => {
+    open.onclick = async () => {
         hideModelMenu();
         if (ui.status && ui.status.busy) {
             renderEntry({ type: "error", text: "Une demande est en cours : attends sa fin avant de changer de conversation." });
             return;
         }
-        send(`/chat-id ${item.id}`);
+        try{
+            if(item.motionDesign && !isMotionOpen())await openMotionDesign();
+            else if(!item.motionDesign && isMotionOpen())await closeMotionDesign();
+            await api.conversationsOpen(item.id);
+        }catch(error){renderEntry({type:"error",text:error.message});}
     };
 
     const actions = document.createElement("span");

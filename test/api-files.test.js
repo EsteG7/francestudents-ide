@@ -25,11 +25,11 @@ function prepareAuth() {
     state.pendingFiles = [];
 }
 
-function successfulResponse() {
+function successfulResponse(answer="ok") {
     const body = new ReadableStream({
         start(controller) {
             controller.enqueue(new TextEncoder().encode(
-                'event: response.output_text.delta\ndata: {"delta":"ok"}\n\n' +
+                'event: response.output_text.delta\ndata: '+JSON.stringify({chat_id:"file-chat",delta:answer})+'\n\n' +
                 "data: [DONE]\n\n"
             ));
             controller.close();
@@ -120,23 +120,26 @@ test("requestModel transmet le PDF via les images natives", { concurrency: false
     prepareAuth();
     const urls = [];
     let streamBody = null;
+    let visualBody=null;
     global.fetch = async (url, init) => {
         urls.push(String(url));
         if (String(url).endsWith("/files/upload")) {
             return new Response(JSON.stringify({ uuid: "11111111-2222-3333-4444-555555555555" }), { status: 200 });
         }
         streamBody = JSON.parse(init.body);
+        if(streamBody.images.length){visualBody=streamBody;return successfulResponse(JSON.stringify({images:[{index:1,status:"seen",description:"A PDF page with its document text visible."}]}));}
         return successfulResponse();
     };
     state.pendingFiles = [{ name: "sujet.pdf", dataUrl: PDF_DATA_URL }];
 
     assert.equal(await requestModel("résume ce PDF"), "ok");
 
-    assert.equal(urls.length, 2);
+    assert.equal(urls.length, 3);
     assert.ok(urls[0].endsWith("/files/upload"));
     assert.ok(urls[1].endsWith("/chats/stream"));
     assert.deepEqual(streamBody.files, []);
-    assert.deepEqual(streamBody.images, ["11111111-2222-3333-4444-555555555555"]);
+    assert.deepEqual(visualBody.images, ["11111111-2222-3333-4444-555555555555"]);
+    assert.deepEqual(streamBody.images, []);
     assert.deepEqual(state.pendingFiles, []);
 });
 
@@ -158,14 +161,13 @@ test("image uploaded as multipart then attached to agent request, reused on retr
         }
         streams++;
         const body = JSON.parse(init.body);
-        assert.deepEqual(body.images, [IMAGE_ID]);
-        assert.match(body.initialContent, /PIÈCES JOINTES VISUELLES/);
+        if(streams<=2){assert.deepEqual(body.images,[IMAGE_ID]);assert.match(body.initialContent,/RÉCEPTION VISUELLE INITIALE/);}else assert.deepEqual(body.images,[]);
         if (streams === 1) return new Response("temporary", { status: 500 });
-        return successfulResponse();
+        return successfulResponse(streams===2?JSON.stringify({images:[{index:1,status:"seen",description:"A small PNG image with a white background."}]}):"ok");
     };
     assert.equal(await requestModel("Examine cette capture", { conversationMode: "agent" }), "ok");
     assert.equal(uploads, 1);
-    assert.equal(streams, 2);
+    assert.equal(streams, 3);
     assert.deepEqual(state.pendingImages, []);
 });
 

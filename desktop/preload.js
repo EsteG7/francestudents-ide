@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld("frst", {
     trashEntry: (rel) => call("trashEntry", rel),
     runTerminal: (line, cwd) => call("runTerminal", String(line ?? ""), String(cwd ?? ".")),
     terminalCd: (cwd, target) => call("terminalCd", String(cwd ?? "."), String(target ?? "")),
+    conversationsOpen:id=>call("conversationsOpen",String(id)),
     killTerminal: (id) => call("killTerminal", id),
     ptyAvailable: () => call("ptyAvailable"),
     ptyCreate: (cwd, cols, rows) => call("ptyCreate", String(cwd ?? "."), Number(cols) || 80, Number(rows) || 24),

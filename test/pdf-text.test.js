@@ -101,10 +101,12 @@ test("extractPdfText tronque les textes trop longs", () => {
 
 test("PDF converti en images sans appel Files v2", { concurrency: false }, async () => {
     prepareAuth();
-    let streamBody = null;
+    let streamBody = null;const bodies=[];
     global.fetch = async (url, init) => {
         if (String(url).endsWith("/files/upload")) return Response.json({uuid:"11111111-2222-3333-4444-555555555555"});
         streamBody = JSON.parse(init.body);
+        bodies.push(streamBody);
+        if(streamBody.images.length)return new Response('event: response.output_text.delta\ndata: '+JSON.stringify({chat_id:"pdf-receipt",delta:JSON.stringify({images:[{index:1,status:"seen",description:"A PDF course page containing readable text."}]})})+'\n\ndata: [DONE]\n\n');
         return successfulResponse();
     };
     state.pendingFiles = [{ name: "cours.pdf", dataUrl: dataUrl(makePdf(CONTENT, { compress: true })) }];
@@ -113,8 +115,8 @@ test("PDF converti en images sans appel Files v2", { concurrency: false }, async
 
     assert.deepEqual(streamBody.files, []);
     assert.match(streamBody.initialContent, /^résume ce PDF/);
-    assert.match(streamBody.initialContent, /Fichier joint : cours\.pdf/);
-    assert.deepEqual(streamBody.images, ["11111111-2222-3333-4444-555555555555"]);
+    assert.match(bodies.map(item=>item.initialContent).join("\n"), /Fichier joint : cours\.pdf/);
+    assert.deepEqual(bodies.flatMap(item=>item.images), ["11111111-2222-3333-4444-555555555555"]);
     assert.deepEqual(state.pendingFiles, []);
 });
 

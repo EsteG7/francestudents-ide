@@ -17,6 +17,11 @@
 .center-filters :is(input, select), .settings-search-wrap input, .settings-number-grid input, .center-dialog input { min-height: 32px; padding: 6px 10px; background: var(--bg-input); border: 1px solid var(--border-strong); color: var(--fg); border-radius: 6px; box-sizing: border-box; }
 .center-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 12px; }
 .motion-marketplace{margin:24px 0 32px;padding:22px;border:1px solid var(--border-strong);border-radius:12px;background:var(--bg-panel)}
+.context-limit-notice{border:1px solid var(--border-strong);border-radius:9px;padding:14px!important;background:var(--bg-panel)}
+.context-limit-notice strong{display:block;color:var(--fg-strong)}
+.context-limit-notice p{line-height:1.6;font-size:12px}
+.context-limit-notice summary{cursor:pointer;font-size:11px;color:var(--fg-dim)}
+.context-limit-notice pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:10px}
 .motion-marketplace-head{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
 .motion-marketplace-head h2{font-size:21px;letter-spacing:-.4px;color:var(--fg-strong);margin:12px 0}
 .motion-marketplace-head p{font-size:12px;line-height:1.6;color:var(--fg-dim);margin:0}

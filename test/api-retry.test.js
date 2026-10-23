@@ -9,57 +9,31 @@ const { requestModel, MAX_REQUEST_FAILURES } = require("../src/api/api");
 
 const originalFetch = global.fetch;
 
-test("images are sent once, not re-attached on later turns, and do not leak into a new conversation", async () => {
-    prepareAuth();
-    const image = "11111111-2222-3333-4444-123456789012", bodies = [];
-    state.chatIds.agent = null; state.pendingImages = [image]; state.pendingFiles = [];
-    global.fetch = async (_, init) => {
-        bodies.push(JSON.parse(init.body));
-        return new Response('event: response.output_text.delta\ndata: {"chat_id":"visual-retention-chat","delta":"ok"}\n\ndata: [DONE]\n\n', { headers: { "content-type": "text/event-stream" } });
+test("initial visual receipt is checked once; later turns never re-attach or ask about memory",async()=>{
+    prepareAuth();const image="11111111-2222-3333-4444-123456789012",bodies=[];
+    state.chatIds.agent=null;state.pendingImages=[image];state.pendingFiles=[];
+    global.fetch=async(url,init)=>{
+        if(String(url).endsWith('/usage'))return Response.json({contextUsagePercent:10});
+        const body=JSON.parse(init.body);bodies.push(body);
+        const answer=body.images.length?JSON.stringify({images:[{index:1,status:'seen',description:'A blue title centered on a dark background.'}]}):'ok';
+        return new Response('event: response.output_text.delta\ndata: '+JSON.stringify({chat_id:'visual-receipt-chat',delta:answer})+'\n\ndata: [DONE]\n\n',{headers:{'content-type':'text/event-stream'}});
     };
-    try {
-        await requestModel("Analyse le design", { conversationMode: "agent" });
-        await requestModel("Suite après lecture des fichiers", { conversationMode: "agent" });
-        assert.equal(bodies.length, 2); assert.deepEqual(bodies[0].images, [image]); assert.deepEqual(bodies[1].images, []);
-        state.chatIds.agent = null;
-        await requestModel("Nouvelle tâche sans image", { conversationMode: "agent" });
-        assert.deepEqual(bodies[2].images, []);
-    } finally { global.fetch = originalFetch; state.pendingImages = []; state.pendingFiles = []; state.chatIds.agent = null; }
+    try{
+        await requestModel('Analyse image',{conversationMode:'agent'});
+        for(let i=0;i<8;i++)await requestModel('Continue '+i,{conversationMode:'agent'});
+        assert.equal(bodies.length,10);assert.deepEqual(bodies[0].images,[image]);
+        for(const body of bodies.slice(1))assert.deepEqual(body.images,[]);
+        assert.equal(bodies.filter(body=>body.initialContent.includes('R'+String.fromCharCode(201)+'CEPTION VISUELLE INITIALE')).length,1);
+        assert.ok(bodies.every(body=>!body.initialContent.includes('DE M'+String.fromCharCode(201)+'MOIRE')));
+        state.chatIds.agent=null;await requestModel('New unrelated conversation',{conversationMode:'agent'});assert.deepEqual(bodies.at(-1).images,[]);
+    }finally{global.fetch=originalFetch;state.pendingImages=[];state.pendingFiles=[];state.chatIds.agent=null;}
 });
 
-async function runImageMemoryScenario(answerToQuestion) {
-    prepareAuth();
-    const image = "11111111-2222-3333-4444-123456789012", bodies = [];
-    state.chatIds.agent = null; state.pendingImages = [image]; state.pendingFiles = [];
-    global.fetch = async (_, init) => {
-        const body = JSON.parse(init.body);
-        bodies.push(body);
-        const answer = JSON.stringify(body).includes("VÉRIFICATION DE MÉMOIRE") ? answerToQuestion : "ok";
-        const data = JSON.stringify({ chat_id: "visual-memory-chat", delta: answer });
-        return new Response(`event: response.output_text.delta\ndata: ${data}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
-    };
-    try {
-        await requestModel("Analyse le design", { conversationMode: "agent" });
-        for (let turn = 1; turn <= 5; turn++) await requestModel(`Suite ${turn}`, { conversationMode: "agent" });
-        return { image, bodies };
-    } finally { global.fetch = originalFetch; state.pendingImages = []; state.pendingFiles = []; state.chatIds.agent = null; }
-}
-
-test("la vérification de mémoire n'a lieu qu'après plusieurs requêtes et, sur OUI, les images ne sont pas renvoyées", async () => {
-    const { image, bodies } = await runImageMemoryScenario("OUI");
-    assert.equal(bodies.length, 7);
-    assert.deepEqual(bodies[0].images, [image]);
-    for (const index of [1, 2, 3, 4, 5, 6]) assert.deepEqual(bodies[index].images, [], `requête ${index}`);
-    for (const index of [0, 1, 2, 3, 4, 6]) assert.doesNotMatch(JSON.stringify(bodies[index]), /VÉRIFICATION DE MÉMOIRE/, `requête ${index}`);
-    assert.match(JSON.stringify(bodies[5]), /VÉRIFICATION DE MÉMOIRE/);
-});
-
-test("sur NON à la vérification de mémoire, les images sont renvoyées", async () => {
-    const { image, bodies } = await runImageMemoryScenario("NON");
-    assert.equal(bodies.length, 7);
-    assert.match(JSON.stringify(bodies[5]), /VÉRIFICATION DE MÉMOIRE/);
-    assert.deepEqual(bodies[5].images, []);
-    assert.deepEqual(bodies[6].images, [image]);
+test("an unavailable image stops before the user's task is executed",async()=>{
+    prepareAuth();state.pendingImages=['11111111-2222-3333-4444-123456789012'];let calls=0;
+    global.fetch=async()=>{calls++;return new Response('event: response.output_text.delta\ndata: '+JSON.stringify({chat_id:'unavailable-image',delta:JSON.stringify({images:[{index:1,status:'unavailable',description:'No pixels available'}]})})+'\n\ndata: [DONE]\n\n',{headers:{'content-type':'text/event-stream'}});};
+    try{await assert.rejects(requestModel('Modify site from image',{conversationMode:'agent'}),/confirm/);assert.equal(calls,1);}
+    finally{global.fetch=originalFetch;state.pendingImages=[];state.chatIds.agent=null;}
 });
 
 test.after(() => {
@@ -200,6 +174,8 @@ function prepareAuth() {
     auth.expiresAt = Date.now() + 300_000;
     auth.deviceId = "test-device";
     state.chatIds.chat = "chat-1";
+    state.history=[];
+    requestModel.compactor=new (require("../src/agent/auto-compact").AutoCompact)();
     state.model = -1002;
 }
 
@@ -213,8 +189,8 @@ test("oversized image in server history recovers once without repeating the pois
         return successfulResponse();
     };
     assert.equal(await requestModel("Continue inspecting capture"),"ok");
-    assert.equal(bodies.length,2);assert.equal(bodies[0].chatId,"chat-1");assert.equal(bodies[1].chatId,null);
-    assert.match(bodies[1].initialContent,/Continue inspecting capture/);
+    assert.equal(bodies.length,3);assert.equal(bodies[0].chatId,"chat-1");assert.equal(bodies[2].chatId,null);
+    assert.match(bodies[2].initialContent,/Continue inspecting capture/);
 });
 
 test("permanent provider 400 in an SSE error is not retried repeatedly",async()=>{
