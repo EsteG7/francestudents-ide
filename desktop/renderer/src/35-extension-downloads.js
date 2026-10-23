@@ -1,6 +1,15 @@
 /* Explicit progress and cancellation for community instruction downloads. */
+function renderMarketplaceSkillActions(card){
+    const item=card.marketplaceItem;
+    card.querySelector(".center-card-actions")?.remove();
+    const actions=centerNode("div","center-card-actions");
+    const key=readStudioStorage("frst.marketplace-installed",{})[item.githubUrl];
+    const installed=centerData?.skills.find(skill=>skill.key===key);
+    actions.append(centerButton("Voir le dépôt",()=>api.openExternal(item.githubUrl)),installed?uninstallSkillButton(installed):centerButton("Lire et installer",()=>downloadSkillPreview(item),true));
+    card.append(actions);
+}
 async function uninstallCenterSkill(skill) {
-    if (!skill || !window.confirm(`Désinstaller « ${skill.name} » ? Il ne sera plus disponible pour l’IA. Son dossier sera conservé dans .trash pour pouvoir le récupérer.`)) return;
+    if (!skill || !await confirmStudioAction(`Désinstaller « ${skill.name} » ? Il ne sera plus disponible pour l’IA. Son dossier sera conservé dans .trash pour pouvoir le récupérer.`,{title:"Désinstaller ce skill",confirmLabel:"Désinstaller",danger:true})) return;
     await changeExtension("remove", {key:skill.key}, `« ${skill.name} » désinstallé. Son dossier reste récupérable dans .trash.`);
 }
 const extensionDownloads = new Map();
@@ -38,7 +47,7 @@ async function downloadSkillPreview(item) {
     for (const [id, old] of extensionDownloads) if (extensionDownloads.size > 8 && old.state !== "loading") { old.card.remove(); extensionDownloads.delete(id); }
     try {
         const preview = await api.marketplace("preview", {githubUrl:item.githubUrl, curatedId:item.curatedId, requestId:job.id});
-        job.state = "ready"; job.message = "Téléchargé · lis les instructions avant de choisir Installer. Le skill sera désactivé.";
+        job.state = "ready"; job.message = "Téléchargé · lis les instructions puis choisis Installer. Tu pourras ensuite l’activer dans Mes skills.";
         showSkillDownload(job); openSkillEditor({kind:"remote", item:{...item, ...preview}});
         if(preview.resourceCount)$("skill-editor-message").textContent=`Ressources incluses : ${preview.resourceNames.join(", ")}`;
     } catch (error) {

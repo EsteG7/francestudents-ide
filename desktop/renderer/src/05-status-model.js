@@ -65,6 +65,7 @@ function applyStatus(s) {
 function renderQuota() {
     renderUsageMeter();
     renderUsageDashboard();
+    if(typeof updateQuotaRecoveryCards==="function")updateQuotaRecoveryCards();
 }
 
 async function refreshQuota() {
@@ -84,6 +85,7 @@ async function refreshQuota() {
     }
     ui.quotaLoading = false;
     renderQuota();
+    return ui.quota;
 }
 
 /* ---------- Choix du modèle (/model) ---------- */
@@ -98,13 +100,13 @@ function positionModelMenu(anchor) {
     const width = Math.min(modelMenuEl.dataset.kind === "history" ? 520 : Math.max(300, rect.width), window.innerWidth - 16);
     modelMenuEl.style.minWidth = "0";
     modelMenuEl.style.width = `${width}px`;
-    modelMenuEl.style.maxHeight = `${Math.max(0, window.innerHeight - 16)}px`;
+    const below=Math.max(0,window.innerHeight-rect.bottom-14),above=Math.max(0,rect.top-14);
+    const placeBelow=below>=above;
+    modelMenuEl.style.maxHeight = `${Math.max(0,placeBelow?below:above)}px`;
     modelMenuEl.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
     modelMenuEl.style.top = `${rect.bottom + 6}px`;
     const menuRect = modelMenuEl.getBoundingClientRect();
-    if (menuRect.bottom > window.innerHeight - 8) {
-        modelMenuEl.style.top = `${Math.max(8, Math.min(rect.top - menuRect.height - 6, window.innerHeight - menuRect.height - 8))}px`;
-    }
+    if (!placeBelow)modelMenuEl.style.top = `${Math.max(8,rect.top-menuRect.height-6)}px`;
 }
 
 window.addEventListener("resize", () => {
@@ -134,6 +136,8 @@ function confirmHistoryDeletion(item) {
             dialog.close();
         };
         dialog.addEventListener("close", () => { dialog.remove(); resolve(confirmed); }, { once: true });
+        studioSurfaceHeader(dialog,{title:"Supprimer cette conversation ?",subtitle:"Les fichiers de ton projet sont conservés.",icon:"auth"});
+        dialog.querySelector(".studio-actions").classList.add("fs-dialog-footer");
         document.body.appendChild(dialog);
         dialog.showModal();
         dialog.querySelector('[data-action="cancel"]').focus();
@@ -290,7 +294,9 @@ function renderHistoryMenu(items) {
     const head = document.createElement("div");
     head.className = "model-menu-head";
     head.textContent = "Conversations récentes";
+    const subtitle=document.createElement("p");subtitle.className="history-intro";subtitle.textContent="Retrouve tes échanges et reprends où tu en étais.";
     modelMenuEl.appendChild(head);
+    modelMenuEl.appendChild(subtitle);
 
     const tools = document.createElement("div");
     tools.className = "history-tools";
@@ -367,7 +373,14 @@ function renderHistoryList() {
         list.appendChild(empty);
         return;
     }
-    for (const item of shown) list.appendChild(renderHistoryRow(item));
+    let previousGroup="";
+    for (const item of shown){
+        const date=new Date(item.updatedAt),today=new Date();today.setHours(0,0,0,0);
+        const yesterday=new Date(today);yesterday.setDate(yesterday.getDate()-1);
+        const group=date>=today?"Aujourd’hui":date>=yesterday?"Hier":"Plus anciennes";
+        if(group!==previousGroup){const heading=document.createElement("div");heading.className="history-group";heading.textContent=group;list.appendChild(heading);previousGroup=group;}
+        list.appendChild(renderHistoryRow(item));
+    }
 }
 
 function renderHistoryRow(item) {
@@ -382,12 +395,15 @@ function renderHistoryRow(item) {
     main.className = "model-item-main";
     const name = document.createElement("span");
     name.className = "model-item-name";
-    name.textContent = `${item.number}. ${item.title}`;
+    name.textContent = item.title;
     main.appendChild(name);
     const sub = document.createElement("span");
     sub.className = "model-item-sub";
-    const when = item.updatedAt ? new Date(item.updatedAt).toLocaleString() : "";
-    sub.textContent = [when, item.mode, item.model, `${item.messages} message(s)`].filter(Boolean).join(" · ");
+    const when = item.updatedAt ? new Date(item.updatedAt).toLocaleString("fr-FR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}) : "";
+    for(const text of [item.motionDesign?"Motion design":"Code",item.model]){if(!text)continue;const badge=document.createElement("span");badge.className="history-badge";badge.textContent=text;sub.appendChild(badge);}
+    const detail=document.createElement("span");detail.className="history-detail";detail.textContent=[when,`${item.messages || 0} échange${item.messages>1?"s":""}`].filter(Boolean).join(" · ");
+    sub.appendChild(detail);
+    if(item.workspace && !item.motionDesign){const folder=document.createElement("span");folder.className="history-folder";folder.textContent=item.workspace.replace(/[\\/]+$/,"").split(/[\\/]/).pop();main.appendChild(folder);}
     main.appendChild(sub);
     open.appendChild(main);
     open.onclick = async () => {

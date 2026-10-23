@@ -2,6 +2,19 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
+## [1.3.3] — 23 octobre 2026 · FranceStudent IDE et interface simplifiée
+
+- Guide de reprise pour les contributeurs et assistants IA : point d’entrée AGENTS.md, contexte commun, repères d’architecture, tests et publication. Entrées légères Claude, Gemini et Copilot sans duplication de l’historique privé. Le workflow Windows lit désormais le nom attendu de l’installeur dans package.json.
+- Validation générale : tests unitaires exécutés dans des dossiers de données isolés par processus, pour ne plus dépendre des préférences réelles de l’utilisateur ni les modifier. Protection des titres des anciennes conversations lors du passage au titrage IA.
+- Identité visuelle commune aux fenêtres Mode Éco, import Codex, GitHub, skills, MCP et confirmations. En-têtes illustrés, sections, champs et boutons harmonisés, actions accessibles pendant le défilement, dispositions adaptées aux petites fenêtres. Remplacement des confirmations natives par des fenêtres de l’IDE, avec annulation au clavier.
+- Application renommée FranceStudent IDE, avec conservation du dossier de données existant et de l’identité de mise à jour.
+- Court écran de nouveautés au premier lancement de chaque version installée, consultable à nouveau dans les paramètres. Résumé embarqué, sans requête réseau supplémentaire.
+- Cartes illustrées pour les erreurs API, avec explication et détail technique repliable. Quota épuisé : compte à rebours en heures/minutes et bouton « J’ai reçu un reset », confirmé uniquement par l’API. Actualisation silencieuse toutes les 15 minutes et vérification à l’échéance connue.
+- Conversations récentes présentées en cartes, regroupées par date, avec titres courts proposés dans les réponses de l’agent sans requête supplémentaire. Les titres personnalisés sont préservés.
+- Nouvelle conversation : effacement du chat visible en code comme en motion, sans supprimer les conversations sauvegardées.
+- Skills : bouton Installer clarifié, remplacé après installation par Désinstaller en rouge. Action disponible dans les bibliothèques code/motion et les téléchargements communautaires associés.
+- En-tête EffectCraft harmonisé, commandes de lecture plus lisibles ; retrait du bouton Agent redondant dans la barre latérale et des limites techniques du compte dans Usage.
+
 ## [1.3.2] — 23 octobre 2026 · Isolation motion, historique et vision MCP
 
 - Vision MCP : les captures et ressources images renvoyées par les serveurs (notamment Roblox) sont préparées et jointes à la prochaine requête visuelle, au lieu d’être remplacées par du texte « non affiché ». Réception vérifiée par le circuit de vision existant ; une image invalide produit une erreur explicite sans masquer les autres résultats.

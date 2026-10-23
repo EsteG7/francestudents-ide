@@ -109,8 +109,8 @@ test("e2e : tâches ajoutées, réordonnées, exécutées et suspendues sur bloc
         await page.locator("#activity-jobs").getByRole("button", { name: "Arrêter", exact: true }).click();
         await page.waitForFunction(() => document.getElementById("activity-jobs").textContent.includes("stopped"));
         assert.equal(fs.existsSync(path.join(project, "qa-created.txt")), true);
-        page.once("dialog", dialog => dialog.accept());
         await page.locator("#activity-checkpoints").getByRole("button", { name: "Restaurer", exact: true }).click();
+        await page.locator('#studio-confirm-dialog [data-confirm="accept"]').click();
         await page.waitForFunction(() => document.getElementById("composer-feedback").textContent.includes("restaurée"));
         assert.equal(fs.existsSync(path.join(project, "qa-created.txt")), false);
         if (process.env.FRST_QA_SCREENSHOT) await page.screenshot({ path: process.env.FRST_QA_SCREENSHOT.replace(/\.png$/, "-activity.png"), fullPage: true });

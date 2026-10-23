@@ -339,7 +339,7 @@ async function replaceAllInProject() {
         return;
     }
     const limited = res.truncated ? "\n(Liste de résultats limitée : relance ensuite pour traiter le reste.)" : "";
-    if (!window.confirm(`Remplacer « ${query} » par « ${replacement} » dans ${files.length} fichier(s) ?${limited}`)) return;
+    if (!await confirmStudioAction(`Remplacer « ${query} » par « ${replacement} » dans ${files.length} fichier(s) ?${limited}`)) return;
 
     let changedFiles = 0;
     let total = 0;

@@ -564,11 +564,12 @@ async function runAgent(task, options = {}) {
         });
     }
 
-    async function finish(message) {
+    async function finish(message, title) {
         ui.assistant(message);
         record("user", task);
         record("assistant", message);
         await saveConversation();
+        if(typeof title==="string" && title.trim() && title.length<=100 && state.chatIds.agent)await conversations.rename(state.chatIds.agent,title,"ai");
 
         reportUsage(usageBefore);
 
@@ -703,7 +704,7 @@ async function runAgent(task, options = {}) {
                 deferredSteering = lateSteering;
                 continue;
             }
-            await finish(action.message);
+            await finish(action.message, action.conversation_title);
             return { completed: action.completed !== false, message: action.message };
         }
 

@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Processus principal de l'application de bureau FranceStudent Code (Electron).
+ * Processus principal de l'application de bureau FranceStudent IDE (Electron).
  *
  * Le cœur du CLI (session, agent, outils) tourne ici, dans Node. La fenêtre
  * (desktop/renderer) affiche l'interface façon VS Code et communique par IPC :
@@ -12,6 +12,8 @@
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu, clipboard, safeStorage } = require("electron");
+// Keep package.name (project-frstcli) stable: Electron derives the legacy profile
+// directory from it, independently of the executable's new productName.
 
 const { setUiBackend } = require("../src/ui-bridge");
 const { createDesktopBackend } = require("./backend");
@@ -809,6 +811,8 @@ async function openDesktopConversation(id,fromCommand=false){
 }
 
 function registerIpc() {
+    const releaseNotes=require("./release-highlights").createReleaseHighlights({version:app.getVersion(),enabled:app.isPackaged || process.env.FRST_QA_RELEASE_NOTES==="1",load:()=>require("../src/settings").load(),save:value=>require("../src/settings").save(value)});
+    handle("releaseHighlights",(action,version)=>action==="seen"?releaseNotes.seen(version):releaseNotes.get());
     handle("localBrowser", (action,payload)=>localBrowser.action(String(action),payload||{}));
     handle("effectCraft", action=>action === "stop" ? effectCraftHost.stop() : action === "start" ? effectCraftHost.start() : effectCraftHost.status());
     handle("effectCraftControl", request=>{if(busy)throw new Error("L’agent travaille déjà dans EffectCraft.");return effectCraftControl(request);});
@@ -1234,7 +1238,7 @@ function createWindow() {
         minWidth: 900,
         minHeight: 600,
         backgroundColor: "#1f1f1f",
-        title: "FranceStudent Code",
+        title: "FranceStudent IDE",
         titleBarStyle: "hidden",
         ...(process.platform === "darwin"
             ? { trafficLightPosition: { x: 12, y: 11 } }

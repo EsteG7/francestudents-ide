@@ -26,5 +26,14 @@ test("reopening shows full local actions across compaction and fetches old API m
         await page.evaluate(()=>window.frst.motionConversation("motion"));
         await assert.rejects(page.evaluate(()=>window.frst.conversationsOpen("before-compaction")),/autre espace/);
         await page.evaluate(()=>window.frst.motionConversation("code"));
+        await page.locator("#btn-new").click();
+        await page.waitForFunction(()=>document.querySelector("#transcript").children.length===0);
+        assert.equal(await page.locator("#agent-starter").isVisible(),true);
+        // Starting over clears the display, but the saved conversation remains reopenable.
+        await page.evaluate(()=>window.frst.conversationsOpen("before-compaction"));
+        await page.waitForFunction(()=>document.querySelector("#transcript").textContent.includes("Completed step 39"));
+        await page.evaluate(()=>window.frst.motionConversation("motion"));
+        await page.evaluate(()=>window.frst.submit("/new"));
+        await page.waitForFunction(()=>document.querySelector("#transcript").children.length===0);
     }finally{await app.close();}
 });

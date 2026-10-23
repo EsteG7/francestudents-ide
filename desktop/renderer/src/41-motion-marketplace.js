@@ -29,12 +29,11 @@ function renderMotionMarketplace(){
         const installed=centerData.skills.find(skill=>skill.key===libraryInstallKey(item,scope));
         if(motionCollection==="effectcraft"){
             actions.append(centerButton("Voir les instructions",()=>{openSkillEditor({kind:"library",item});$("skill-editor-scope").value=scope;}));
-            const install=centerButton(installed?"Installé":"Installer",()=>changeExtension("install",{id:item.id,scope},`${item.title} installé pour le chat Motion design.`),true);install.disabled=!!installed;actions.append(install);
+            actions.append(installed?uninstallSkillButton(installed):centerButton("Installer",()=>changeExtension("install",{id:item.id,scope},`${item.title} installé pour le chat Motion design.`),true));
         }else{
             actions.append(centerButton("Voir le dépôt",()=>api.openExternal(item.githubUrl)));
-            const install=centerButton(installed?"Installé":"Lire et installer",async()=>{await downloadSkillPreview({...item,curatedId:item.id});$("skill-editor-scope").value=scope;},true);install.disabled=!!installed;actions.append(install);
+            actions.append(installed?uninstallSkillButton(installed):centerButton("Lire et installer",async()=>{await downloadSkillPreview({...item,curatedId:item.id});$("skill-editor-scope").value=scope;},true));
         }
-        if(installed)actions.append(centerButton("Désinstaller",()=>uninstallCenterSkill(installed)));
         card.append(actions);motionMarketList.append(card);
     }
 }

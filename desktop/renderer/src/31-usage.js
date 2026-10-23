@@ -31,11 +31,6 @@ function renderUsageDashboard() {
     const total = reported ? Number(usage.inputTokens || 0) + Number(usage.outputTokens || 0) : null;
     const estimate = Math.round(Number(usage.chars || 0) / 3.5);
     const metric = (name, value, detail) => `<div class="usage-metric"><span>${name}</span><strong>${value}</strong><small>${detail}</small></div>`;
-    const limits = (quota?.limits || []).map(limit => {
-        const value = usagePercent(limit.usedPercent);
-        const label = [limit.type, limit.bucket].filter(Boolean).join(" · ") || "Limite du compte";
-        return `<div class="usage-limit"><div><b>${escapeHtml(label)}</b><span>${value == null ? "—" : Math.round(value) + " %"}</span></div>${usageProgress(value, label)}<small>${usageNumber(limit.used)}${limit.limit > 0 ? " / " + usageNumber(limit.limit) : " utilisé(s)"} · Réinitialisation : ${escapeHtml(usageDate(limit.resetAt))}</small></div>`;
-    }).join("");
     $("usage-refresh").disabled = Boolean(ui.quotaLoading) || !ui.status.booted;
     box.innerHTML = `<div class="usage-quota-card ${usageTone(percent)}">
         <div class="usage-quota-top"><span>Quota de chat</span><span class="usage-badge">${ui.quotaLoading ? "Actualisation…" : quota?.uncertain ? "Estimation serveur" : percent == null ? "Indisponible" : "Compte FranceStudent"}</span></div>
@@ -45,7 +40,7 @@ function renderUsageDashboard() {
         <div class="usage-section-title"><h3>Cette session</h3><span>${ui.status.ecoMode ? "Mode Éco activé" : "Depuis l’ouverture"}</span></div>
         <div class="usage-metrics">${metric("Requêtes IA", usageNumber(usage.requests), "Relances comprises")}${metric(reported ? "Tokens comptabilisés" : "Tokens estimés", reported ? usageNumber(total) : estimate ? "≈ " + usageNumber(estimate) : "—", reported ? "Données reçues du service" : "Estimation du texte envoyé")}${metric("Entrée", reported ? usageNumber(usage.inputTokens) : "—", "Tokens envoyés au modèle")}${metric("Sortie", reported ? usageNumber(usage.outputTokens) : "—", "Tokens générés")}</div>
         ${reported ? `<p class="usage-cache">${usageNumber(usage.cachedTokens)} tokens en cache, déjà inclus dans l’entrée. Les compteurs couvrent les réponses qui transmettent un relevé.</p>` : '<p class="usage-cache">Sans relevé de tokens du service, l’estimation ne couvre pas les images, les réponses ni tout l’historique serveur.</p>'}
-        ${limits ? `<div class="usage-section-title"><h3>Limites du compte</h3></div><div class="usage-limits">${limits}</div>` : ""}
         <p class="usage-updated">${ui.quotaUpdatedAt ? "Quota actualisé le " + escapeHtml(usageDate(ui.quotaUpdatedAt)) : "Le quota ne peut pas être déduit du nombre de tokens de cette session."}</p>`;
+    if(percent>=100)mountQuotaRecovery(box,quota?.resetAt);
 }
 $("usage-refresh").onclick = () => refreshQuota();

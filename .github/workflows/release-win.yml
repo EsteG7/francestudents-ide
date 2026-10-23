@@ -39,7 +39,9 @@ jobs:
           $release = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json assets,isPrerelease,isDraft | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw "Release introuvable" }
           $names = @($release.assets | ForEach-Object { $_.name })
-          $required = @("FranceStudentCode-$version-setup.exe", "FranceStudentCode-$version-setup.exe.blockmap", "latest.yml", "SHA256SUMS.txt")
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $installer = $package.build.nsis.artifactName.Replace('${version}', $version)
+          $required = @($installer, "$installer.blockmap", "latest.yml", "SHA256SUMS.txt")
           $missing = @($required | Where-Object { $_ -notin $names })
           "ready=$($missing.Count -eq 0)".ToLower() >> $env:GITHUB_OUTPUT
       - name: Installer et vérifier

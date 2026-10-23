@@ -19,6 +19,7 @@ test("native GitHub dialog previews drafts, creates and publishes through mocked
         await page.locator("#github-release-create").click();
         await page.getByRole("button", { name: "Publier la release", exact: true }).waitFor();
         assert.match(await page.locator(".github-connector-card").innerText(), /Brouillon/);
+        if(process.env.FRST_SURFACE_SCREENSHOT_PREFIX)await page.screenshot({path:process.env.FRST_SURFACE_SCREENSHOT_PREFIX+"-github.png",animations:"disabled"});
         await page.getByRole("button", { name: "Publier la release", exact: true }).click();
         await page.waitForFunction(() => document.querySelector(".github-connector-card")?.textContent.includes("Publié"));
         const calls = await app.evaluate(() => globalThis.connectorCalls);

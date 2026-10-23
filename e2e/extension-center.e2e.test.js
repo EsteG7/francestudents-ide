@@ -76,7 +76,9 @@ test("e2e : bibliothèque, profils, marketplace, MCP réel et paramètres persis
         assert.match(await page.locator("#skill-editor-content").inputValue(),/application: effectcraft/);
         await page.locator("#skill-editor-cancel").click();
         await titleSkill.getByRole("button",{name:"Installer",exact:true}).click();
-        await titleSkill.getByRole("button",{name:"Installé",exact:true}).waitFor();
+        await titleSkill.getByRole("button",{name:"Désinstaller",exact:true}).waitFor();
+        assert.equal(await titleSkill.getByRole("button",{name:"Installer",exact:true}).count(),0);
+        assert.equal(await titleSkill.locator("button.skill-uninstall").count(),1);
         assert.ok(fs.existsSync(path.join(dir,"motion-workspace/.frst/skills/motion-titles/SKILL.md")));
         assert.equal(fs.existsSync(path.join(project,".frst/skills/motion-titles/SKILL.md")),false);
         await page.locator('[data-motion-collection="code"]').click();
@@ -103,6 +105,13 @@ test("e2e : bibliothèque, profils, marketplace, MCP réel et paramètres persis
         await page.locator("#skill-editor-save").click();
         await page.waitForSelector("#skill-editor:not([open])", {state:"attached"});
         assert.equal((await page.evaluate(() => window.frst.extensionAction("list"))).skills.find(skill => skill.name === "community-qa").disabled, true);
+        const communityRemove=page.locator("#marketplace-results").getByRole("button",{name:"Désinstaller",exact:true});
+        await communityRemove.waitFor();
+        assert.equal(await page.locator("#marketplace-results button.skill-uninstall").count(),1);
+        await communityRemove.click();
+        await page.locator('#studio-confirm-dialog [data-confirm="accept"]').click();
+        await page.locator("#marketplace-results").getByRole("button",{name:"Lire et installer",exact:true}).waitFor();
+        assert.equal((await page.evaluate(()=>window.frst.extensionAction("list"))).skills.some(skill=>skill.name==="community-qa"),false);
         await page.locator('[data-center-tab="mcp"]').click();
         await page.locator("#btn-mcp-add").click();
         await page.locator("#mcp-name").fill("qa-local");

@@ -104,7 +104,7 @@ async function renderDir(container, rel, depth) {
 }
 
 async function openProject() {
-    if (ui.tabs.some((t) => t.dirty) && !window.confirm("Des fichiers ne sont pas enregistrés. Changer de projet quand même ?")) return;
+    if (ui.tabs.some((t) => t.dirty) && !await confirmStudioAction("Des fichiers ne sont pas enregistrés. Changer de projet quand même ?")) return;
     try {
         const ws = await api.openProject();
         if (ws && ws !== ui.workspace) {

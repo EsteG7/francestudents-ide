@@ -20,5 +20,5 @@
         guideError(err);
     }
     refreshQuota();
-    setInterval(refreshQuota, 120000);
+    setInterval(refreshQuota, 15 * 60 * 1000);
 })();

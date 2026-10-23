@@ -680,7 +680,7 @@ ui.info(
 
     case "/new":
       resetConversation(state.mode === "agent" ? "agent" : "chat");
-      ui.info("Nouvelle conversation.");
+      ui.clear();
       break;
 
     case "/chat-id": {

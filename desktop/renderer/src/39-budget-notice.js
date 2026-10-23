@@ -5,7 +5,7 @@ const BUDGET_TIME_ZONE = "Europe/Paris";
 /** Détecte une erreur « Chat budget exhausted » et en extrait l'heure de reprise (UTC). */
 function parseBudgetNotice(text) {
     const raw = String(text ?? "");
-    if (!/budget\s+(?:de\s+chat\s+)?(?:exhausted|épuisé)/i.test(raw)) return null;
+    if (!/budget\s+(?:de\s+chat\s+)?(?:exhausted|épuisé)|insufficient_quota|quota.{0,25}(?:exhausted|épuisé|atteint|exceeded)/i.test(raw)) return null;
     const match = /Reset at\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?Z/i.exec(raw);
     const resetAt = match ? new Date(`${match[1]}Z`) : null;
     return { resetAt: resetAt && !Number.isNaN(resetAt.getTime()) ? resetAt : null };
@@ -54,7 +54,7 @@ function renderBudgetEntry(notice, rawText) {
     const f = formatBudgetNotice(notice);
     const chips = [
         f.when ? `<span class="budget-chip"><b>Reprise</b> ${escapeHtml(f.when)}</span>` : "",
-        f.remaining ? `<span class="budget-chip"><b>Dans</b> ${escapeHtml(f.remaining.replace(/^dans\s+/, ""))}</span>` : ""
+        typeof mountQuotaRecovery!=="function" && f.remaining ? `<span class="budget-chip"><b>Dans</b> ${escapeHtml(f.remaining.replace(/^dans\s+/, ""))}</span>` : ""
     ].join("");
     const icon = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
     const el = addEntry("budget-notice",
@@ -64,5 +64,6 @@ function renderBudgetEntry(notice, rawText) {
         (chips ? `<div class="budget-chips">${chips}</div>` : "") +
         `<details class="budget-tech"><summary>Détails techniques</summary><pre>${escapeHtml(String(rawText ?? ""))}</pre></details></div>`);
     el.setAttribute("role", "status");
+    if(typeof mountQuotaRecovery==="function")mountQuotaRecovery(el.querySelector(".budget-body"),notice.resetAt);
     return el;
 }

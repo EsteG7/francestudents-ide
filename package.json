@@ -1,7 +1,7 @@
 {
   "name": "project-frstcli",
-  "version": "1.3.2",
-  "description": "FranceStudent Code : agent de programmation en ligne de commande",
+  "version": "1.3.3",
+  "description": "FranceStudent IDE : agent de programmation en ligne de commande",
   "main": "index.js",
   "bin": {
     "frstcli": "index.js",
@@ -30,7 +30,7 @@
     "build:desktop": "electron-builder --dir --publish never",
     "prepare": "npm run build:tui",
     "pretest": "npm run build:tui",
-    "test": "node --test test/*.test.js",
+    "test": "node --require ./test/helpers/isolate-env.cjs --test test/*.test.js",
     "bench:search": "node scripts/bench-search.js",
     "pretest:e2e": "npm run build:renderer",
     "test:e2e": "node --test e2e/*.e2e.test.js",
@@ -115,7 +115,7 @@
   },
   "build": {
     "appId": "fr.francestudent.code",
-    "productName": "FranceStudent Code",
+    "productName": "FranceStudent IDE",
     "asar": true,
     "publish": [
       {
@@ -144,12 +144,12 @@
       ]
     },
     "portable": {
-      "artifactName": "FranceStudentCode-${version}-portable.exe"
+      "artifactName": "FranceStudentIDE-${version}-portable.exe"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "FranceStudentCode-${version}-setup.exe"
+      "artifactName": "FranceStudentIDE-${version}-setup.exe"
     },
     "mac": {
       "icon": "desktop/icon.icns",
@@ -171,11 +171,11 @@
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "artifactName": "FranceStudentCode-${version}-mac-${arch}.${ext}"
+      "artifactName": "FranceStudentIDE-${version}-mac-${arch}.${ext}"
     },
     "dmg": {
-      "title": "FranceStudent Code ${version}",
-      "artifactName": "FranceStudentCode-${version}-mac-${arch}.${ext}"
+      "title": "FranceStudent IDE ${version}",
+      "artifactName": "FranceStudentIDE-${version}-mac-${arch}.${ext}"
     }
   }
 }

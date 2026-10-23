@@ -639,10 +639,13 @@ function renderEntry(e) {
         case "warn":
         case "error": {
             if (e.type === "error") {
+                $("agent-starter").classList.add("hidden");
                 const budget = parseBudgetNotice(e.text);
                 if (budget) return renderBudgetEntry(budget, e.text);
                 const context=parseContextLimitNotice(e.text);
                 if(context)return renderContextLimitEntry(context,e.text);
+                const apiError=parseApiErrorNotice(e.text);
+                if(apiError)return renderApiErrorEntry(apiError,e.text);
             }
             return addEntry(e.type, escapeHtml(e.text));
         }
@@ -856,6 +859,7 @@ function applyStatus(s) {
 function renderQuota() {
     renderUsageMeter();
     renderUsageDashboard();
+    if(typeof updateQuotaRecoveryCards==="function")updateQuotaRecoveryCards();
 }
 
 async function refreshQuota() {
@@ -875,6 +879,7 @@ async function refreshQuota() {
     }
     ui.quotaLoading = false;
     renderQuota();
+    return ui.quota;
 }
 
 /* ---------- Choix du modèle (/model) ---------- */
@@ -889,13 +894,13 @@ function positionModelMenu(anchor) {
     const width = Math.min(modelMenuEl.dataset.kind === "history" ? 520 : Math.max(300, rect.width), window.innerWidth - 16);
     modelMenuEl.style.minWidth = "0";
     modelMenuEl.style.width = `${width}px`;
-    modelMenuEl.style.maxHeight = `${Math.max(0, window.innerHeight - 16)}px`;
+    const below=Math.max(0,window.innerHeight-rect.bottom-14),above=Math.max(0,rect.top-14);
+    const placeBelow=below>=above;
+    modelMenuEl.style.maxHeight = `${Math.max(0,placeBelow?below:above)}px`;
     modelMenuEl.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
     modelMenuEl.style.top = `${rect.bottom + 6}px`;
     const menuRect = modelMenuEl.getBoundingClientRect();
-    if (menuRect.bottom > window.innerHeight - 8) {
-        modelMenuEl.style.top = `${Math.max(8, Math.min(rect.top - menuRect.height - 6, window.innerHeight - menuRect.height - 8))}px`;
-    }
+    if (!placeBelow)modelMenuEl.style.top = `${Math.max(8,rect.top-menuRect.height-6)}px`;
 }
 
 window.addEventListener("resize", () => {
@@ -925,6 +930,8 @@ function confirmHistoryDeletion(item) {
             dialog.close();
         };
         dialog.addEventListener("close", () => { dialog.remove(); resolve(confirmed); }, { once: true });
+        studioSurfaceHeader(dialog,{title:"Supprimer cette conversation ?",subtitle:"Les fichiers de ton projet sont conservés.",icon:"auth"});
+        dialog.querySelector(".studio-actions").classList.add("fs-dialog-footer");
         document.body.appendChild(dialog);
         dialog.showModal();
         dialog.querySelector('[data-action="cancel"]').focus();
@@ -1081,7 +1088,9 @@ function renderHistoryMenu(items) {
     const head = document.createElement("div");
     head.className = "model-menu-head";
     head.textContent = "Conversations récentes";
+    const subtitle=document.createElement("p");subtitle.className="history-intro";subtitle.textContent="Retrouve tes échanges et reprends où tu en étais.";
     modelMenuEl.appendChild(head);
+    modelMenuEl.appendChild(subtitle);
 
     const tools = document.createElement("div");
     tools.className = "history-tools";
@@ -1158,7 +1167,14 @@ function renderHistoryList() {
         list.appendChild(empty);
         return;
     }
-    for (const item of shown) list.appendChild(renderHistoryRow(item));
+    let previousGroup="";
+    for (const item of shown){
+        const date=new Date(item.updatedAt),today=new Date();today.setHours(0,0,0,0);
+        const yesterday=new Date(today);yesterday.setDate(yesterday.getDate()-1);
+        const group=date>=today?"Aujourd’hui":date>=yesterday?"Hier":"Plus anciennes";
+        if(group!==previousGroup){const heading=document.createElement("div");heading.className="history-group";heading.textContent=group;list.appendChild(heading);previousGroup=group;}
+        list.appendChild(renderHistoryRow(item));
+    }
 }
 
 function renderHistoryRow(item) {
@@ -1173,12 +1189,15 @@ function renderHistoryRow(item) {
     main.className = "model-item-main";
     const name = document.createElement("span");
     name.className = "model-item-name";
-    name.textContent = `${item.number}. ${item.title}`;
+    name.textContent = item.title;
     main.appendChild(name);
     const sub = document.createElement("span");
     sub.className = "model-item-sub";
-    const when = item.updatedAt ? new Date(item.updatedAt).toLocaleString() : "";
-    sub.textContent = [when, item.mode, item.model, `${item.messages} message(s)`].filter(Boolean).join(" · ");
+    const when = item.updatedAt ? new Date(item.updatedAt).toLocaleString("fr-FR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}) : "";
+    for(const text of [item.motionDesign?"Motion design":"Code",item.model]){if(!text)continue;const badge=document.createElement("span");badge.className="history-badge";badge.textContent=text;sub.appendChild(badge);}
+    const detail=document.createElement("span");detail.className="history-detail";detail.textContent=[when,`${item.messages || 0} échange${item.messages>1?"s":""}`].filter(Boolean).join(" · ");
+    sub.appendChild(detail);
+    if(item.workspace && !item.motionDesign){const folder=document.createElement("span");folder.className="history-folder";folder.textContent=item.workspace.replace(/[\\/]+$/,"").split(/[\\/]/).pop();main.appendChild(folder);}
     main.appendChild(sub);
     open.appendChild(main);
     open.onclick = async () => {
@@ -1768,7 +1787,7 @@ async function renderDir(container, rel, depth) {
 }
 
 async function openProject() {
-    if (ui.tabs.some((t) => t.dirty) && !window.confirm("Des fichiers ne sont pas enregistrés. Changer de projet quand même ?")) return;
+    if (ui.tabs.some((t) => t.dirty) && !await confirmStudioAction("Des fichiers ne sont pas enregistrés. Changer de projet quand même ?")) return;
     try {
         const ws = await api.openProject();
         if (ws && ws !== ui.workspace) {
@@ -1940,7 +1959,7 @@ function syncEditorContext() {
 function updateBreadcrumbs(tab) {
     const bc = $("breadcrumbs");
     const name = tab ? tab.path.split("/").pop() : "";
-    document.title = tab ? `${name} — FranceStudent Code` : "FranceStudent Code";
+    document.title = tab ? `${name} — FranceStudent IDE` : "FranceStudent IDE";
     const tbTitle = $("tb-title");
     if (tbTitle) tbTitle.textContent = document.title;
     if (!bc) return;
@@ -1986,10 +2005,10 @@ function renderTabs() {
     window.frstBrowserTab?.();
 }
 
-function closeTab(rel) {
+async function closeTab(rel) {
     const tab = ui.tabs.find((t) => t.path === rel);
     if (!tab) return;
-    if (tab.dirty && !window.confirm(`${rel} n'est pas enregistré. Fermer quand même ?`)) return;
+    if (tab.dirty && !await confirmStudioAction(`${rel} n'est pas enregistré. Fermer quand même ?`)) return;
     const index = ui.tabs.indexOf(tab);
     ui.tabs.splice(index, 1);
     lspOnClose(rel);
@@ -2786,7 +2805,6 @@ function toggleSidebar() {
 }
 
 document.querySelector('[data-view="explorer"]').onclick = toggleSidebar;
-document.querySelector('[data-view="agent"]').onclick = () => input.focus();
 
 const IS_MAC = /Mac/i.test(navigator.platform || navigator.userAgent || "");
 if (IS_MAC) document.documentElement.classList.add("mac");
@@ -3062,7 +3080,7 @@ async function renameNode(entry) {
 }
 
 async function deleteNode(entry) {
-    if (!window.confirm(`Mettre « ${entry.path} » à la corbeille ?`)) return;
+    if (!await confirmStudioAction(`Mettre « ${entry.path} » à la corbeille ?`,{title:"Supprimer cet élément",confirmLabel:"Mettre à la corbeille",danger:true})) return;
     try {
         await api.trashEntry(entry.path);
     } catch (err) {
@@ -3493,7 +3511,7 @@ async function replaceAllInProject() {
         return;
     }
     const limited = res.truncated ? "\n(Liste de résultats limitée : relance ensuite pour traiter le reste.)" : "";
-    if (!window.confirm(`Remplacer « ${query} » par « ${replacement} » dans ${files.length} fichier(s) ?${limited}`)) return;
+    if (!await confirmStudioAction(`Remplacer « ${query} » par « ${replacement} » dans ${files.length} fichier(s) ?${limited}`)) return;
 
     let changedFiles = 0;
     let total = 0;
@@ -4697,6 +4715,8 @@ api.onEvent((channel, data) => {
             toolGroup = null;
             liveEnd();
             clearChanges();
+            ui.interrupted = false;
+            $("btn-resume").classList.add("hidden");
             break;
         case "terminalData":
             termData(data);
@@ -5286,12 +5306,12 @@ async function wtToggleDiff(name) {
 }
 
 async function wtRemove(name) {
-    if (!window.confirm(`Supprimer le worktree ${name} ?\nLa branche frst/${name} est conservée.`)) return;
+    if (!await confirmStudioAction(`Supprimer le worktree ${name} ?\nLa branche frst/${name} est conservée.`)) return;
     try {
         await api.worktreeRemove(name, false);
     } catch (error) {
         const reason = gitErrorText(error);
-        if (!window.confirm(`Suppression refusée : ${reason}\n\nForcer la suppression ? Les modifications non validées du worktree seront perdues.`)) {
+        if (!await confirmStudioAction(`Suppression refusée : ${reason}\n\nForcer la suppression ? Les modifications non validées du worktree seront perdues.`)) {
             wtMessage(reason, "error");
             return;
         }
@@ -6213,7 +6233,7 @@ async function refreshStudioActivity() {
             const time = document.createElement("small"); time.textContent = new Date(point.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
             const restore = document.createElement("button"); restore.type = "button"; restore.textContent = "Restaurer"; restore.disabled = Boolean(ui.status.busy);
             restore.onclick = async () => {
-                if (!window.confirm(`Restaurer les modifications suivies avant « ${point.task} » ? Les commandes shell ne sont pas annulées.`)) return;
+                if (!await confirmStudioAction(`Restaurer les modifications suivies avant « ${point.task} » ? Les commandes shell ne sont pas annulées.`)) return;
                 try { const result = await api.checkpoints("restore", point.id); studioFeedback(`${result.reverted || 0} modification(s) restaurée(s).`); scheduleRefresh(); refreshStudioActivity(); }
                 catch (error) { studioFeedback(error.message); }
             };
@@ -6431,6 +6451,10 @@ function centerButton(text, handler, primary = false) {
     };
     return button;
 }
+function uninstallSkillButton(skill){
+    const button=centerButton("Désinstaller",()=>uninstallCenterSkill(skill));
+    button.classList.add("skill-uninstall");return button;
+}
 function setCenterTab(tab) {
     for (const panel of document.querySelectorAll("[data-center-panel]")) panel.classList.toggle("hidden", panel.dataset.centerPanel !== tab);
     for (const button of document.querySelectorAll("[data-center-tab]")) {
@@ -6477,6 +6501,7 @@ function renderExtensionCenter() {
     $("skill-profile").value = selectedProfile;
     for (const select of [$("library-scope"), $("skill-editor-scope")]) select.querySelector('[value="projet"]').disabled = !centerData.workspace;
     renderLibrary(); renderInstalledSkills(); renderMotionMarketplace();
+    for(const card of document.querySelectorAll("#marketplace-results .center-card"))if(card.marketplaceItem)renderMarketplaceSkillActions(card);
 }
 function renderLibrary() {
     if (!centerData) return;
@@ -6491,10 +6516,8 @@ function renderLibrary() {
         const actions = centerNode("div", "center-card-actions");
         actions.append(centerButton("Voir les instructions", () => openSkillEditor({ kind: "library", item })));
         const installedKey=libraryInstallKey(item,scope);
-        const installed = centerData.skills.some(skill => skill.key === installedKey);
-        const install = centerButton(installed ? "Installé" : "Installer", () => changeExtension("install", {id:item.id, scope}, `${item.title} installé. Tu peux le désactiver dans Mes skills.`), true);
-        install.disabled = installed; actions.append(install);
-        if (installed) actions.append(centerButton("Désinstaller", () => uninstallCenterSkill(centerData.skills.find(skill => skill.key === installedKey))));
+        const installed = centerData.skills.find(skill => skill.key === installedKey);
+        actions.append(installed?uninstallSkillButton(installed):centerButton("Installer", () => changeExtension("install", {id:item.id, scope}, `${item.title} installé. Tu peux le désactiver dans Mes skills.`), true));
         card.append(actions); list.append(card);
     }
     if (!list.children.length) list.append(centerNode("p", "ext-empty", "Aucun skill ne correspond. Essaie un autre mot ou une autre catégorie."));
@@ -6512,7 +6535,7 @@ function renderInstalledSkills() {
         const favorite = centerButton(skill.favorite ? "★" : "☆", () => changeExtension("favorite", {key:skill.key}));
         favorite.setAttribute("aria-label", `${skill.favorite ? "Retirer des" : "Ajouter aux"} favoris : ${skill.name}`);
         favorite.setAttribute("aria-pressed", String(skill.favorite));
-        actions.append(favorite, centerButton("Ouvrir", async () => openSkillEditor({kind:"edit", item:await api.extensionAction("read", {key:skill.key}), key:skill.key})), centerButton("Désinstaller", () => uninstallCenterSkill(skill)));
+        actions.append(favorite, centerButton("Ouvrir", async () => openSkillEditor({kind:"edit", item:await api.extensionAction("read", {key:skill.key}), key:skill.key})), uninstallSkillButton(skill));
         const label = centerNode("label", "skill-enabled");
         const toggle = document.createElement("input"); toggle.type = "checkbox"; toggle.checked = !skill.disabled; toggle.setAttribute("role", "switch"); toggle.setAttribute("aria-label", `Activer ${skill.name}`);
         toggle.onchange = async () => {
@@ -6549,7 +6572,7 @@ function openSkillEditor(state) {
     const remote = state.kind === "remote";
     const library = state.kind === "library";
     $("skill-editor-title").textContent = library ? item.title : remote ? item.name : state.kind === "edit" ? `Modifier ${item.name}` : "Créer ou importer un skill";
-    $("skill-editor-description").textContent = remote ? item.resourceCount ? `Remotion pour le chat code · ${item.resourceCount} ressources annexes incluses. Le skill sera installé désactivé. Lis les instructions avant de l’activer.` : "Skill communautaire : vérifie les instructions et la licence du dépôt. Il sera installé désactivé. Seul le SKILL.md est copié." : library ? `${item.description} · ${item.category}` : "Écris ou colle les instructions que l’agent doit suivre quand il utilise ce skill.";
+    $("skill-editor-description").textContent = remote ? item.resourceCount ? `Remotion pour le chat code · ${item.resourceCount} ressources annexes incluses. Après installation, active le skill dans Mes skills pour l’utiliser.` : "Skill communautaire : vérifie les instructions et la licence du dépôt. Après installation, active-le dans Mes skills pour l’utiliser. Seul le SKILL.md est copié." : library ? `${item.description} · ${item.category}` : "Écris ou colle les instructions que l’agent doit suivre quand il utilise ce skill.";
     $("skill-editor-name").value = item.id || item.name || "mon-skill";
     $("skill-editor-name").disabled = !["new", "remote"].includes(state.kind);
     if (remote) $("skill-editor-name").value = item.name.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "community-skill";
@@ -6557,7 +6580,7 @@ function openSkillEditor(state) {
     $("skill-editor-scope").value = library ? $("library-scope").value : item.scope || "utilisateur";
     $("skill-editor-content").value = item.content || "---\nname: mon-skill\ndescription: Quand utiliser ce skill.\n---\n\n# Ma méthode\n\nDécris les étapes et les vérifications à suivre.\n";
     $("skill-editor-content").readOnly = library || remote;
-    $("skill-editor-save").textContent = remote ? "Installer désactivé" : library ? "Installer ce skill" : "Enregistrer";
+    $("skill-editor-save").textContent = remote ? "Installer" : library ? "Installer ce skill" : "Enregistrer";
     $("skill-editor-save").disabled = false;
     $("skill-editor-message").textContent = "";
     $("skill-editor").showModal();
@@ -6573,7 +6596,9 @@ $("skill-editor-form").onsubmit = async event => {
         if (state.kind === "library") await changeExtension("install", {id:state.item.id, scope}, "Skill installé.");
         else if (state.kind === "remote") {
             centerData = await api.marketplace("install", {name:$("skill-editor-name").value, scope, url:state.item.url});
-            renderExtensionCenter(); $("center-message").textContent = "Skill communautaire installé désactivé. Retrouve-le dans Mes skills pour l’activer.";
+            const installed=centerData.skills.find(skill=>skill.key===`${scope}:${$("skill-editor-name").value.trim().toLowerCase()}`);
+            if(installed){const links=readStudioStorage("frst.marketplace-installed",{});links[state.item.githubUrl || state.item.url]=installed.key;writeStudioStorage("frst.marketplace-installed",links);}
+            renderExtensionCenter(); $("center-message").textContent = "Skill installé. Active-le dans Mes skills pour l’utiliser.";
         }
         else if (state.kind === "edit") await changeExtension("save", {key:state.key, content:$("skill-editor-content").value});
         else await changeExtension("import", {name:$("skill-editor-name").value, content:$("skill-editor-content").value, scope}, "Skill créé et activé.");
@@ -6596,7 +6621,7 @@ function renderMcpCard(server, sub) {
     actions.append(centerButton(server.status === "disabled" ? "Activer" : "Désactiver", async () => {
         await api.mcpManage("toggle", {name:server.name, disabled:server.status !== "disabled"}); await refreshMcp();
     }), centerButton("Retirer la connexion", async () => {
-        if (!window.confirm(`Retirer le serveur « ${server.name} » de mcp.json ? La configuration précédente reste dans mcp.json.backup.`)) return;
+        if (!await confirmStudioAction(`Retirer le serveur « ${server.name} » de mcp.json ? La configuration précédente reste dans mcp.json.backup.`,{title:"Retirer ce serveur MCP",confirmLabel:"Retirer",danger:true})) return;
         await api.mcpManage("remove", {name:server.name}); await refreshMcp();
     }));
     card.append(actions); return card;
@@ -6709,11 +6734,7 @@ async function searchMarketplace(page = 1) {
         for (const item of data.items) {
             const card = centerNode("article", "center-card");
             card.append(centerNode("span", "ext-tag", `★ ${item.stars.toLocaleString("fr-FR")}`), centerNode("h3", "", item.name), centerNode("p", "", `par ${item.author}`), centerNode("p", "", item.description));
-            const actions = centerNode("div", "center-card-actions");
-            actions.append(centerButton("Voir le dépôt", () => api.openExternal(item.githubUrl)), centerButton("Lire et installer", async () => {
-                await downloadSkillPreview(item);
-            }, true));
-            card.append(actions); list.append(card);
+            card.marketplaceItem=item;renderMarketplaceSkillActions(card);list.append(card);
         }
         $("marketplace-status").textContent = data.items.length ? `${data.items.length} résultat(s) affiché(s)${data.remaining !== null ? ` · ${data.remaining} recherche(s) restante(s) aujourd’hui` : ""}.` : "Aucun résultat. Essaie un autre mot-clé.";
         $("marketplace-page").textContent = `Page ${data.page}`;
@@ -7586,11 +7607,6 @@ function renderUsageDashboard() {
     const total = reported ? Number(usage.inputTokens || 0) + Number(usage.outputTokens || 0) : null;
     const estimate = Math.round(Number(usage.chars || 0) / 3.5);
     const metric = (name, value, detail) => `<div class="usage-metric"><span>${name}</span><strong>${value}</strong><small>${detail}</small></div>`;
-    const limits = (quota?.limits || []).map(limit => {
-        const value = usagePercent(limit.usedPercent);
-        const label = [limit.type, limit.bucket].filter(Boolean).join(" · ") || "Limite du compte";
-        return `<div class="usage-limit"><div><b>${escapeHtml(label)}</b><span>${value == null ? "—" : Math.round(value) + " %"}</span></div>${usageProgress(value, label)}<small>${usageNumber(limit.used)}${limit.limit > 0 ? " / " + usageNumber(limit.limit) : " utilisé(s)"} · Réinitialisation : ${escapeHtml(usageDate(limit.resetAt))}</small></div>`;
-    }).join("");
     $("usage-refresh").disabled = Boolean(ui.quotaLoading) || !ui.status.booted;
     box.innerHTML = `<div class="usage-quota-card ${usageTone(percent)}">
         <div class="usage-quota-top"><span>Quota de chat</span><span class="usage-badge">${ui.quotaLoading ? "Actualisation…" : quota?.uncertain ? "Estimation serveur" : percent == null ? "Indisponible" : "Compte FranceStudent"}</span></div>
@@ -7600,8 +7616,8 @@ function renderUsageDashboard() {
         <div class="usage-section-title"><h3>Cette session</h3><span>${ui.status.ecoMode ? "Mode Éco activé" : "Depuis l’ouverture"}</span></div>
         <div class="usage-metrics">${metric("Requêtes IA", usageNumber(usage.requests), "Relances comprises")}${metric(reported ? "Tokens comptabilisés" : "Tokens estimés", reported ? usageNumber(total) : estimate ? "≈ " + usageNumber(estimate) : "—", reported ? "Données reçues du service" : "Estimation du texte envoyé")}${metric("Entrée", reported ? usageNumber(usage.inputTokens) : "—", "Tokens envoyés au modèle")}${metric("Sortie", reported ? usageNumber(usage.outputTokens) : "—", "Tokens générés")}</div>
         ${reported ? `<p class="usage-cache">${usageNumber(usage.cachedTokens)} tokens en cache, déjà inclus dans l’entrée. Les compteurs couvrent les réponses qui transmettent un relevé.</p>` : '<p class="usage-cache">Sans relevé de tokens du service, l’estimation ne couvre pas les images, les réponses ni tout l’historique serveur.</p>'}
-        ${limits ? `<div class="usage-section-title"><h3>Limites du compte</h3></div><div class="usage-limits">${limits}</div>` : ""}
         <p class="usage-updated">${ui.quotaUpdatedAt ? "Quota actualisé le " + escapeHtml(usageDate(ui.quotaUpdatedAt)) : "Le quota ne peut pas être déduit du nombre de tokens de cette session."}</p>`;
+    if(percent>=100)mountQuotaRecovery(box,quota?.resetAt);
 }
 $("usage-refresh").onclick = () => refreshQuota();
 /* ---------- Annulation d’une action sans interrompre l’agent ---------- */
@@ -7752,8 +7768,17 @@ for (const button of document.querySelectorAll("#activity-bar button, .agent-act
     if (!button.hasAttribute("aria-label") && button.title) button.setAttribute("aria-label", button.title);
 }
 /* Explicit progress and cancellation for community instruction downloads. */
+function renderMarketplaceSkillActions(card){
+    const item=card.marketplaceItem;
+    card.querySelector(".center-card-actions")?.remove();
+    const actions=centerNode("div","center-card-actions");
+    const key=readStudioStorage("frst.marketplace-installed",{})[item.githubUrl];
+    const installed=centerData?.skills.find(skill=>skill.key===key);
+    actions.append(centerButton("Voir le dépôt",()=>api.openExternal(item.githubUrl)),installed?uninstallSkillButton(installed):centerButton("Lire et installer",()=>downloadSkillPreview(item),true));
+    card.append(actions);
+}
 async function uninstallCenterSkill(skill) {
-    if (!skill || !window.confirm(`Désinstaller « ${skill.name} » ? Il ne sera plus disponible pour l’IA. Son dossier sera conservé dans .trash pour pouvoir le récupérer.`)) return;
+    if (!skill || !await confirmStudioAction(`Désinstaller « ${skill.name} » ? Il ne sera plus disponible pour l’IA. Son dossier sera conservé dans .trash pour pouvoir le récupérer.`,{title:"Désinstaller ce skill",confirmLabel:"Désinstaller",danger:true})) return;
     await changeExtension("remove", {key:skill.key}, `« ${skill.name} » désinstallé. Son dossier reste récupérable dans .trash.`);
 }
 const extensionDownloads = new Map();
@@ -7791,7 +7816,7 @@ async function downloadSkillPreview(item) {
     for (const [id, old] of extensionDownloads) if (extensionDownloads.size > 8 && old.state !== "loading") { old.card.remove(); extensionDownloads.delete(id); }
     try {
         const preview = await api.marketplace("preview", {githubUrl:item.githubUrl, curatedId:item.curatedId, requestId:job.id});
-        job.state = "ready"; job.message = "Téléchargé · lis les instructions avant de choisir Installer. Le skill sera désactivé.";
+        job.state = "ready"; job.message = "Téléchargé · lis les instructions puis choisis Installer. Tu pourras ensuite l’activer dans Mes skills.";
         showSkillDownload(job); openSkillEditor({kind:"remote", item:{...item, ...preview}});
         if(preview.resourceCount)$("skill-editor-message").textContent=`Ressources incluses : ${preview.resourceNames.join(", ")}`;
     } catch (error) {
@@ -7811,8 +7836,8 @@ motionNav.title="Motion design · EffectCraft (Bêta)";motionNav.setAttribute("a
 motionNav.innerHTML='<svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>';
 $("activity-bar").insertBefore(motionNav,document.querySelector("#activity-bar .spacer"));
 const motionView=document.createElement("section");motionView.id="motion-view";motionView.className="motion-page";motionView.setAttribute("aria-label","EffectCraft et agent motion design");
-motionView.innerHTML=`<header class="motion-header"><div class="motion-brand"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 17 8-13 8 13H4Zm4-1 4-7 4 7"/></svg><h1>EffectCraft</h1><span class="motion-pill">Bêta</span></div><div class="motion-actions"><button type="button" id="motion-local-save" title="Enregistrer dans le stockage local d’EffectCraft">Enregistrer</button><button type="button" id="motion-close">Retour au code</button></div></header>
-<div class="motion-commandbar"><div role="group" aria-label="Contrôles de composition"><button type="button" id="motion-undo" title="Annuler la dernière modification">↶ Annuler</button><button type="button" id="motion-play">▶ Lecture</button><button type="button" id="motion-stop">■ Arrêter</button></div><span id="motion-engine-status" role="status">EffectCraft attend ton ouverture.</span><button type="button" id="motion-engine-reload" title="Recharger EffectCraft">Recharger</button></div>
+motionView.innerHTML=`<header class="motion-header"><div class="motion-brand"><span class="motion-brand-icon"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 17 8-13 8 13H4Zm4-1 4-7 4 7"/></svg></span><div class="motion-brand-copy"><div class="motion-brand-title"><h1>EffectCraft</h1><span class="motion-pill">Bêta</span></div><p>Ton studio d’animation</p></div></div><div class="motion-actions"><button type="button" id="motion-local-save" title="Enregistrer dans le stockage local d’EffectCraft">Enregistrer</button><button type="button" id="motion-close">Retour au code</button></div></header>
+<div class="motion-commandbar"><div class="motion-transport" role="group" aria-label="Contrôles de composition"><button type="button" id="motion-undo" title="Annuler la dernière modification"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5 4 10l5 5M4 10h10a6 6 0 0 1 0 12"/></svg>Annuler</button><span class="motion-control-divider" aria-hidden="true"></span><button type="button" id="motion-play" title="Lire l’animation dans l’aperçu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z"/></svg>Lecture</button><button type="button" id="motion-stop" title="Arrêter la lecture de l’animation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12v12H6Z"/></svg>Arrêter</button></div><div class="motion-status-group"><span class="motion-status-dot" aria-hidden="true"></span><span id="motion-engine-status" role="status">EffectCraft attend ton ouverture.</span><button type="button" id="motion-engine-reload" title="Recharger EffectCraft" aria-label="Recharger EffectCraft"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M5 8a8 8 0 0 1 13-3l2 3M4 16l2 3a8 8 0 0 0 13-3"/></svg></button></div></div>
 <div class="motion-stage" aria-label="Chargement d’EffectCraft"><div><h2>Chargement d’EffectCraft…</h2><p>Le véritable éditeur se prépare. Le chat motion design reste à droite.</p><button type="button" id="motion-retry">Réessayer</button></div></div>
 <div id="motion-engine" class="motion-engine" hidden><div id="motion-engine-frame" class="motion-engine-frame"></div></div>
 <div id="motion-consent" class="motion-consent" role="alertdialog" aria-modal="true" aria-labelledby="motion-consent-title" tabindex="-1"><div class="motion-consent-card"><span class="motion-pill">Bêta</span><h2 id="motion-consent-title">Ton espace motion design</h2><p>EffectCraft à gauche, ton agent spécialisé à droite. Le chat peut modifier les compositions, les calques, les keyframes et les effets. Cette intégration reste expérimentale : conserve une copie des projets importants.</p><div class="motion-consent-actions"><button type="button" id="motion-consent-back">Retour au code</button><button type="button" id="motion-consent-ok" class="primary">J’ai compris, continuer</button></div></div></div>`;
@@ -7937,7 +7962,7 @@ const BUDGET_TIME_ZONE = "Europe/Paris";
 /** Détecte une erreur « Chat budget exhausted » et en extrait l'heure de reprise (UTC). */
 function parseBudgetNotice(text) {
     const raw = String(text ?? "");
-    if (!/budget\s+(?:de\s+chat\s+)?(?:exhausted|épuisé)/i.test(raw)) return null;
+    if (!/budget\s+(?:de\s+chat\s+)?(?:exhausted|épuisé)|insufficient_quota|quota.{0,25}(?:exhausted|épuisé|atteint|exceeded)/i.test(raw)) return null;
     const match = /Reset at\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?Z/i.exec(raw);
     const resetAt = match ? new Date(`${match[1]}Z`) : null;
     return { resetAt: resetAt && !Number.isNaN(resetAt.getTime()) ? resetAt : null };
@@ -7986,7 +8011,7 @@ function renderBudgetEntry(notice, rawText) {
     const f = formatBudgetNotice(notice);
     const chips = [
         f.when ? `<span class="budget-chip"><b>Reprise</b> ${escapeHtml(f.when)}</span>` : "",
-        f.remaining ? `<span class="budget-chip"><b>Dans</b> ${escapeHtml(f.remaining.replace(/^dans\s+/, ""))}</span>` : ""
+        typeof mountQuotaRecovery!=="function" && f.remaining ? `<span class="budget-chip"><b>Dans</b> ${escapeHtml(f.remaining.replace(/^dans\s+/, ""))}</span>` : ""
     ].join("");
     const icon = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
     const el = addEntry("budget-notice",
@@ -7996,6 +8021,7 @@ function renderBudgetEntry(notice, rawText) {
         (chips ? `<div class="budget-chips">${chips}</div>` : "") +
         `<details class="budget-tech"><summary>Détails techniques</summary><pre>${escapeHtml(String(rawText ?? ""))}</pre></details></div>`);
     el.setAttribute("role", "status");
+    if(typeof mountQuotaRecovery==="function")mountQuotaRecovery(el.querySelector(".budget-body"),notice.resetAt);
     return el;
 }
 /* A beginner workspace inside EffectCraft, with the full editor one click away. */
@@ -8082,12 +8108,11 @@ function renderMotionMarketplace(){
         const installed=centerData.skills.find(skill=>skill.key===libraryInstallKey(item,scope));
         if(motionCollection==="effectcraft"){
             actions.append(centerButton("Voir les instructions",()=>{openSkillEditor({kind:"library",item});$("skill-editor-scope").value=scope;}));
-            const install=centerButton(installed?"Installé":"Installer",()=>changeExtension("install",{id:item.id,scope},`${item.title} installé pour le chat Motion design.`),true);install.disabled=!!installed;actions.append(install);
+            actions.append(installed?uninstallSkillButton(installed):centerButton("Installer",()=>changeExtension("install",{id:item.id,scope},`${item.title} installé pour le chat Motion design.`),true));
         }else{
             actions.append(centerButton("Voir le dépôt",()=>api.openExternal(item.githubUrl)));
-            const install=centerButton(installed?"Installé":"Lire et installer",async()=>{await downloadSkillPreview({...item,curatedId:item.id});$("skill-editor-scope").value=scope;},true);install.disabled=!!installed;actions.append(install);
+            actions.append(installed?uninstallSkillButton(installed):centerButton("Lire et installer",async()=>{await downloadSkillPreview({...item,curatedId:item.id});$("skill-editor-scope").value=scope;},true));
         }
-        if(installed)actions.append(centerButton("Désinstaller",()=>uninstallCenterSkill(installed)));
         card.append(actions);motionMarketList.append(card);
     }
 }
@@ -8121,8 +8146,194 @@ function parseContextLimitNotice(text){
 }
 function renderContextLimitEntry(info,raw){
     const entry=addEntry("error context-limit-notice","");
+    const icon=centerNode("span","api-notice-icon");icon.innerHTML=apiNoticeIcon("attachment");entry.append(icon);
     entry.append(centerNode("strong","","Limite de contexte atteinte"),centerNode("p","",info.limit?`Le serveur limite cette conversation à ${info.limit.toLocaleString("fr-FR")} tokens.`:"La conversation dépasse la capacité acceptée par le serveur."),centerNode("p","","La reprise automatique n’a pas abouti. L’historique reste conservé ; tu peux réessayer après une compaction ou préciser la partie du travail à reprendre."));
     const details=centerNode("details");details.append(centerNode("summary","","Détail technique"),centerNode("pre","",raw));entry.append(details);return entry;
+}
+/* API failures use readable cards; raw responses stay in collapsed details. */
+function parseApiErrorNotice(raw){
+    const text=String(raw || ""),match=/(?:HTTP|status(?:Code)?["']?\s*[:=])\s*["']?(\d{3})\b/i.exec(text);
+    const status=match?Number(match[1]):null;
+    if(!status && !/erreur (?:du flux|API)|\bAPI\b|fetch failed|failed to fetch|network|ECONN|ENOTFOUND|ETIMEDOUT|timeout|timed out|Unsupported tool ignored by the backend|invalid[_ ]api[_ ]key|^\s*\{[\s\S]*"(?:error|message|errorCode)"\s*:/i.test(text))return null;
+    let title="La requête n’a pas abouti",detail="Le service a renvoyé une erreur. Ton historique et les modifications déjà effectuées sont conservés.",kind="service";
+    if(status===401 || /invalid[_ ]api[_ ]key/i.test(text)){title="Connexion à renouveler";detail="Ta session ou ta clé d’accès n’est plus acceptée. Vérifie la connexion dans les paramètres avant de réessayer.";kind="auth";}
+    else if(status===403){title="Accès refusé";detail="Ton compte n’a pas accès à cette ressource ou à ce modèle. Vérifie les autorisations ou choisis un autre modèle.";kind="auth";}
+    else if(status===429){title="Trop de requêtes à la fois";detail="Le service limite temporairement les demandes. Patiente avant de réessayer ; ce message ne signifie pas forcément que ton quota est épuisé.";kind="wait";}
+    else if(status===413 || /image.{0,50}(?:dimension|too large)|file.{0,30}too large/i.test(text)){title="Pièce jointe trop volumineuse";detail="Le service refuse la taille du contenu envoyé. Réduis les pièces jointes ou utilise une capture plus ciblée.";kind="attachment";}
+    else if(status===404){title="Ressource introuvable";detail="La conversation, le modèle ou la ressource demandée n’est plus disponible. Vérifie la ressource avant de réessayer.";}
+    else if(status===408 || status===504 || /timeout|timed out|ETIMEDOUT/i.test(text)){title="Le service met trop de temps";detail="Le délai de réponse est dépassé. Vérifie la connexion puis réessaie quand le service répond à nouveau.";kind="wait";}
+    else if(status>=500){title="Service momentanément indisponible";detail="Le serveur rencontre un problème. Ton travail local est conservé ; réessaie dans quelques instants.";}
+    else if(/fetch failed|failed to fetch|network|ECONN|ENOTFOUND/i.test(text)){title="Connexion au service interrompue";detail="Impossible de joindre le service. Vérifie ta connexion Internet, puis réessaie.";kind="network";}
+    else if(status===400 || status===422){title="Demande refusée par le service";detail="Le service n’accepte pas le contenu ou les options de cette demande. Vérifie le modèle et les pièces jointes.";}
+    return {title,detail,kind,status};
+}
+function apiNoticeIcon(kind){
+    if(kind==="trash")return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></svg>';
+    if(kind==="spark")return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></svg>';
+    if(kind==="chat")return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 3V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg>';
+    if(kind==="tools")return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><path d="M17.5 14v7M14 17.5h7"/></svg>';
+    const paths={auth:'<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 5v2"/>',wait:'<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',network:'<path d="m3 3 18 18M2 8a17 17 0 0 1 4-2m4-1a17 17 0 0 1 12 3M5 12a12 12 0 0 1 5-2m4 0a12 12 0 0 1 5 2M8 16a6 6 0 0 1 8 0"/><circle cx="12" cy="20" r="1"/>',attachment:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="m4 16 5-5 4 4 3-3 4 4"/>',service:'<rect x="4" y="3" width="16" height="7" rx="2"/><rect x="4" y="14" width="16" height="7" rx="2"/><path d="M8 6h1m-1 11h1m7-2v3m0 2h.01"/>'};
+    return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[kind] || paths.service}</svg>`;
+}
+function renderApiErrorEntry(info,raw){
+    const entry=addEntry("api-error-notice","");entry.setAttribute("role","status");
+    const icon=centerNode("span","api-notice-icon");icon.innerHTML=apiNoticeIcon(info.kind);
+    const body=centerNode("div","api-notice-body");body.append(centerNode("strong","",info.title),centerNode("p","",info.detail));
+    const actions=centerNode("div","api-notice-actions");
+    const settings=centerNode("button","",info.kind==="auth"?"Vérifier ma connexion":"Voir l’usage");settings.type="button";
+    settings.onclick=()=>{if(info.kind==="auth")showSideView("settings");else setAgentTab("usage");};actions.append(settings);body.append(actions);
+    const details=centerNode("details","api-notice-tech");details.append(centerNode("summary","",info.status?`Détails techniques · HTTP ${info.status}`:"Détails techniques"),centerNode("pre","",String(raw || "")));body.append(details);entry.append(icon,body);scrollDown();return entry;
+}
+
+const quotaRecoveryState=new WeakMap();
+const quotaCheckedDeadlines=new Set();
+function quotaCountdown(resetAt,now=Date.now()){
+    const end=new Date(resetAt).getTime();
+    if(!resetAt || !Number.isFinite(end))return "Heure de réinitialisation non communiquée";
+    const minutes=Math.max(0,Math.ceil((end-now)/60000));
+    if(!minutes)return "Échéance atteinte · vérification du quota nécessaire";
+    return `Réinitialisation dans ${Math.floor(minutes/60)} h ${String(minutes%60).padStart(2,"0")} min`;
+}
+function mountQuotaRecovery(parent,resetAt){
+    const box=centerNode("div","quota-recovery");
+    const timer=centerNode("strong","quota-countdown");
+    const note=centerNode("p","quota-recovery-note","Le quota est revérifié toutes les 15 minutes. Si le staff t’a accordé un reset, vérifie-le ici.");
+    const button=centerNode("button","quota-reset-check","J’ai reçu un reset");button.type="button";
+    const feedback=centerNode("p","quota-reset-feedback");feedback.setAttribute("role","status");
+    const originalBudget=parent.closest(".budget-notice");
+    quotaRecoveryState.set(box,{resetAt,checkedAt:ui.quotaUpdatedAt || null,budgetTitle:originalBudget?.querySelector(".budget-title")?.textContent,budgetDetail:originalBudget?.querySelector(".budget-detail")?.textContent});
+    button.onclick=async()=>{
+        if(ui.quotaLoading){feedback.textContent="Vérification du quota déjà en cours…";return;}
+        button.disabled=true;button.textContent="Vérification…";
+        await refreshQuota();
+        const recovered=ui.quota?.percent!=null && Number(ui.quota.percent)<100;
+        const target=box.isConnected?feedback:document.querySelector("#usage-dashboard .quota-reset-feedback");
+        if(target)target.textContent=ui.quotaError?"Vérification indisponible. Réessaie dans quelques instants.":recovered?"Quota disponible. Tu peux envoyer une nouvelle demande.":"Le reset n’est pas encore confirmé par l’API.";
+        button.disabled=false;button.textContent="J’ai reçu un reset";
+    };
+    box.append(timer,note,button,feedback);parent.append(box);updateQuotaRecoveryBox(box);if(box.closest("#transcript"))scrollDown();return box;
+}
+function updateQuotaRecoveryBox(box){
+    const state=quotaRecoveryState.get(box);if(!state)return;
+    const resetAt=ui.quota?.resetAt || state.resetAt;
+    const checked=ui.quotaUpdatedAt && ui.quotaUpdatedAt!==state.checkedAt;
+    if(checked){state.checkedAt=ui.quotaUpdatedAt;state.available=ui.quota?.percent!=null && Number(ui.quota.percent)<100 && !ui.quotaError;}
+    if(ui.quotaError || !ui.status.booted)state.available=false;
+    box.querySelector(".quota-countdown").textContent=state.available?"Quota disponible · tu peux reprendre":quotaCountdown(resetAt);
+    box.classList.toggle("quota-recovered",!!state.available);
+    const budget=box.closest(".budget-notice");
+    if(budget){budget.querySelector(".budget-title").textContent=state.available?"Quota de chat disponible":state.budgetTitle;budget.querySelector(".budget-detail").textContent=state.available?"Le renouvellement est confirmé par l’API. Tu peux envoyer une nouvelle demande.":state.budgetDetail;if(state.available)budget.querySelector(".budget-chips")?.remove();}
+    const end=new Date(resetAt).getTime();
+    if(!state.available && resetAt && Number.isFinite(end) && end<=Date.now() && !quotaCheckedDeadlines.has(end) && ui.status.booted && !ui.quotaLoading){
+        quotaCheckedDeadlines.add(end);if(quotaCheckedDeadlines.size>50)quotaCheckedDeadlines.delete(quotaCheckedDeadlines.values().next().value);void refreshQuota();
+    }
+}
+function updateQuotaRecoveryCards(){for(const box of document.querySelectorAll(".quota-recovery"))updateQuotaRecoveryBox(box);}
+setInterval(updateQuotaRecoveryCards,30000);
+/* One welcome card after each installed update; no network request is needed. */
+let releaseHighlightsData=null,releaseHighlightsShown=false;
+const releaseDialog=document.createElement("dialog");releaseDialog.id="release-highlights";releaseDialog.className="release-highlights";releaseDialog.setAttribute("aria-labelledby","release-highlights-title");document.body.append(releaseDialog);
+function openReleaseHighlights(data){
+    if(releaseDialog.open)return;
+    releaseHighlightsShown=true;releaseDialog.replaceChildren();
+    const top=centerNode("div","release-notes-top");top.append(centerNode("span","release-notes-badge",`NOUVEAUTÉS · ${data.version}`));
+    const close=centerNode("button","release-notes-close","×");close.type="button";close.setAttribute("aria-label","Fermer les nouveautés");close.onclick=()=>releaseDialog.close();top.append(close);
+    const heading=centerNode("h2","",data.headline);heading.id="release-highlights-title";
+    releaseDialog.append(top,centerNode("p","release-notes-brand","FranceStudent IDE"),heading,centerNode("p","release-notes-intro","Voici ce qui change dans cette version. Ton travail reste à sa place."));
+    const list=centerNode("div","release-notes-list");
+    for(const item of data.items){const row=centerNode("div","release-notes-item"),icon=centerNode("span","release-notes-icon");icon.innerHTML=apiNoticeIcon(item.icon==="clock"?"wait":item.icon);const body=centerNode("div");body.append(centerNode("strong","",item.title),centerNode("p","",item.text));row.append(icon,body);list.append(row);}
+    const footer=centerNode("div","release-notes-footer"),more=centerNode("button","","Notes complètes");more.type="button";more.onclick=()=>api.openExternal(data.url).catch(error=>studioFeedback(error.message));
+    const done=centerNode("button","primary","C’est parti !");done.type="button";done.onclick=()=>releaseDialog.close();footer.append(more,done);releaseDialog.append(list,footer);
+    releaseDialog.showModal();done.focus();
+}
+releaseDialog.addEventListener("close",()=>{if(releaseHighlightsData)api.releaseHighlights("seen",releaseHighlightsData.version).catch(error=>studioFeedback(error.message));});
+function maybeShowReleaseHighlights(){
+    if(!releaseHighlightsData?.shouldShow || releaseHighlightsShown || !$("startup-loading").hidden || !$("connection-guide").classList.contains("hidden") || document.querySelector("dialog[open]"))return;
+    openReleaseHighlights(releaseHighlightsData);
+}
+new MutationObserver(maybeShowReleaseHighlights).observe($("startup-loading"),{attributes:true,attributeFilter:["hidden"]});
+new MutationObserver(maybeShowReleaseHighlights).observe($("connection-guide"),{attributes:true,attributeFilter:["class"]});
+api.releaseHighlights().then(data=>{releaseHighlightsData=data;maybeShowReleaseHighlights();}).catch(()=>{});
+const releaseNotesButton=centerNode("button","","Nouveautés de cette version");releaseNotesButton.type="button";releaseNotesButton.id="release-highlights-open";releaseNotesButton.onclick=async()=>{try{releaseHighlightsData=await api.releaseHighlights();openReleaseHighlights(releaseHighlightsData);}catch(error){studioFeedback(error.message);}};
+document.querySelector("#studio-update-check").parentElement.append(releaseNotesButton);
+/* Shared identity for secondary flows. Keep existing controls and their handlers. */
+function studioSurfaceHeader(dialog,{title,subtitle,icon="spark",badge,close}){
+    dialog.classList.add("fs-dialog");
+    const header=centerNode("header","fs-dialog-header"),mark=centerNode("span","fs-dialog-icon");mark.innerHTML=icon==="eco"?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4c-6-1-13 1-13 7a6 6 0 0 0 6 6c6 0 8-7 7-13ZM4 21 15 10"/></svg>':apiNoticeIcon(icon);
+    const copy=centerNode("div","fs-dialog-heading"),line=centerNode("div","fs-dialog-title-row");
+    const old=dialog.querySelector("h2");
+    const heading=old || centerNode("h2");heading.textContent=title;
+    if(!heading.id)heading.id=dialog.id+"-heading";
+    dialog.setAttribute("aria-labelledby",heading.id);
+    line.append(heading);if(badge)line.append(centerNode("span","fs-surface-badge",badge));copy.append(line,centerNode("p","",subtitle));
+    const dismiss=close || centerNode("button","","×");dismiss.type="button";dismiss.classList.add("fs-dialog-close");dismiss.setAttribute("aria-label",`Fermer : ${title}`);dismiss.onclick=()=>dialog.close();
+    header.append(mark,copy,dismiss);dialog.prepend(header);return header;
+}
+function studioSurfaceSection(title,description,nodes){
+    const section=centerNode("section","fs-dialog-section");
+    const heading=centerNode("h3","",title);section.append(heading);
+    if(description)section.append(centerNode("p","fs-section-description",description));
+    for(const node of nodes)if(node)section.append(node);return section;
+}
+function decorateEcoDialog(){
+    const dialog=ecoModeDialog;
+    studioSurfaceHeader(dialog,{title:"Activer le mode Éco",subtitle:"Moins de quota, des tâches plus courtes.",icon:"eco",badge:"Optionnel"});
+    const items=[...dialog.querySelectorAll("li")];
+    const list=centerNode("div","fs-eco-grid");
+    for(const [index,item] of items.entries()){
+        const card=centerNode("article","fs-feature-card"),number=centerNode("span","fs-feature-number",String(index+1).padStart(2,"0"));
+        card.append(number,centerNode("strong","",["Des demandes plus courtes","Un contexte allégé","Moins de relances","Des réponses ciblées"][index]),centerNode("p","",item.textContent));list.append(card);
+    }
+    dialog.querySelector("ul").replaceWith(list);
+    const paragraphs=[...dialog.querySelectorAll(":scope > p")];
+    if(paragraphs[1])paragraphs[1].classList.add("fs-dialog-note");
+    const footer=dialog.querySelector(".studio-actions");footer.classList.add("fs-dialog-footer");
+    $("eco-mode-enable").classList.add("primary");
+}
+function decorateImportDialog(){
+    const dialog=conversationImportDialog;
+    studioSurfaceHeader(dialog,{title:"Continuer avec ton IA",subtitle:"Importe les échanges Codex, puis reprends dans FranceStudent IDE.",icon:"chat",badge:"Bêta"});
+    const url=$("conversation-import-url").closest("label"),text=$("conversation-import-text").closest("label");
+    const file=$("conversation-import-file").parentElement,analyze=$("conversation-import-preview").parentElement;
+    const urlHelp=url.nextElementSibling;
+    const section=studioSurfaceSection("1. Ajoute ta conversation","Colle un lien de partage, choisis un export ou colle directement le texte.",[url,urlHelp,file,text,analyze]);
+    dialog.insertBefore(section,$("conversation-import-status"));
+    const choices=dialog.querySelector(".conversation-import-choices");
+    const settings=studioSurfaceSection("2. Choisis comment continuer","La reprise prépare un brouillon. Tu décides quand l’envoyer.",[choices]);dialog.insertBefore(settings,dialog.querySelector(":scope > .studio-actions:last-child"));
+    dialog.querySelector(":scope > .studio-actions:last-child").classList.add("fs-dialog-footer");
+    $("conversation-import-project").classList.add("fs-project-summary");
+    $("conversation-import-apply").title="Préparer un brouillon sans lancer de requête IA";
+}
+function decorateGithubDialog(){
+    const dialog=githubConnectorDialog,oldHead=dialog.querySelector(".workspace-section-head");
+    studioSurfaceHeader(dialog,{title:"Ton espace GitHub",subtitle:"Dépôts, échanges et versions, au même endroit.",icon:"tools",badge:"Bêta",close:$("github-connector-close")});oldHead.remove();
+    const account=studioSurfaceSection("Projet connecté","",[$("github-connector-account"),$("github-connector-repo")]);dialog.querySelector(".fs-dialog-header").after(account);
+    const nav=dialog.querySelector(".github-connector-nav");nav.setAttribute("role","group");nav.setAttribute("aria-label","Contenu GitHub");
+    const readme=$("github-connector-readme");readme.classList.add("fs-readme-action");nav.after(readme);
+    $("github-connector-create").classList.add("fs-dialog-section");$("github-release-create").classList.add("primary");
+    const note=dialog.querySelector(":scope > p:last-child");if(note)note.classList.add("fs-dialog-note");
+}
+decorateEcoDialog();decorateImportDialog();decorateGithubDialog();
+for(const [id,subtitle,icon] of [["skill-editor","Les instructions que ton agent pourra utiliser.","tools"],["mcp-editor","Relie un outil externe à ton espace de travail.","tools"]]){
+    const dialog=$(id),oldHead=dialog.querySelector(".center-dialog-head");
+    studioSurfaceHeader(dialog,{title:dialog.querySelector("h2").textContent,subtitle,icon,close:oldHead.querySelector("button")});oldHead.remove();
+}
+
+// Real modal confirmations replace browser-native alerts and restore focus on close.
+let studioConfirmationQueue=Promise.resolve();
+function confirmStudioAction(message,{title="Confirmer cette action",confirmLabel="Confirmer",danger=true}={}){
+    const next=studioConfirmationQueue.then(()=>new Promise(resolve=>{
+        const previous=document.activeElement,dialog=document.createElement("dialog");dialog.id="studio-confirm-dialog";dialog.className="fs-dialog fs-confirm-dialog";
+        dialog.setAttribute("aria-labelledby","studio-confirm-title");
+        const heading=centerNode("h2","",title);heading.id="studio-confirm-title";dialog.append(heading);
+        studioSurfaceHeader(dialog,{title,subtitle:danger?"Vérifie l’action avant de continuer.":"Ton choix s’applique à cette action.",icon:danger?"trash":"spark"});
+        const body=centerNode("p","fs-confirm-message",message);body.id="studio-confirm-message";dialog.setAttribute("aria-describedby",body.id);
+        const footer=centerNode("div","fs-dialog-footer"),cancel=centerNode("button","","Annuler"),accept=centerNode("button",danger?"danger":"primary",confirmLabel);
+        cancel.type=accept.type="button";accept.dataset.confirm="accept";cancel.dataset.confirm="cancel";
+        let accepted=false;cancel.onclick=()=>dialog.close();accept.onclick=()=>{accepted=true;dialog.close();};footer.append(cancel,accept);dialog.append(body,footer);document.body.append(dialog);
+        dialog.addEventListener("close",()=>{dialog.remove();resolve(accepted);requestAnimationFrame(()=>{if(previous?.isConnected)previous.focus();});},{once:true});dialog.showModal();cancel.focus();
+    }));
+    studioConfirmationQueue=next.catch(()=>false);return next;
 }
 /* ---------- Démarrage ---------- */
 
@@ -8146,5 +8357,5 @@ function renderContextLimitEntry(info,raw){
         guideError(err);
     }
     refreshQuota();
-    setInterval(refreshQuota, 120000);
+    setInterval(refreshQuota, 15 * 60 * 1000);
 })();

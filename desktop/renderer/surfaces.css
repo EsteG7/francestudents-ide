@@ -1,0 +1,78 @@
+/* FranceStudent IDE surfaces: one palette, one hierarchy, shared controls. */
+:root { --surface-radius: 16px; --surface-control-radius: 8px; --surface-padding: 24px; }
+dialog:not(.release-highlights) { color: var(--fg); background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--surface-radius); box-shadow: 0 24px 80px #0008; box-sizing: border-box; max-width: calc(100vw - 32px); max-height: calc(100vh - 40px); }
+dialog::backdrop { background: #080b12b3; backdrop-filter: blur(4px); }
+.fs-dialog { width: min(740px, calc(100vw - 32px)); padding: var(--surface-padding); overflow: auto; }
+#eco-mode-dialog.fs-dialog { width: min(640px, calc(100vw - 32px)); }
+.fs-dialog-header { display: flex; align-items: flex-start; gap: 13px; margin-bottom: 22px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.fs-dialog-icon { flex: 0 0 42px; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; background: var(--accent-soft); color: var(--link); border: 1px solid var(--border-strong); }
+.fs-dialog-icon svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+#eco-mode-dialog .fs-dialog-icon { color: #78caa4; background: #2ea04314; border-color: #2ea04340; }
+.fs-dialog-heading { flex: 1; min-width: 0; }
+.fs-dialog-title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.fs-dialog h2 { margin: 0; font-size: 21px; line-height: 1.35; font-weight: 650; letter-spacing: -.4px; color: var(--fg-strong); }
+.fs-dialog-heading > p { font-size: 12px; color: var(--fg-dim); line-height: 1.65; margin: 6px 0 0; }
+.fs-surface-badge { border: 1px solid var(--border-strong); background: var(--accent-soft); color: var(--link); padding: 3px 7px; border-radius: 6px; font-size: 10px; font-weight: 500; }
+.fs-dialog button,.center-dialog button,.history-delete-dialog button { min-height: 34px; padding: 7px 12px; border: 1px solid var(--border-strong); border-radius: var(--surface-control-radius); color: var(--fg); background: var(--bg-input); font: inherit; font-size: 12px; line-height: 1.45; cursor: pointer; }
+.fs-dialog button:hover:not(:disabled),.center-dialog button:hover:not(:disabled),.history-delete-dialog button:hover:not(:disabled) { background: var(--bg-hover); color: var(--fg-strong); }
+.fs-dialog button.primary,.center-dialog button.primary { color: white; background: var(--accent); border-color: var(--accent); font-weight: 600; }
+.fs-dialog button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.fs-dialog button.danger { background: #b4232d; border-color: #b4232d; color: white; }
+.fs-dialog button.danger:hover:not(:disabled) { background: #921c25; }
+.fs-dialog button.fs-dialog-close { padding: 0; min-width: 30px; width: 30px; height: 30px; min-height: 30px; flex: 0 0 30px; font-size: 22px; background: transparent; color: var(--fg-dim); border-color: transparent; }
+.fs-dialog p { font-size: 12px; line-height: 1.75; }
+.fs-dialog > p { color: var(--fg-dim); }
+.fs-dialog-section { padding: 17px; margin: 18px 0; border: 1px solid var(--border); background: var(--bg-side); border-radius: 12px; min-width: 0; }
+.fs-dialog-section h3 { margin: 0 0 6px; color: var(--fg-strong); font-size: 13px; font-weight: 600; }
+.fs-section-description { margin: 0 0 14px; color: var(--fg-dim); }
+.fs-dialog label { font-size: 12px; font-weight: 500; line-height: 1.5; color: var(--fg); }
+.fs-dialog :is(input:not([type="checkbox"]),textarea,select),.center-dialog :is(input:not([type="checkbox"]),textarea,select) { min-height: 36px; padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: var(--surface-control-radius); background: var(--bg-input); color: var(--fg); font-size: 12px; line-height: 1.5; width: 100%; box-sizing: border-box; }
+.fs-dialog :is(input,textarea)::placeholder { color: var(--fg-faint); }
+.fs-dialog textarea { resize: vertical; }
+.fs-dialog :is(button,input,textarea,select,summary):focus-visible { outline: 2px solid var(--link); outline-offset: 3px; }
+.fs-dialog :is(button,input,textarea,select):disabled { opacity: .45; cursor: default; }
+.fs-dialog-footer,.center-dialog-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 9px; border-top: 1px solid var(--border); padding: 18px 0 0; margin-top: 22px; }
+.fs-dialog-note { padding: 13px 15px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 9px; background: var(--accent-soft); font-size: 11px !important; line-height: 1.8; }
+.fs-eco-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin: 18px 0; }
+.fs-feature-card { background: var(--bg-side); padding: 16px; border: 1px solid var(--border); border-radius: 11px; min-width: 0; }
+.fs-feature-number { color: #78caa4; font-size: 10px; display: block; margin-bottom: 9px; font-weight: 600; }
+.fs-feature-card strong { font-size: 12px; color: var(--fg-strong); }
+.fs-feature-card p { font-size: 11px; line-height: 1.7; color: var(--fg-dim); margin: 7px 0 0; }
+.fs-project-summary { background: var(--bg-side); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; overflow-wrap: anywhere; }
+#conversation-import-dialog .conversation-import-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+#conversation-import-result { padding: 13px; background: var(--bg-side); border: 1px solid var(--border); border-radius: 10px; }
+.fs-dialog details > summary { cursor: pointer; font-size: 12px; color: var(--fg-strong); padding: 5px 0; line-height: 1.5; }
+.fs-dialog [role="status"]:not(:empty) { padding: 10px 12px; border: 1px solid var(--border); background: var(--bg-side); color: var(--link); border-radius: 8px; font-size: 12px; line-height: 1.6; }
+.github-connector-nav { padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-side); gap: 4px; flex-wrap: wrap; }
+.github-connector-nav button { flex: 1 1 auto; min-width: 0; background: transparent; border-color: transparent; color: var(--fg-dim); }
+.github-connector-nav button[aria-pressed="true"] { background: var(--bg-active); color: var(--fg-strong); border-color: var(--border-strong); }
+.github-connector-card { display: grid; gap: 10px; margin: 12px 0; padding: 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--bg-side); }
+.github-connector-card > b { font-size: 14px; color: var(--fg-strong); }
+.github-connector-card > span { width: fit-content; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--accent-soft); padding: 3px 7px; color: var(--link); font-size: 10px; }
+.github-connector-card small { color: var(--fg-dim); font-size: 11px; }
+.fs-readme-action { margin: 12px 0 0; }
+.fs-confirm-dialog { width: min(500px,calc(100vw - 32px)); }
+.fs-confirm-message { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg); margin: 0 0 20px; }
+.center-dialog { padding: 24px; }
+.center-dialog-head { border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 18px; }
+.center-dialog-head h2,.history-delete-dialog h3 { color: var(--fg-strong); letter-spacing: -.3px; }
+.modal,.palette,.context-menu,.slash-menu { border: 1px solid var(--border-strong); border-radius: 11px; background: var(--bg); box-shadow: 0 16px 50px #0006; }
+.modal { padding: 24px; }
+.modal :is(input,textarea) { padding: 9px 11px; min-height: 36px; border-radius: 8px; }
+.context-menu { padding: 6px; }
+.context-menu button,.context-menu .item { border-radius: 6px; padding: 7px 10px; min-height: 32px; box-sizing: border-box; }
+.palette .palette-item,.slash-menu .slash-item { border-radius: 7px; }
+#prompt-zone { background: var(--bg-side); border: 1px solid var(--border-strong); border-left: 3px solid var(--accent); border-radius: 11px; padding: 16px; }
+#prompt-zone .question { line-height: 1.7; font-size: 12px; }
+.connection-guide { border-radius: var(--surface-radius); box-shadow: 0 24px 80px #0008; }
+@media (max-width: 620px) { :root { --surface-padding: 18px; } .fs-eco-grid { grid-template-columns: 1fr; } #conversation-import-dialog .conversation-import-choices { grid-template-columns: 1fr; gap: 0; } .fs-dialog h2 { font-size: 19px; } .fs-dialog-icon { width: 34px; height: 34px; flex-basis: 34px; } .fs-dialog-header { gap: 10px; } }
+@media (prefers-reduced-motion: reduce) { dialog,.modal,.palette,.context-menu,.slash-menu { animation: none; } }
+
+.fs-dialog-header { position: sticky; top: calc(-1 * var(--surface-padding)); z-index: 2; background: var(--bg); margin-top: calc(-1 * var(--surface-padding)); margin-inline: calc(-1 * var(--surface-padding)); padding: var(--surface-padding); }
+.fs-dialog-footer { position: sticky; bottom: calc(-1 * var(--surface-padding)); z-index: 2; background: var(--bg); margin-bottom: calc(-1 * var(--surface-padding)); margin-inline: calc(-1 * var(--surface-padding)); padding: 16px var(--surface-padding); }
+#history-delete-dialog.fs-dialog { width: min(500px,calc(100vw - 32px)); }
+#history-delete-dialog .history-delete-title { padding: 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-side); }
+.fs-confirm-dialog:has(button.danger) .fs-dialog-icon { color: var(--danger); background: #f8514910; border-color: #f8514940; }
+.modal .modal-title { color: var(--fg-strong); font-size: 18px; letter-spacing: -.3px; font-weight: 600; padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.modal button { min-height: 34px; border-radius: 8px; padding: 7px 12px; }
+.modal .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }

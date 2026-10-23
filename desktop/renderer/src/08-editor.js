@@ -148,7 +148,7 @@ function syncEditorContext() {
 function updateBreadcrumbs(tab) {
     const bc = $("breadcrumbs");
     const name = tab ? tab.path.split("/").pop() : "";
-    document.title = tab ? `${name} — FranceStudent Code` : "FranceStudent Code";
+    document.title = tab ? `${name} — FranceStudent IDE` : "FranceStudent IDE";
     const tbTitle = $("tb-title");
     if (tbTitle) tbTitle.textContent = document.title;
     if (!bc) return;
@@ -194,10 +194,10 @@ function renderTabs() {
     window.frstBrowserTab?.();
 }
 
-function closeTab(rel) {
+async function closeTab(rel) {
     const tab = ui.tabs.find((t) => t.path === rel);
     if (!tab) return;
-    if (tab.dirty && !window.confirm(`${rel} n'est pas enregistré. Fermer quand même ?`)) return;
+    if (tab.dirty && !await confirmStudioAction(`${rel} n'est pas enregistré. Fermer quand même ?`)) return;
     const index = ui.tabs.indexOf(tab);
     ui.tabs.splice(index, 1);
     lspOnClose(rel);

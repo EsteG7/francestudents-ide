@@ -10,6 +10,7 @@ test("EffectCraft real engine is controlled through the specialized agent chat",
         const page=await app.firstWindow(),errors=[];page.on("pageerror",e=>errors.push(e.message));
         await page.locator("#startup-loading").waitFor({state:"hidden"});
         if(await page.locator("#guide-close").isVisible())await page.locator("#guide-close").click();
+        if(await page.locator("#release-highlights[open]").isVisible())await page.locator("#release-highlights").getByRole("button",{name:"C’est parti !",exact:true}).click();
         await page.evaluate(p=>window.frst.openProject(p),project);
         if(process.env.FRST_PACKAGED_EXE){
             assert.equal(await app.evaluate(({app})=>app.getVersion()),require("../package.json").version);
@@ -96,7 +97,7 @@ test("EffectCraft real engine is controlled through the specialized agent chat",
         assert.equal(await page.locator('[data-motion-collection="effectcraft"]').getAttribute("aria-pressed"),"true");
         const skillCard=page.locator('[data-motion-skill-id="motion-titles"]');
         await skillCard.getByRole("button",{name:"Installer",exact:true}).click();
-        await skillCard.getByRole("button",{name:"Installé",exact:true}).waitFor();
+        await skillCard.getByRole("button",{name:"Désinstaller",exact:true}).waitFor();
         assert.match(fs.readFileSync(path.join(dir,"skills/motion-titles/SKILL.md"),"utf8"),/application: effectcraft/);
         assert.deepEqual(errors,[]);
     }finally{await app.close();fs.rmSync(dir,{recursive:true,force:true});}

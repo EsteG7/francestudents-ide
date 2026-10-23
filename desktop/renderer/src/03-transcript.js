@@ -88,10 +88,13 @@ function renderEntry(e) {
         case "warn":
         case "error": {
             if (e.type === "error") {
+                $("agent-starter").classList.add("hidden");
                 const budget = parseBudgetNotice(e.text);
                 if (budget) return renderBudgetEntry(budget, e.text);
                 const context=parseContextLimitNotice(e.text);
                 if(context)return renderContextLimitEntry(context,e.text);
+                const apiError=parseApiErrorNotice(e.text);
+                if(apiError)return renderApiErrorEntry(apiError,e.text);
             }
             return addEntry(e.type, escapeHtml(e.text));
         }

@@ -197,6 +197,8 @@ api.onEvent((channel, data) => {
             toolGroup = null;
             liveEnd();
             clearChanges();
+            ui.interrupted = false;
+            $("btn-resume").classList.add("hidden");
             break;
         case "terminalData":
             termData(data);

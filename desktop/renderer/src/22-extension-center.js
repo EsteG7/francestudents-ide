@@ -20,6 +20,10 @@ function centerButton(text, handler, primary = false) {
     };
     return button;
 }
+function uninstallSkillButton(skill){
+    const button=centerButton("Désinstaller",()=>uninstallCenterSkill(skill));
+    button.classList.add("skill-uninstall");return button;
+}
 function setCenterTab(tab) {
     for (const panel of document.querySelectorAll("[data-center-panel]")) panel.classList.toggle("hidden", panel.dataset.centerPanel !== tab);
     for (const button of document.querySelectorAll("[data-center-tab]")) {
@@ -66,6 +70,7 @@ function renderExtensionCenter() {
     $("skill-profile").value = selectedProfile;
     for (const select of [$("library-scope"), $("skill-editor-scope")]) select.querySelector('[value="projet"]').disabled = !centerData.workspace;
     renderLibrary(); renderInstalledSkills(); renderMotionMarketplace();
+    for(const card of document.querySelectorAll("#marketplace-results .center-card"))if(card.marketplaceItem)renderMarketplaceSkillActions(card);
 }
 function renderLibrary() {
     if (!centerData) return;
@@ -80,10 +85,8 @@ function renderLibrary() {
         const actions = centerNode("div", "center-card-actions");
         actions.append(centerButton("Voir les instructions", () => openSkillEditor({ kind: "library", item })));
         const installedKey=libraryInstallKey(item,scope);
-        const installed = centerData.skills.some(skill => skill.key === installedKey);
-        const install = centerButton(installed ? "Installé" : "Installer", () => changeExtension("install", {id:item.id, scope}, `${item.title} installé. Tu peux le désactiver dans Mes skills.`), true);
-        install.disabled = installed; actions.append(install);
-        if (installed) actions.append(centerButton("Désinstaller", () => uninstallCenterSkill(centerData.skills.find(skill => skill.key === installedKey))));
+        const installed = centerData.skills.find(skill => skill.key === installedKey);
+        actions.append(installed?uninstallSkillButton(installed):centerButton("Installer", () => changeExtension("install", {id:item.id, scope}, `${item.title} installé. Tu peux le désactiver dans Mes skills.`), true));
         card.append(actions); list.append(card);
     }
     if (!list.children.length) list.append(centerNode("p", "ext-empty", "Aucun skill ne correspond. Essaie un autre mot ou une autre catégorie."));
@@ -101,7 +104,7 @@ function renderInstalledSkills() {
         const favorite = centerButton(skill.favorite ? "★" : "☆", () => changeExtension("favorite", {key:skill.key}));
         favorite.setAttribute("aria-label", `${skill.favorite ? "Retirer des" : "Ajouter aux"} favoris : ${skill.name}`);
         favorite.setAttribute("aria-pressed", String(skill.favorite));
-        actions.append(favorite, centerButton("Ouvrir", async () => openSkillEditor({kind:"edit", item:await api.extensionAction("read", {key:skill.key}), key:skill.key})), centerButton("Désinstaller", () => uninstallCenterSkill(skill)));
+        actions.append(favorite, centerButton("Ouvrir", async () => openSkillEditor({kind:"edit", item:await api.extensionAction("read", {key:skill.key}), key:skill.key})), uninstallSkillButton(skill));
         const label = centerNode("label", "skill-enabled");
         const toggle = document.createElement("input"); toggle.type = "checkbox"; toggle.checked = !skill.disabled; toggle.setAttribute("role", "switch"); toggle.setAttribute("aria-label", `Activer ${skill.name}`);
         toggle.onchange = async () => {
@@ -138,7 +141,7 @@ function openSkillEditor(state) {
     const remote = state.kind === "remote";
     const library = state.kind === "library";
     $("skill-editor-title").textContent = library ? item.title : remote ? item.name : state.kind === "edit" ? `Modifier ${item.name}` : "Créer ou importer un skill";
-    $("skill-editor-description").textContent = remote ? item.resourceCount ? `Remotion pour le chat code · ${item.resourceCount} ressources annexes incluses. Le skill sera installé désactivé. Lis les instructions avant de l’activer.` : "Skill communautaire : vérifie les instructions et la licence du dépôt. Il sera installé désactivé. Seul le SKILL.md est copié." : library ? `${item.description} · ${item.category}` : "Écris ou colle les instructions que l’agent doit suivre quand il utilise ce skill.";
+    $("skill-editor-description").textContent = remote ? item.resourceCount ? `Remotion pour le chat code · ${item.resourceCount} ressources annexes incluses. Après installation, active le skill dans Mes skills pour l’utiliser.` : "Skill communautaire : vérifie les instructions et la licence du dépôt. Après installation, active-le dans Mes skills pour l’utiliser. Seul le SKILL.md est copié." : library ? `${item.description} · ${item.category}` : "Écris ou colle les instructions que l’agent doit suivre quand il utilise ce skill.";
     $("skill-editor-name").value = item.id || item.name || "mon-skill";
     $("skill-editor-name").disabled = !["new", "remote"].includes(state.kind);
     if (remote) $("skill-editor-name").value = item.name.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "community-skill";
@@ -146,7 +149,7 @@ function openSkillEditor(state) {
     $("skill-editor-scope").value = library ? $("library-scope").value : item.scope || "utilisateur";
     $("skill-editor-content").value = item.content || "---\nname: mon-skill\ndescription: Quand utiliser ce skill.\n---\n\n# Ma méthode\n\nDécris les étapes et les vérifications à suivre.\n";
     $("skill-editor-content").readOnly = library || remote;
-    $("skill-editor-save").textContent = remote ? "Installer désactivé" : library ? "Installer ce skill" : "Enregistrer";
+    $("skill-editor-save").textContent = remote ? "Installer" : library ? "Installer ce skill" : "Enregistrer";
     $("skill-editor-save").disabled = false;
     $("skill-editor-message").textContent = "";
     $("skill-editor").showModal();
@@ -162,7 +165,9 @@ $("skill-editor-form").onsubmit = async event => {
         if (state.kind === "library") await changeExtension("install", {id:state.item.id, scope}, "Skill installé.");
         else if (state.kind === "remote") {
             centerData = await api.marketplace("install", {name:$("skill-editor-name").value, scope, url:state.item.url});
-            renderExtensionCenter(); $("center-message").textContent = "Skill communautaire installé désactivé. Retrouve-le dans Mes skills pour l’activer.";
+            const installed=centerData.skills.find(skill=>skill.key===`${scope}:${$("skill-editor-name").value.trim().toLowerCase()}`);
+            if(installed){const links=readStudioStorage("frst.marketplace-installed",{});links[state.item.githubUrl || state.item.url]=installed.key;writeStudioStorage("frst.marketplace-installed",links);}
+            renderExtensionCenter(); $("center-message").textContent = "Skill installé. Active-le dans Mes skills pour l’utiliser.";
         }
         else if (state.kind === "edit") await changeExtension("save", {key:state.key, content:$("skill-editor-content").value});
         else await changeExtension("import", {name:$("skill-editor-name").value, content:$("skill-editor-content").value, scope}, "Skill créé et activé.");
@@ -185,7 +190,7 @@ function renderMcpCard(server, sub) {
     actions.append(centerButton(server.status === "disabled" ? "Activer" : "Désactiver", async () => {
         await api.mcpManage("toggle", {name:server.name, disabled:server.status !== "disabled"}); await refreshMcp();
     }), centerButton("Retirer la connexion", async () => {
-        if (!window.confirm(`Retirer le serveur « ${server.name} » de mcp.json ? La configuration précédente reste dans mcp.json.backup.`)) return;
+        if (!await confirmStudioAction(`Retirer le serveur « ${server.name} » de mcp.json ? La configuration précédente reste dans mcp.json.backup.`,{title:"Retirer ce serveur MCP",confirmLabel:"Retirer",danger:true})) return;
         await api.mcpManage("remove", {name:server.name}); await refreshMcp();
     }));
     card.append(actions); return card;
@@ -298,11 +303,7 @@ async function searchMarketplace(page = 1) {
         for (const item of data.items) {
             const card = centerNode("article", "center-card");
             card.append(centerNode("span", "ext-tag", `★ ${item.stars.toLocaleString("fr-FR")}`), centerNode("h3", "", item.name), centerNode("p", "", `par ${item.author}`), centerNode("p", "", item.description));
-            const actions = centerNode("div", "center-card-actions");
-            actions.append(centerButton("Voir le dépôt", () => api.openExternal(item.githubUrl)), centerButton("Lire et installer", async () => {
-                await downloadSkillPreview(item);
-            }, true));
-            card.append(actions); list.append(card);
+            card.marketplaceItem=item;renderMarketplaceSkillActions(card);list.append(card);
         }
         $("marketplace-status").textContent = data.items.length ? `${data.items.length} résultat(s) affiché(s)${data.remaining !== null ? ` · ${data.remaining} recherche(s) restante(s) aujourd’hui` : ""}.` : "Aucun résultat. Essaie un autre mot-clé.";
         $("marketplace-page").textContent = `Page ${data.page}`;

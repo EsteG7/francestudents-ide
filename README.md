@@ -41,7 +41,7 @@ L’application est distribuée pour **Windows 64 bits**. Aucun Node.js ni aucun
 - Une bibliothèque de skills avec installation, désinstallation et suivi des téléchargements.
 - **EffectCraft intégré**, en bêta : mode Simple, bouton Avancé, petits tutos, chat spécialisé et sélection de skills motion design dans la marketplace.
 
-La [version 1.3.1](https://github.com/extraopaa/francestudents-ide/releases/tag/v1.3.1) ajoute une sélection de skills pour EffectCraft et Remotion. Les [notes de version](CHANGELOG.md) précisent les changements et leurs limites.
+La sélection motion propose des skills pour EffectCraft et Remotion. Les [notes de version](CHANGELOG.md) précisent les changements et leurs limites ; les versions publiées sont disponibles dans les [releases](https://github.com/extraopaa/francestudents-ide/releases).
 
 ## Garder le contrôle
 
@@ -57,6 +57,10 @@ Windows peut afficher un avertissement pour un exécutable sans signature d’é
 - [Guide avancé](docs/avance.md) : réglages, formats, limites, extensions et installation depuis les sources.
 - [Signaler un problème](https://github.com/extraopaa/francestudents-ide/issues) : indique ta version et les étapes pour reproduire le souci, sans partager tes identifiants.
 - [Nouveautés](CHANGELOG.md) · [Contribuer](CONTRIBUTING.md) · [Crédits](CREDITS.md).
+
+## Reprendre le développement, avec ou sans IA
+
+Lis [le guide de contribution](CONTRIBUTING.md). Pour donner le contexte du projet à n’importe quel assistant, commence par [AGENTS.md](AGENTS.md) et [le contexte de reprise](docs/AI_CONTEXT.md) : architecture, fichiers importants, tests et publication. Aucune conversation privée ni aucun compte auprès d’un fournisseur d’IA n’est nécessaire pour lire ces documents.
 
 ## Origine du projet
 

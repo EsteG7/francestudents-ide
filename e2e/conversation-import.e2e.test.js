@@ -17,6 +17,7 @@ test("Codex context resumes with the chosen model in the existing project only a
         await page.locator("#input").fill("Ma demande complémentaire.");
         await page.locator("#conversation-import").click();
         await page.locator("#conversation-import-text").fill("## User\nAjoute un menu à mon projet.\n## Assistant\nLe menu reste à réaliser.");
+        if(process.env.FRST_SURFACE_SCREENSHOT_PREFIX)await page.screenshot({path:process.env.FRST_SURFACE_SCREENSHOT_PREFIX+"-import.png",animations:"disabled"});
         await page.locator("#conversation-import-preview").click();
         await page.locator("#conversation-import-apply").waitFor({ state: "visible" });
         await page.waitForFunction(() => !document.querySelector("#conversation-import-apply").disabled);

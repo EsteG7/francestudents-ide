@@ -69,7 +69,7 @@ async function renameNode(entry) {
 }
 
 async function deleteNode(entry) {
-    if (!window.confirm(`Mettre « ${entry.path} » à la corbeille ?`)) return;
+    if (!await confirmStudioAction(`Mettre « ${entry.path} » à la corbeille ?`,{title:"Supprimer cet élément",confirmLabel:"Mettre à la corbeille",danger:true})) return;
     try {
         await api.trashEntry(entry.path);
     } catch (err) {

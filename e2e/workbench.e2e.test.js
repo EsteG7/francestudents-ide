@@ -14,11 +14,13 @@ test("workbench categories, global search and narrow layouts keep controls insid
         const skill = page.locator('[data-library-id="web-quality"]');
         await skill.getByRole("button", {name:"Installer", exact:true}).click();
         await skill.getByRole("button", {name:"Désinstaller", exact:true}).waitFor();
-        page.once("dialog", dialog => dialog.dismiss());
         await skill.getByRole("button", {name:"Désinstaller", exact:true}).click();
+        await page.locator("#studio-confirm-dialog[open]").waitFor();
+        if(process.env.FRST_SURFACE_SCREENSHOT_PREFIX)await page.screenshot({path:process.env.FRST_SURFACE_SCREENSHOT_PREFIX+"-confirm.png",animations:"disabled"});
+        await page.keyboard.press("Escape");
         assert.equal((await page.evaluate(() => window.frst.extensionAction("list"))).skills.length, 1);
-        page.once("dialog", dialog => dialog.accept());
         await skill.getByRole("button", {name:"Désinstaller", exact:true}).click();
+        await page.locator('#studio-confirm-dialog [data-confirm="accept"]').click();
         await skill.getByRole("button", {name:"Installer", exact:true}).waitFor();
         assert.equal((await page.evaluate(() => window.frst.extensionAction("list"))).skills.length, 0);
         await page.locator('[data-view="settings"]').click();

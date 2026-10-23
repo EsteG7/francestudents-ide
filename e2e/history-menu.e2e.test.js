@@ -20,6 +20,7 @@ test("history fits the viewport, names models and remembers deletion confirmatio
         assert.equal(await fits(), true);
         assert.match(await page.locator(".history-item").first().innerText(), /Claude Sonnet 5.5/);
         assert.doesNotMatch(await page.locator(".history-item").first().innerText(), /-2003/);
+        if(process.env.FRST_QA_SCREENSHOT)await page.screenshot({path:process.env.FRST_QA_SCREENSHOT,animations:"disabled"});
         await page.locator(".history-search").fill("Sonnet");
         assert.equal(await page.locator(".history-item").count(), 12);
         const remove = () => page.locator('.history-item').first().getByRole("button", { name: "Supprimer la conversation de l'historique", exact: true });

@@ -465,6 +465,7 @@ function buildAgentPrompt({
     );
 
     sections.push(autonomyInstructions());
+    sections.push('Dans ta réponse finale JSON, ajoute "conversation_title" : un titre français court de 3 à 8 mots résumant le sujet concret de cette conversation. Pas de préfixe, pas de guillemets décoratifs, pas de nom de modèle. Ce champ complète message et completed.');
     if (fullAccessInstructions()) sections.push(fullAccessInstructions());
     return sections.join("\n\n");
 }
@@ -516,6 +517,7 @@ function buildFollowUpPrompt({ lastObservation, turn, maxTurns, correction, stee
     );
 
     sections.push(autonomyInstructions());
+    sections.push('Dans ta réponse finale JSON, ajoute "conversation_title" : un titre français court de 3 à 8 mots résumant le sujet concret de cette conversation, sans préfixe ni nom de modèle. Ce champ complète message et completed.');
     if (fullAccessInstructions()) sections.push(fullAccessInstructions());
     return sections.join("\n\n");
 }

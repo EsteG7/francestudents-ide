@@ -14,7 +14,7 @@ test("usage meter opens a live dashboard, distinguishes estimates and handles un
         await page.waitForFunction(() => document.querySelector("#usage-dashboard").textContent.includes("93 % disponibles"));
         assert.match(await page.locator("#st-usage").innerText(), /7 %/);
         assert.match(await page.locator("#usage-dashboard").innerText(), /Tokens estimés/);
-        assert.match(await page.locator(".usage-limits").innerText(), /95 %/);
+        assert.equal(await page.locator(".usage-limits").count(),0);
         assert.equal(await app.evaluate(() => globalThis.usageSubmissions), 0);
         if (process.env.FS_USAGE_SCREENSHOT) await page.locator("#agent").screenshot({ path: process.env.FS_USAGE_SCREENSHOT });
         await app.evaluate(() => globalThis.setUsageFixture({ chatBudget: { usedPercent: 92, accountingUncertain: true } }, { reported: 1, inputTokens: 40000, outputTokens: 12000, cachedTokens: 5000 }));
@@ -24,6 +24,28 @@ test("usage meter opens a live dashboard, distinguishes estimates and handles un
         assert.match(await page.locator("#usage-dashboard").innerText(), /Tokens comptabilisés/);
         assert.match(await page.locator(".usage-cache").innerText(), /5.000 tokens en cache/);
         assert.equal(await page.locator("#usage-refresh").isEnabled(), true);
+        const resetAt=new Date(Date.now()+3*3600000).toISOString();
+        await app.evaluate((_,resetAt)=>globalThis.setUsageFixture({chatBudget:{usedPercent:100,resetAt}},{}),resetAt);
+        await page.locator("#usage-refresh").click();
+        await page.locator(".quota-reset-check").waitFor();
+        assert.match(await page.locator(".quota-countdown").innerText(),/3 h 00 min/);
+        await page.locator('[data-agent-tab="conversation"]').click();
+        await app.evaluate(({BrowserWindow},resetAt)=>{
+            const web=BrowserWindow.getAllWindows()[0].webContents;
+            for(const text of ['HTTP 503: {"message":"provider unavailable <script>bad()</script>"}',`HTTP 429: Chat budget exhausted. Reset at ${resetAt}`])web.send("frst:event",{channel:"entry",data:{type:"error",text}});
+        },resetAt);
+        await page.locator(".api-error-notice").waitFor();await page.locator(".budget-notice .quota-countdown").waitFor();
+        assert.match(await page.locator(".api-error-notice").innerText(),/Service momentanément indisponible/);
+        assert.equal(await page.locator(".api-error-notice svg").count(),1);
+        assert.equal(await page.locator(".api-error-notice details").getAttribute("open"),null);
+        if(process.env.FRST_API_SCREENSHOT)await page.locator("#agent").screenshot({path:process.env.FRST_API_SCREENSHOT,animations:"disabled"});
+        await page.locator('[data-agent-tab="usage"]').click();
+        await page.locator("#usage-dashboard .quota-reset-check").click();
+        await page.waitForFunction(()=>document.querySelector("#usage-dashboard .quota-reset-feedback")?.textContent.includes("pas encore confirmé"));
+        await app.evaluate(()=>globalThis.setUsageFixture({chatBudget:{usedPercent:10}},{}));
+        await page.locator("#usage-dashboard .quota-reset-check").click();
+        await page.waitForFunction(()=>document.querySelector("#usage-dashboard").textContent.includes("90 % disponibles"));
+        assert.equal(await page.locator("#usage-dashboard .quota-recovery").count(),0);
         await app.evaluate(() => globalThis.setUsageFixture({ chatBudget: { usedPercent: 0 } }, {}));
         await page.locator("#usage-refresh").click();
         await page.waitForFunction(() => document.querySelector("#usage-dashboard").textContent.includes("100 % disponibles"));
@@ -40,5 +62,11 @@ test("usage meter opens a live dashboard, distinguishes estimates and handles un
         assert.equal(await app.evaluate(() => globalThis.usageSubmissions), 1);
         await app.evaluate(() => globalThis.releaseUsageTask());
         await page.waitForFunction(async () => !(await window.frst.status()).busy);
+        await app.evaluate(()=>{globalThis.quotaFails=false;globalThis.setUsageFixture({chatBudget:{usedPercent:10}},{});});
+        await page.clock.install();await page.reload();
+        await page.waitForFunction(()=>document.querySelector("#st-usage").textContent.includes("10 %"));
+        await app.evaluate(()=>globalThis.setUsageFixture({chatBudget:{usedPercent:35}},{}));
+        await page.clock.fastForward(15*60*1000);
+        await page.waitForFunction(()=>document.querySelector("#st-usage").textContent.includes("35 %"));
     } finally { await app.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });

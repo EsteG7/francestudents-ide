@@ -10,7 +10,13 @@ test("eco activation explains limits, can be canceled, persists and can be disab
         const page = await app.firstWindow(); await page.locator("#startup-loading").waitFor({ state: "hidden" });
         await page.locator("#eco-mode-toggle").click();
         assert.match(await page.locator("#eco-mode-dialog").innerText(), /4 tours[\s\S]*incomplètes/);
+        assert.equal(await page.locator("#eco-mode-dialog .fs-feature-card").count(),4);
+        if(process.env.FRST_SURFACE_SCREENSHOT_PREFIX)await page.screenshot({path:process.env.FRST_SURFACE_SCREENSHOT_PREFIX+"-eco.png",animations:"disabled"});
+        await app.evaluate(({BrowserWindow})=>{const win=BrowserWindow.getAllWindows()[0];win.setMinimumSize(0,0);win.setSize(520,500);});
+        assert.equal(await page.locator("#eco-mode-dialog").evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight;}),true);
+        if(process.env.FRST_SURFACE_SCREENSHOT_PREFIX)await page.screenshot({path:process.env.FRST_SURFACE_SCREENSHOT_PREFIX+"-eco-small.png",animations:"disabled"});
         await page.locator("#eco-mode-cancel").click();
+        await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(1400,900));
         assert.equal((await page.evaluate(() => window.frst.status())).ecoMode, false);
         await page.locator("#eco-mode-toggle").click(); await page.locator("#eco-mode-enable").click();
         await page.locator("#eco-mode-dialog").waitFor({ state: "hidden" });

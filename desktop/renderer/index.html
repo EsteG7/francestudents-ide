@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; frame-src http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*">
-    <title>FranceStudent Code</title>
+    <title>FranceStudent IDE</title>
     <link rel="stylesheet" href="vendor/xterm.css">
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="theme.css">
@@ -13,12 +13,13 @@
     <link rel="stylesheet" href="studio.css">
     <link rel="stylesheet" href="workbench.css">
     <link rel="stylesheet" href="motion.css">
+    <link rel="stylesheet" href="surfaces.css">
 </head>
 <body>
     <section id="startup-loading" class="startup-loading" role="dialog" aria-modal="true" aria-labelledby="startup-heading" tabindex="-1">
         <div class="startup-card">
             <img src="assets/francestudent-logo.png" width="44" height="44" alt="">
-            <p class="startup-brand">FRANCESTUDENT CODE</p>
+            <p class="startup-brand">FRANCESTUDENT IDE</p>
             <h1 id="startup-heading">Préparation de ton espace.</h1>
             <div class="startup-track" aria-hidden="true"><span></span></div>
             <p id="startup-message" role="status" aria-live="polite">Recherche des mises à jour disponibles…</p>
@@ -32,7 +33,7 @@
         <header id="titlebar">
             <div class="tb-left">
                 <img class="tb-logo-img" src="assets/francestudent-logo.png" alt="FranceStudent" width="18" height="18">
-                <span id="tb-title" class="tb-title">FranceStudent Code</span>
+                <span id="tb-title" class="tb-title">FranceStudent IDE</span>
             </div>
             <button type="button" id="tb-palette" class="command-center" title="Aller au fichier / commandes (Ctrl+P)">
                 <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -70,9 +71,6 @@
             </button>
             <button class="activity" data-view="extensions" title="Outils supplémentaires : skills et MCP">
                 <svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M17.5 14v7M14 17.5h7"/></svg>
-            </button>
-            <button class="activity" data-view="agent" title="Agent (Ctrl+Maj+A)">
-                <svg class="i" viewBox="0 0 24 24"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"/><path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z"/></svg>
             </button>
             <div class="spacer"></div>
             <button class="activity" data-view="settings" title="Paramètres : autorisations, Internet et aide">
@@ -321,7 +319,7 @@
                         <div class="welcome-hero">
                             <img class="welcome-logo-img" src="assets/francestudent-logo.png" alt="FranceStudent" width="56" height="56">
                             <div>
-                                <h1>FranceStudent Code</h1>
+                                <h1>FranceStudent IDE</h1>
                                 <p id="welcome-sub">Ouvre un dossier, puis discute avec l'agent dans le panneau de droite.</p>
                             </div>
                         </div>
@@ -525,7 +523,7 @@
     <div id="model-menu" class="model-menu hidden"></div>
     <div id="connection-guide" class="guide-backdrop hidden">
         <section class="connection-guide" role="dialog" aria-modal="true" aria-labelledby="guide-title" tabindex="-1">
-            <header class="guide-header"><div class="guide-brand"><img src="assets/francestudent-logo.png" width="25" height="25" alt=""><span>FranceStudent Code</span></div><button type="button" id="guide-close" class="icon-control" aria-label="Fermer le guide">×</button></header>
+            <header class="guide-header"><div class="guide-brand"><img src="assets/francestudent-logo.png" width="25" height="25" alt=""><span>FranceStudent IDE</span></div><button type="button" id="guide-close" class="icon-control" aria-label="Fermer le guide">×</button></header>
             <nav class="guide-steps" aria-label="Étapes du guide"><span data-guide-step="1"><b>1</b> Connexion</span><span data-guide-step="2"><b>2</b> Ton dossier</span><span data-guide-step="3"><b>3</b> Première demande</span></nav>
             <div class="guide-body">
                 <h1 id="guide-title">Bienvenue. On commence ?</h1>
