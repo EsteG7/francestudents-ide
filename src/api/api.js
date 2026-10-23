@@ -429,7 +429,7 @@ async function requestModelOnce(message, options) {
                 initialContent: message,
                 isIncognito: state.incognito,
                 isPrivate: state.private,
-                ...(state.frProject?.id && !options.fresh && !state.chatIds[conversationMode]
+                ...(state.frProject?.id && !state.motionDesign && !options.fresh && !state.chatIds[conversationMode]
                     ? { projectId: state.frProject.id }
                     : {})
             }),
@@ -616,7 +616,7 @@ async function requestModelOnce(message, options) {
 
         // Rattache explicitement la conversation au projet FranceStudent sélectionné
         // (le champ projectId de POST /chats/stream ne suffit pas côté site).
-        if (!options.fresh && state.frProject?.id && state.chatIds[conversationMode]) {
+        if (!options.fresh && !state.motionDesign && state.frProject?.id && state.chatIds[conversationMode]) {
             await require("./fr-projects").ensureAttached(state.chatIds[conversationMode]);
         }
 

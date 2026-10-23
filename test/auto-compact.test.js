@@ -34,6 +34,9 @@ test("compaction memory stays bounded and detects provider context overflow", ()
     assert.equal(isContextOverflow(new Error("context_length_exceeded")), true);
     assert.equal(isContextOverflow(new Error("maximum context length is 128000 tokens")), true);
     assert.equal(isContextOverflow(new Error("HTTP 429 budget exhausted")), false);
+    assert.equal(isContextOverflow(new Error("maximum token limit")),true);
+    assert.equal(isContextOverflow("MAXIMUM TOKEN LIMIT exceeded"),true);
+    assert.equal(isContextOverflow(new Error("maximum tokens limit of 16384")),true);
 });
 
 test("reported input replaces estimates and can decrease after server context editing", () => {

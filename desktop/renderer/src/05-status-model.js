@@ -266,11 +266,14 @@ async function selectModel(id) {
 /* ---------- Historique des conversations (/history, reprise par /chat-id) ---------- */
 
 function historyCurrentWorkspace() {
+    if(typeof isMotionOpen==="function" && isMotionOpen())return null;
     return ui.workspace || (ui.status && ui.status.workspace) || null;
 }
 
 function historyMatches(item) {
-    if (ui.historyOnlyProject && (item.workspace || null) !== historyCurrentWorkspace()) return false;
+    const motion=typeof isMotionOpen==="function" && isMotionOpen();
+    if(!!item.motionDesign!==motion)return false;
+    if (!motion && ui.historyOnlyProject && (item.workspace || null) !== historyCurrentWorkspace()) return false;
     const query = String(ui.historyQuery || "").trim().toLowerCase();
     if (!query) return true;
     return [item.title, item.model, item.mode, item.workspace, item.id]

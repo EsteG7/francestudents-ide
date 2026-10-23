@@ -39,8 +39,7 @@ function setAgentTab(tab) {
 }
 function updateStudioStatus(status) {
     const workspace = status.workspace || null;
-    $("agent-project-name").textContent = workspace ? workspace.replace(/[\\/]+$/, "").split(/[\\/]/).pop() : "Aucun projet";
-    $("agent-project-name").title = workspace || "Ouvre un dossier pour travailler sur un projet";
+    updateAgentProjectLabel(workspace);
     $("agent-access").textContent = status.fullAccess ? "Full accès" : status.autoApprove && status.autoApproveCommands ? "Automatique" : "Sur approbation";
     $("agent-access").classList.toggle("full-access", Boolean(status.fullAccess));
     if (studioWorkspace !== workspace) {
@@ -51,6 +50,11 @@ function updateStudioStatus(status) {
         if (studioRun && studioRun.workspace !== workspace) { studioRun = null; renderAgentActivity(null); }
     }
 }
+function updateAgentProjectLabel(workspace=ui.workspace){
+    const motion=typeof isMotionOpen==="function" && isMotionOpen();
+    $("agent-project-name").textContent=motion?"Projet EffectCraft":workspace?workspace.replace(/[\\/]+$/, "").split(/[\\/]/).pop():"Aucun projet";
+    $("agent-project-name").title=motion?"Projet motion indépendant du dossier ouvert dans l’espace code":workspace || "Ouvre un dossier pour travailler sur un projet";
+}
 function recordStudioEntry(entry) {
     if (entry.type === "user" && /^\/new\b/.test(entry.text || "")) studioEntries.length = 0;
     if (["user", "assistant", "tool", "result", "error", "warn", "plan"].includes(entry.type)) {
@@ -59,7 +63,7 @@ function recordStudioEntry(entry) {
     }
 }
 function exportStudioMarkdown() {
-    const header = `# Conversation FranceStudent Code\n\nProjet : ${studioWorkspace || "Aucun"}\nExport : ${new Date().toISOString()}\n\n`;
+    const header = `# Conversation FranceStudent ${isMotionOpen()?"Motion design":"Code"}\n\nProjet : ${isMotionOpen()?"EffectCraft":studioWorkspace || "Aucun"}\nExport : ${new Date().toISOString()}\n\n`;
     return header + studioEntries.map(entry => {
         if (entry.type === "user" || entry.type === "assistant") return `## ${entry.type === "user" ? "Vous" : "Agent"}\n\n${entry.text}\n`;
         if (entry.type === "tool") return `**${toolLabel(entry.name)}**\n\n\`\`\`text\n${entry.arg || ""}\n\`\`\`\n`;
@@ -75,6 +79,8 @@ function emptyStudioText(parent, text) {
     const note = document.createElement("p"); note.className = "muted"; note.textContent = text; parent.appendChild(note);
 }
 function renderAgentActivity(run) {
+    const motion=typeof isMotionOpen==="function" && isMotionOpen();
+    if(run && (!!run.motionDesign!==motion || !motion && run.workspace!==ui.workspace))run=null;
     studioRun = run;
     const livePlan = $("agent-live-plan");
     livePlan.replaceChildren();
@@ -128,9 +134,10 @@ function renderAgentActivity(run) {
 async function refreshStudioActivity() {
     const seq = ++studioActivitySeq;
     try {
-        const [run, jobs, checkpoints] = await Promise.all([api.agentActivity(), api.backgroundJobs("list"), api.checkpoints("list")]);
+        const motion=isMotionOpen();
+        const [run, jobs, checkpoints] = await Promise.all([api.agentActivity(), motion?[]:api.backgroundJobs("list"), motion?[]:api.checkpoints("list")]);
         if (seq !== studioActivitySeq) return;
-        renderAgentActivity(run?.workspace === ui.workspace ? run : null);
+        renderAgentActivity(run);
         const jobsHost = $("activity-jobs"); jobsHost.replaceChildren();
         if (!jobs.length) emptyStudioText(jobsHost, "Aucune commande en arrière-plan.");
         for (const job of jobs) {
@@ -189,7 +196,14 @@ for (const button of document.querySelectorAll("[data-agent-tab]")) {
 }
 for (const button of document.querySelectorAll("[data-starter]")) button.onclick = () => { input.value = button.dataset.starter; autosizeInput(); saveStudioDraft(); input.focus(); };
 $("agent-access").onclick = () => showSideView("settings");
-$("agent-focus").onclick = () => { const active = $("app").classList.toggle("focus-agent"); $("agent-focus").setAttribute("aria-pressed", String(active)); };
+function setAgentFocus(active){
+    $("app").classList.toggle("focus-agent",active);
+    const button=$("agent-focus"),label=active?"Quitter le plein écran du chat":"Agrandir le chat";
+    button.setAttribute("aria-pressed",String(active));button.setAttribute("aria-label",label);button.title=label;
+    button.textContent=active?"⤡":"⤢";
+}
+$("agent-focus").onclick = () => setAgentFocus(!$("app").classList.contains("focus-agent"));
+setAgentFocus(false);
 $("activity-refresh").onclick = refreshStudioActivity;
 $("favorite-open").onclick = () => { renderFavoritePrompts(); $("agent-favorites").classList.toggle("hidden"); };
 $("favorite-close").onclick = () => $("agent-favorites").classList.add("hidden");

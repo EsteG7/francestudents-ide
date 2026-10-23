@@ -79,10 +79,11 @@ function renderLibrary() {
         card.append(centerNode("span", "ext-tag", item.category), centerNode("h3", "", item.title), centerNode("p", "", item.description), centerNode("p", "", `${item.author} · v${item.version}`));
         const actions = centerNode("div", "center-card-actions");
         actions.append(centerButton("Voir les instructions", () => openSkillEditor({ kind: "library", item })));
-        const installed = centerData.skills.some(skill => skill.key === `${scope}:${item.id}`);
+        const installedKey=libraryInstallKey(item,scope);
+        const installed = centerData.skills.some(skill => skill.key === installedKey);
         const install = centerButton(installed ? "Installé" : "Installer", () => changeExtension("install", {id:item.id, scope}, `${item.title} installé. Tu peux le désactiver dans Mes skills.`), true);
         install.disabled = installed; actions.append(install);
-        if (installed) actions.append(centerButton("Désinstaller", () => uninstallCenterSkill(centerData.skills.find(skill => skill.key === `${scope}:${item.id}`))));
+        if (installed) actions.append(centerButton("Désinstaller", () => uninstallCenterSkill(centerData.skills.find(skill => skill.key === installedKey))));
         card.append(actions); list.append(card);
     }
     if (!list.children.length) list.append(centerNode("p", "ext-empty", "Aucun skill ne correspond. Essaie un autre mot ou une autre catégorie."));
@@ -95,7 +96,7 @@ function renderInstalledSkills() {
     const filtered = centerData.skills.filter(skill => `${skill.name} ${skill.description}`.toLocaleLowerCase("fr").includes(query) && (filter === "all" || filter === "active" && !skill.disabled || filter === "disabled" && skill.disabled || filter === "favorites" && skill.favorite || filter === skill.scope));
     for (const skill of filtered.slice(0, installedVisibleCount)) {
         const card = centerNode("article", "center-card"); card.dataset.skillKey = skill.key;
-        card.append(centerNode("span", "ext-tag", skill.scope === "projet" ? "Ce projet" : "Tous mes projets"), centerNode("h3", "", skill.name), centerNode("p", "", skill.description));
+        card.append(centerNode("span", "ext-tag", skill.scope === "motion" ? "Projet EffectCraft" : skill.scope === "projet" ? "Ce projet code" : "Tous mes projets"), centerNode("h3", "", skill.name), centerNode("p", "", skill.description));
         const actions = centerNode("div", "center-card-actions");
         const favorite = centerButton(skill.favorite ? "★" : "☆", () => changeExtension("favorite", {key:skill.key}));
         favorite.setAttribute("aria-label", `${skill.favorite ? "Retirer des" : "Ajouter aux"} favoris : ${skill.name}`);

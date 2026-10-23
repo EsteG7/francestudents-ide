@@ -2,7 +2,7 @@
 const fs=require("node:fs/promises"),path=require("node:path");
 const {resolveInWorkspace}=require("./security"),{state}=require("../state"),{ui}=require("../ui-bridge");
 async function viewImage(args,deps={}) {
-    const {target,rel}=await resolveInWorkspace(deps.workspace||state.workspace,args.path);
+    const {target,rel}=await resolveInWorkspace(deps.workspace||require("../motion-workspace").toolWorkspace(),args.path);
     const mime={".png":"image/png",".jpg":"image/jpeg",".jpeg":"image/jpeg",".webp":"image/webp",".gif":"image/gif"}[path.extname(rel).toLowerCase()];
     if(!mime)throw new Error("Vision : utilise une image PNG, JPEG, WebP ou GIF.");
     if((await fs.stat(target)).size>require("../api/image-input").MAX_IMAGE_INPUT_BYTES)throw new Error("Image trop volumineuse pour la vision (25 Mo maximum avant préparation).");

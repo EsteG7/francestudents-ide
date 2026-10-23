@@ -11,8 +11,7 @@ function setActivity(view) {
 function showSideView(view) {
     const app = $("app");
     ui.sideView = view;
-    app.classList.remove("focus-agent");
-    $("agent-focus").setAttribute("aria-pressed", "false");
+    setAgentFocus(false);
     app.classList.remove("no-sidebar");
     app.classList.toggle("view-search", view === "search");
     app.classList.toggle("view-ext", view === "extensions");

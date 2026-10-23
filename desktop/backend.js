@@ -62,7 +62,7 @@ function createDesktopBackend(send) {
         startRun(prompt) {
             pendingTools = [];
             runTracking = true;
-            run = { prompt: clean(prompt).slice(0, 500), workspace: state.workspace, startedAt: Date.now(), endedAt: null, status: "running", actions: [], sources: [], steps: [], commands: 0, reads: 0, writes: 0 };
+            run = { prompt: clean(prompt).slice(0, 500), workspace: require("../src/motion-workspace").toolWorkspace(), motionDesign:!!state.motionDesign, startedAt: Date.now(), endedAt: null, status: "running", actions: [], sources: [], steps: [], commands: 0, reads: 0, writes: 0 };
             publishActivity();
         },
 

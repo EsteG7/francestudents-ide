@@ -2,6 +2,14 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
+## [1.3.2] — 23 octobre 2026 · Isolation motion, historique et vision MCP
+
+- Vision MCP : les captures et ressources images renvoyées par les serveurs (notamment Roblox) sont préparées et jointes à la prochaine requête visuelle, au lieu d’être remplacées par du texte « non affiché ». Réception vérifiée par le circuit de vision existant ; une image invalide produit une erreur explicite sans masquer les autres résultats.
+- Réouverture lisible des conversations : les anciens prompts techniques sont remplacés par la demande réelle, les tours internes sont masqués et les réponses/outils retrouvent les cartes du chat. Correction appliquée aussi aux historiques API déjà mis en cache ; les journaux complets des nouvelles conversations sont conservés.
+- Isolation du motion design : contexte, outils, rendus, skills de projet, activité et historique distincts du code. Aucun chargement du dossier, des instructions, du profil, des hooks ou des serveurs MCP du projet code dans une tâche EffectCraft. Les outils de fichiers et de shell sont bloqués dans le chat motion, même en Full accès.
+- Toute erreur « maximum token limit » déclenche la compaction et une tentative de reprise, quel que soit le plafond annoncé, même sans valeur numérique. Prise en charge des erreurs HTTP et des erreurs reçues dans le flux SSE.
+- Plein écran du chat motion : l’éditeur EffectCraft ne recouvre plus le chat. Sortir du plein écran retrouve la composition et le brouillon ; changer d’espace rétablit l’affichage normal.
+
 ## [1.3.1] — 23 octobre 2026 · Skills motion, contexte et historique
 
 - Nouvel onglet Motion design dans le centre d’extensions, accessible aussi par le bouton Skills d’EffectCraft. Le marketplace code SkillsMP reste séparé et conserve sa recherche habituelle.

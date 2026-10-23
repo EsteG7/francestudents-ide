@@ -14,10 +14,10 @@ module.exports = {
         if(result && typeof result==="object" && result.png) {
             const png=String(result.png);const bytes=Buffer.from(png,"base64");
             if(bytes.length>10*1024*1024)throw new Error("Rendu EffectCraft trop volumineux.");
-            const {state}=require("../state");
-            if(!state.workspace)return {...result,png:undefined,message:"Ouvre un projet pour sauvegarder le rendu."};
+            const workspace=require("../motion-workspace").motionWorkspace();
             const fs=require("node:fs/promises"),path=require("node:path"),rel=`.frst/screenshots/effectcraft-${Date.now()}.png`;
-            const {target}=await require("./security").resolveInWorkspace(state.workspace,rel);
+            await fs.mkdir(workspace,{recursive:true});
+            const {target}=await require("./security").resolveInWorkspace(workspace,rel);
             await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,bytes);
             return {...result,png:undefined,path:rel,message:"Rendu sauvegardé. Utilise view_image pour le vérifier visuellement."};
         }

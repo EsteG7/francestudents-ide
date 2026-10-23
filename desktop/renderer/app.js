@@ -1057,11 +1057,14 @@ async function selectModel(id) {
 /* ---------- Historique des conversations (/history, reprise par /chat-id) ---------- */
 
 function historyCurrentWorkspace() {
+    if(typeof isMotionOpen==="function" && isMotionOpen())return null;
     return ui.workspace || (ui.status && ui.status.workspace) || null;
 }
 
 function historyMatches(item) {
-    if (ui.historyOnlyProject && (item.workspace || null) !== historyCurrentWorkspace()) return false;
+    const motion=typeof isMotionOpen==="function" && isMotionOpen();
+    if(!!item.motionDesign!==motion)return false;
+    if (!motion && ui.historyOnlyProject && (item.workspace || null) !== historyCurrentWorkspace()) return false;
     const query = String(ui.historyQuery || "").trim().toLowerCase();
     if (!query) return true;
     return [item.title, item.model, item.mode, item.workspace, item.id]
@@ -3162,8 +3165,7 @@ function setActivity(view) {
 function showSideView(view) {
     const app = $("app");
     ui.sideView = view;
-    app.classList.remove("focus-agent");
-    $("agent-focus").setAttribute("aria-pressed", "false");
+    setAgentFocus(false);
     app.classList.remove("no-sidebar");
     app.classList.toggle("view-search", view === "search");
     app.classList.toggle("view-ext", view === "extensions");
@@ -6089,8 +6091,7 @@ function setAgentTab(tab) {
 }
 function updateStudioStatus(status) {
     const workspace = status.workspace || null;
-    $("agent-project-name").textContent = workspace ? workspace.replace(/[\\/]+$/, "").split(/[\\/]/).pop() : "Aucun projet";
-    $("agent-project-name").title = workspace || "Ouvre un dossier pour travailler sur un projet";
+    updateAgentProjectLabel(workspace);
     $("agent-access").textContent = status.fullAccess ? "Full accès" : status.autoApprove && status.autoApproveCommands ? "Automatique" : "Sur approbation";
     $("agent-access").classList.toggle("full-access", Boolean(status.fullAccess));
     if (studioWorkspace !== workspace) {
@@ -6101,6 +6102,11 @@ function updateStudioStatus(status) {
         if (studioRun && studioRun.workspace !== workspace) { studioRun = null; renderAgentActivity(null); }
     }
 }
+function updateAgentProjectLabel(workspace=ui.workspace){
+    const motion=typeof isMotionOpen==="function" && isMotionOpen();
+    $("agent-project-name").textContent=motion?"Projet EffectCraft":workspace?workspace.replace(/[\\/]+$/, "").split(/[\\/]/).pop():"Aucun projet";
+    $("agent-project-name").title=motion?"Projet motion indépendant du dossier ouvert dans l’espace code":workspace || "Ouvre un dossier pour travailler sur un projet";
+}
 function recordStudioEntry(entry) {
     if (entry.type === "user" && /^\/new\b/.test(entry.text || "")) studioEntries.length = 0;
     if (["user", "assistant", "tool", "result", "error", "warn", "plan"].includes(entry.type)) {
@@ -6109,7 +6115,7 @@ function recordStudioEntry(entry) {
     }
 }
 function exportStudioMarkdown() {
-    const header = `# Conversation FranceStudent Code\n\nProjet : ${studioWorkspace || "Aucun"}\nExport : ${new Date().toISOString()}\n\n`;
+    const header = `# Conversation FranceStudent ${isMotionOpen()?"Motion design":"Code"}\n\nProjet : ${isMotionOpen()?"EffectCraft":studioWorkspace || "Aucun"}\nExport : ${new Date().toISOString()}\n\n`;
     return header + studioEntries.map(entry => {
         if (entry.type === "user" || entry.type === "assistant") return `## ${entry.type === "user" ? "Vous" : "Agent"}\n\n${entry.text}\n`;
         if (entry.type === "tool") return `**${toolLabel(entry.name)}**\n\n\`\`\`text\n${entry.arg || ""}\n\`\`\`\n`;
@@ -6125,6 +6131,8 @@ function emptyStudioText(parent, text) {
     const note = document.createElement("p"); note.className = "muted"; note.textContent = text; parent.appendChild(note);
 }
 function renderAgentActivity(run) {
+    const motion=typeof isMotionOpen==="function" && isMotionOpen();
+    if(run && (!!run.motionDesign!==motion || !motion && run.workspace!==ui.workspace))run=null;
     studioRun = run;
     const livePlan = $("agent-live-plan");
     livePlan.replaceChildren();
@@ -6178,9 +6186,10 @@ function renderAgentActivity(run) {
 async function refreshStudioActivity() {
     const seq = ++studioActivitySeq;
     try {
-        const [run, jobs, checkpoints] = await Promise.all([api.agentActivity(), api.backgroundJobs("list"), api.checkpoints("list")]);
+        const motion=isMotionOpen();
+        const [run, jobs, checkpoints] = await Promise.all([api.agentActivity(), motion?[]:api.backgroundJobs("list"), motion?[]:api.checkpoints("list")]);
         if (seq !== studioActivitySeq) return;
-        renderAgentActivity(run?.workspace === ui.workspace ? run : null);
+        renderAgentActivity(run);
         const jobsHost = $("activity-jobs"); jobsHost.replaceChildren();
         if (!jobs.length) emptyStudioText(jobsHost, "Aucune commande en arrière-plan.");
         for (const job of jobs) {
@@ -6239,7 +6248,14 @@ for (const button of document.querySelectorAll("[data-agent-tab]")) {
 }
 for (const button of document.querySelectorAll("[data-starter]")) button.onclick = () => { input.value = button.dataset.starter; autosizeInput(); saveStudioDraft(); input.focus(); };
 $("agent-access").onclick = () => showSideView("settings");
-$("agent-focus").onclick = () => { const active = $("app").classList.toggle("focus-agent"); $("agent-focus").setAttribute("aria-pressed", String(active)); };
+function setAgentFocus(active){
+    $("app").classList.toggle("focus-agent",active);
+    const button=$("agent-focus"),label=active?"Quitter le plein écran du chat":"Agrandir le chat";
+    button.setAttribute("aria-pressed",String(active));button.setAttribute("aria-label",label);button.title=label;
+    button.textContent=active?"⤡":"⤢";
+}
+$("agent-focus").onclick = () => setAgentFocus(!$("app").classList.contains("focus-agent"));
+setAgentFocus(false);
 $("activity-refresh").onclick = refreshStudioActivity;
 $("favorite-open").onclick = () => { renderFavoritePrompts(); $("agent-favorites").classList.toggle("hidden"); };
 $("favorite-close").onclick = () => $("agent-favorites").classList.add("hidden");
@@ -6474,10 +6490,11 @@ function renderLibrary() {
         card.append(centerNode("span", "ext-tag", item.category), centerNode("h3", "", item.title), centerNode("p", "", item.description), centerNode("p", "", `${item.author} · v${item.version}`));
         const actions = centerNode("div", "center-card-actions");
         actions.append(centerButton("Voir les instructions", () => openSkillEditor({ kind: "library", item })));
-        const installed = centerData.skills.some(skill => skill.key === `${scope}:${item.id}`);
+        const installedKey=libraryInstallKey(item,scope);
+        const installed = centerData.skills.some(skill => skill.key === installedKey);
         const install = centerButton(installed ? "Installé" : "Installer", () => changeExtension("install", {id:item.id, scope}, `${item.title} installé. Tu peux le désactiver dans Mes skills.`), true);
         install.disabled = installed; actions.append(install);
-        if (installed) actions.append(centerButton("Désinstaller", () => uninstallCenterSkill(centerData.skills.find(skill => skill.key === `${scope}:${item.id}`))));
+        if (installed) actions.append(centerButton("Désinstaller", () => uninstallCenterSkill(centerData.skills.find(skill => skill.key === installedKey))));
         card.append(actions); list.append(card);
     }
     if (!list.children.length) list.append(centerNode("p", "ext-empty", "Aucun skill ne correspond. Essaie un autre mot ou une autre catégorie."));
@@ -6490,7 +6507,7 @@ function renderInstalledSkills() {
     const filtered = centerData.skills.filter(skill => `${skill.name} ${skill.description}`.toLocaleLowerCase("fr").includes(query) && (filter === "all" || filter === "active" && !skill.disabled || filter === "disabled" && skill.disabled || filter === "favorites" && skill.favorite || filter === skill.scope));
     for (const skill of filtered.slice(0, installedVisibleCount)) {
         const card = centerNode("article", "center-card"); card.dataset.skillKey = skill.key;
-        card.append(centerNode("span", "ext-tag", skill.scope === "projet" ? "Ce projet" : "Tous mes projets"), centerNode("h3", "", skill.name), centerNode("p", "", skill.description));
+        card.append(centerNode("span", "ext-tag", skill.scope === "motion" ? "Projet EffectCraft" : skill.scope === "projet" ? "Ce projet code" : "Tous mes projets"), centerNode("h3", "", skill.name), centerNode("p", "", skill.description));
         const actions = centerNode("div", "center-card-actions");
         const favorite = centerButton(skill.favorite ? "★" : "☆", () => changeExtension("favorite", {key:skill.key}));
         favorite.setAttribute("aria-label", `${skill.favorite ? "Retirer des" : "Ajouter aux"} favoris : ${skill.name}`);
@@ -7805,6 +7822,7 @@ function isMotionOpen(){return $("app").classList.contains("view-motion");}
 function setMotionEngineStatus(text){$("motion-engine-status").textContent=text;$("motion-engine-status").title=text;}
 async function openMotionDesign(){
     if(!await selectMotionChat("motion"))return;
+    setAgentFocus(false);
     setActivity(null);$("app").classList.add("view-motion");motionNav.classList.add("active");
     $("motion-consent").classList.toggle("hidden-consent",motionEngine.accepted);
     if(motionEngine.accepted)loadMotionEngine();else $("motion-consent-ok").focus({preventScroll:true});
@@ -7812,6 +7830,7 @@ async function openMotionDesign(){
 }
 async function closeMotionDesign(){
     if(!isMotionOpen() || !await selectMotionChat("code"))return;
+    setAgentFocus(false);
     $("app").classList.remove("view-motion");motionNav.classList.remove("active");
     setActivity($("app").classList.contains("no-sidebar")?null:ui.sideView);syncMotionChat();
 }
@@ -7855,9 +7874,11 @@ $("motion-undo").onclick=()=>motionControl({method:"engine.execute",params:{comm
 $("motion-local-save").onclick=()=>motionControl({method:"host.save",params:{path:"FranceStudent.ecproj"}});
 const motionChat={placeholder:null,badge:null};
 function syncMotionChat(){
+    updateAgentProjectLabel();
     const bar=document.querySelector("#agent .agent-context-bar");if(!bar)return;
     if(!motionChat.badge){const badge=document.createElement("span");badge.id="agent-motion-badge";badge.className="agent-motion-badge";badge.textContent="Motion design";bar.insertBefore(badge,$("agent-access"));motionChat.badge=badge;}
     const open=isMotionOpen();motionChat.badge.hidden=!open;
+    if(motionChat.open!==open){motionChat.open=open;renderAgentActivity(null);if(studioTab==="activity")refreshStudioActivity();}
     if(open){if(motionChat.placeholder===null)motionChat.placeholder=input.placeholder;input.placeholder="Décris ton animation… l’agent agit dans EffectCraft.";}
     else if(motionChat.placeholder!==null){input.placeholder=motionChat.placeholder;motionChat.placeholder=null;}
 }
@@ -8032,6 +8053,7 @@ tutorialButton.onclick=()=>showMotionTutorial();
 motionView.addEventListener("keydown",event=>{if(event.key==="Escape" && !motionTutorialPanel.classList.contains("hidden")){event.preventDefault();event.stopPropagation();motionTutorialPanel.classList.add("hidden");tutorialButton.focus();}});
 /* Curated motion workflows; ordinary marketplace searches remain explicit. */
 let motionCollection="effectcraft";
+function libraryInstallKey(item,scope){return `${item.application==="effectcraft" && scope==="projet"?"motion":scope}:${item.id}`;}
 const motionMarket=centerNode("section","motion-marketplace");motionMarket.id="motion-marketplace";
 const motionMarketHead=centerNode("div","motion-marketplace-head");
 motionMarketHead.innerHTML='<div><span class="ext-tag">Sélection motion design</span><h2>Les bons outils pour tes animations.</h2><p>EffectCraft pour l’éditeur intégré. Remotion pour les projets vidéo en React.</p></div><label>Installer pour<select id="motion-skill-scope" aria-label="Portée des skills motion"><option value="utilisateur">Tous mes projets</option><option value="projet">Ce projet seulement</option></select></label>';
@@ -8046,7 +8068,8 @@ $("motion-skill-scope").onchange=renderMotionMarketplace;
 function renderMotionMarketplace(){
     if(!centerData)return;
     const scope=$("motion-skill-scope").value;
-    $("motion-skill-scope").querySelector('[value="projet"]').disabled=!centerData.workspace;
+    $("motion-skill-scope").querySelector('[value="projet"]').disabled=motionCollection!=="effectcraft" && !centerData.workspace;
+    $("motion-skill-scope").querySelector('[value="projet"]').textContent=motionCollection==="effectcraft"?"Projet EffectCraft":"Ce projet code";
     for(const button of motionMarketFilters.children)button.setAttribute("aria-pressed",String(button.dataset.motionCollection===motionCollection));
     motionMarketNote.replaceChildren(document.createTextNode(motionCollection==="effectcraft"?"8 skills FranceStudent prêts à installer, sans téléchargement ni clé API. L’agent les utilise dans le chat Motion design ; les consulter ne consomme pas de quota.":"Sélection des 5 skills les plus installés de la collection officielle remotion-dev/skills sur Skills.sh, vérifiée le 23 octobre 2026. Ils nécessitent un projet Remotion dans le chat code ; ils ne pilotent pas EffectCraft. "));
     if(motionCollection==="code")motionMarketNote.append(centerButton("Voir la source du classement",()=>api.openExternal("https://www.skills.sh/remotion-dev/skills")));
@@ -8056,7 +8079,7 @@ function renderMotionMarketplace(){
         const card=centerNode("article","center-card");card.dataset.motionSkillId=item.id;
         card.append(centerNode("span","ext-tag",motionCollection==="effectcraft"?"EffectCraft · natif":`Remotion · ≈ ${Math.round(item.installs/1000)} k installations`),centerNode("h3","",item.title),centerNode("p","",item.description));
         const actions=centerNode("div","center-card-actions");
-        const installed=centerData.skills.find(skill=>skill.key===`${scope}:${item.id}`);
+        const installed=centerData.skills.find(skill=>skill.key===libraryInstallKey(item,scope));
         if(motionCollection==="effectcraft"){
             actions.append(centerButton("Voir les instructions",()=>{openSkillEditor({kind:"library",item});$("skill-editor-scope").value=scope;}));
             const install=centerButton(installed?"Installé":"Installer",()=>changeExtension("install",{id:item.id,scope},`${item.title} installé pour le chat Motion design.`),true);install.disabled=!!installed;actions.append(install);

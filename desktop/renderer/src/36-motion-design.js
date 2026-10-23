@@ -16,6 +16,7 @@ function isMotionOpen(){return $("app").classList.contains("view-motion");}
 function setMotionEngineStatus(text){$("motion-engine-status").textContent=text;$("motion-engine-status").title=text;}
 async function openMotionDesign(){
     if(!await selectMotionChat("motion"))return;
+    setAgentFocus(false);
     setActivity(null);$("app").classList.add("view-motion");motionNav.classList.add("active");
     $("motion-consent").classList.toggle("hidden-consent",motionEngine.accepted);
     if(motionEngine.accepted)loadMotionEngine();else $("motion-consent-ok").focus({preventScroll:true});
@@ -23,6 +24,7 @@ async function openMotionDesign(){
 }
 async function closeMotionDesign(){
     if(!isMotionOpen() || !await selectMotionChat("code"))return;
+    setAgentFocus(false);
     $("app").classList.remove("view-motion");motionNav.classList.remove("active");
     setActivity($("app").classList.contains("no-sidebar")?null:ui.sideView);syncMotionChat();
 }
@@ -66,9 +68,11 @@ $("motion-undo").onclick=()=>motionControl({method:"engine.execute",params:{comm
 $("motion-local-save").onclick=()=>motionControl({method:"host.save",params:{path:"FranceStudent.ecproj"}});
 const motionChat={placeholder:null,badge:null};
 function syncMotionChat(){
+    updateAgentProjectLabel();
     const bar=document.querySelector("#agent .agent-context-bar");if(!bar)return;
     if(!motionChat.badge){const badge=document.createElement("span");badge.id="agent-motion-badge";badge.className="agent-motion-badge";badge.textContent="Motion design";bar.insertBefore(badge,$("agent-access"));motionChat.badge=badge;}
     const open=isMotionOpen();motionChat.badge.hidden=!open;
+    if(motionChat.open!==open){motionChat.open=open;renderAgentActivity(null);if(studioTab==="activity")refreshStudioActivity();}
     if(open){if(motionChat.placeholder===null)motionChat.placeholder=input.placeholder;input.placeholder="Décris ton animation… l’agent agit dans EffectCraft.";}
     else if(motionChat.placeholder!==null){input.placeholder=motionChat.placeholder;motionChat.placeholder=null;}
 }

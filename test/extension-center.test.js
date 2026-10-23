@@ -52,11 +52,14 @@ test("motion collection installs native skills and keeps code and EffectCraft ca
     const data=await center.action("install",{id:"motion-titles",scope:"projet"});
     assert.equal(data.library.filter(item=>item.application==="effectcraft").length,8);
     assert.equal(data.motionCommunity.length,5);
-    assert.match(await skills.catalog(project,"effectcraft"),/motion-titles/);
+    const motion=require("../src/motion-workspace").motionWorkspace();
+    assert.match(await skills.catalog(motion,"effectcraft"),/motion-titles/);
+    assert.doesNotMatch(await skills.catalog(project,"effectcraft"),/motion-titles/);
     assert.doesNotMatch(await skills.catalog(project,"code"),/motion-titles/);
-    const loaded=await skills.getSkill("motion-titles",project);assert.match(loaded.instructions,/command.describe/);assert.equal(loaded.application,"effectcraft");
+    const loaded=await skills.getSkill("motion-titles",motion);assert.match(loaded.instructions,/command.describe/);assert.equal(loaded.application,"effectcraft");
+    assert.ok(data.skills.some(skill=>skill.key==="motion:motion-titles"));
     const state=require("../src/state").state;const previous={workspace:state.workspace,motionDesign:state.motionDesign};
-    try{state.workspace=project;state.motionDesign=false;await assert.rejects(require("../src/skills/tool").run({name:"motion-titles"}),/autre espace/);}
+    try{state.workspace=project;state.motionDesign=false;await assert.rejects(require("../src/skills/tool").run({name:"motion-titles"}),/inconnu|autre espace/);}
     finally{Object.assign(state,previous);}
 });
 

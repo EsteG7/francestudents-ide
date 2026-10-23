@@ -69,6 +69,10 @@ async function handleInput(rawInput, { onChatDelta, sendChat, preferAgent = fals
         return { exit: !keepGoing };
     }
 
+    if(state.motionDesign){
+        const outcome=await agent.runAgent(input,{shouldStop,drainSteering});
+        return {exit:false,...outcome};
+    }
     if (router.isWorkspaceQuestion(input)) {
         ui.assistant(`Projet actuel : ${state.workspace || "aucun projet sélectionné."}`);
         return { exit: false };

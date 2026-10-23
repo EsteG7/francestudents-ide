@@ -91,7 +91,8 @@ test("formatToolResult : texte, image, troncature, structuredContent", () => {
     const mixed = formatToolResult({
         content: [{ type: "text", text: "a" }, { type: "image", data: "xx", mimeType: "image/png" }]
     });
-    assert.equal(mixed.text, "a\n[contenu image non affiché]");
+    assert.equal(mixed.text, "a\n[image MCP disponible pour examen visuel]");
+    assert.deepEqual(mixed.images,[{data:"xx",mimeType:"image/png"}]);
     assert.equal(mixed.truncated, false);
     assert.equal(mixed.isError, false);
 

@@ -2,6 +2,7 @@
 .motion-page{display:none}
 #app.view-motion #motion-view{display:flex;flex-direction:column;position:fixed;top:var(--titlebar);bottom:24px;left:48px;width:calc(100vw - 48px - var(--right) - 4px);min-width:0;box-sizing:border-box;background:var(--bg);color:var(--fg);z-index:30;overflow:hidden}
 #app.view-motion.no-agent #motion-view{width:calc(100vw - 48px)}
+#app.view-motion.focus-agent #motion-view{visibility:hidden;pointer-events:none}
 .motion-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;min-height:48px;padding:8px 14px;background:var(--bg-side);border-bottom:1px solid var(--border)}
 .motion-brand,.motion-actions,.motion-commandbar,.motion-commandbar>div{display:flex;align-items:center;gap:8px;min-width:0}
 .motion-brand>svg{width:20px;height:20px;color:var(--link)}
@@ -30,6 +31,8 @@
 .agent-motion-badge{font-size:10px;color:var(--link);padding:2px 7px;background:var(--accent-soft);border:1px solid var(--border);border-radius:5px;white-space:nowrap}
 .agent-motion-badge[hidden]{display:none}
 #app.view-motion .starter-context{display:none}
+#app.view-motion #mode-select{display:none}
+#app.view-motion .workspace-section:has(#activity-jobs),#app.view-motion .workspace-section:has(#activity-checkpoints){display:none}
 .motion-mode-switch{display:flex;gap:3px;padding:3px;background:var(--bg);border:1px solid var(--border);border-radius:7px}
 .motion-mode-switch button{border:0;background:transparent;padding:4px 10px;min-height:25px;color:var(--fg-dim)}
 .motion-mode-switch button[aria-pressed="true"]{background:var(--bg-active);color:var(--fg-strong)}

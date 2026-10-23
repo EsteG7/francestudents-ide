@@ -74,6 +74,22 @@ test("EffectCraft real engine is controlled through the specialized agent chat",
         await page.locator("#btn-motion").click();
         const restored=await page.evaluate(()=>window.frst.effectCraftControl({method:"engine.execute",params:{command:"project.summary",params:{}}}));
         assert.equal(restored.activeComp,rendered.comp);
+        const frameBeforeFocus=await page.locator(".motion-engine-iframe").getAttribute("src");
+        for(const [width,height] of [[1440,960],[840,720]]){
+            await app.evaluate(({BrowserWindow},size)=>{const window=BrowserWindow.getAllWindows()[0];window.setMinimumSize(0,0);window.setSize(...size);},[width,height]);
+            await page.locator("#agent-focus").click();
+            assert.equal(await page.locator("#motion-view").isVisible(),false);
+            const focused=await page.locator("#agent").boundingBox(),viewport=await page.evaluate(()=>innerWidth);
+            assert.ok(focused.width>=viewport-50);
+            await page.locator("#input").fill("Motion draft in full screen");
+            assert.equal(await page.locator("#input").evaluate(element=>{const bounds=element.getBoundingClientRect();return document.elementFromPoint(bounds.x+bounds.width/2,bounds.y+bounds.height/2)===element;}),true);
+            if(process.env.FRST_QA_SCREENSHOT && width===1440)await page.screenshot({path:process.env.FRST_QA_SCREENSHOT+"-motion-chat-fullscreen.png"});
+            await page.locator("#agent-focus").click();
+            assert.equal(await page.locator("#motion-view").isVisible(),true);
+            assert.equal(await page.locator("#input").inputValue(),"Motion draft in full screen");
+            assert.equal(await page.locator(".motion-engine-iframe").getAttribute("src"),frameBeforeFocus);
+        }
+        assert.equal((await page.evaluate(()=>window.frst.effectCraftControl({method:"engine.execute",params:{command:"project.summary",params:{}}}))).activeComp,rendered.comp);
         await page.locator("#motion-skills").click();
         await page.locator("#motion-marketplace").waitFor({state:"visible"});
         assert.equal(await page.locator("#motion-marketplace-list .center-card").count(),8);

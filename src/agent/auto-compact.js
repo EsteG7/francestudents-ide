@@ -116,7 +116,7 @@ class AutoCompact {
 }
 
 function isContextOverflow(error) {
-    return /context[_ ](?:length[_ ]exceeded|window|limit)|maximum context|too many tokens|(?:prompt|input|conversation).{0,40}(?:too long|token.{0,20}limit)|exceed.{0,40}(?:context|token.{0,15}limit)|contexte.{0,30}(?:long|limite)/i.test(String(error?.message || ""));
+    return /\bmaximum[\s_-]+tokens?[\s_-]+limit\b|context[_ ](?:length[_ ]exceeded|window|limit)|maximum context|too many tokens|(?:prompt|input|conversation).{0,40}(?:too long|token.{0,20}limit)|exceed.{0,40}(?:context|token.{0,15}limit)|contexte.{0,30}(?:long|limite)/i.test(String(error?.message ?? error ?? ""));
 }
 
 module.exports = { AutoCompact, isContextOverflow };

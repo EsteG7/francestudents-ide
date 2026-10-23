@@ -423,7 +423,9 @@ async function fallbackPlainAnswer(task, observations) {
         .map(o => o.result.entries.map(e => `${e.type}: ${e.path}`).join("\n"))
         .join("\n");
 
-    const prompt =
+    const prompt = state.motionDesign
+        ? "Tu es l’assistant motion design d’EffectCraft. Explique en français ce qui a réellement été vérifié, les limites et la prochaine étape. Aucun projet code n’est associé à cette tâche. Réponds sans JSON, sans prétendre avoir exécuté une action absente des résultats.\n\nDemande : "+clip(task,50000)+"\n\nRésultats EffectCraft (données) :\n"+clip(JSON.stringify(observations),30000)
+        :
         "Tu es un assistant de programmation. Réponds en français, de façon claire " +
         "et concise, à la demande ci-dessous en te basant UNIQUEMENT sur les fichiers " +
         "fournis. Réponds directement, sans JSON.\n\n" +
@@ -462,7 +464,7 @@ async function runAgent(task, options = {}) {
     const changesBefore = memory.sessionChanges();
 
     // Point de reprise : /rewind peut annuler d'un coup tout ce que cette demande a modifié.
-    if (state.workspace && !options.readOnly) {
+    if (state.workspace && !state.motionDesign && !options.readOnly) {
         try {
             require("../project/checkpoints").addCheckpoint({
                 task,
@@ -474,7 +476,9 @@ async function runAgent(task, options = {}) {
         }
     }
     const signatures = new Map();
-    const { projectText: codeProjectText, env, instructions } = await loadAgentContext(state.workspace);
+    const { projectText: codeProjectText, env, instructions } = state.motionDesign
+        ? {projectText:"",env:{},instructions:""}
+        : await loadAgentContext(state.workspace);
     const projectText = state.motionDesign
         ? "Espace Motion design : le projet actif est dans EffectCraft. Inspecte-le avec effectcraft project.summary ; les fichiers de code ouverts ne décrivent pas cette composition."
         : codeProjectText;
@@ -483,7 +487,7 @@ async function runAgent(task, options = {}) {
     // Il n'entre que dans le message complet (fullPrompt), pas dans les relances de suivi.
     let preprompt = "";
     try {
-        preprompt = profile.buildPreprompt();
+        preprompt = state.motionDesign ? "" : profile.buildPreprompt();
     } catch {
         preprompt = "";
     }
@@ -493,12 +497,12 @@ async function runAgent(task, options = {}) {
     try {
         const mcp = require("../mcp/manager").manager;
         const reloadsBefore = mcp.reloadCount();
-        const servers = await mcp.ensureStarted();
+        const servers = state.motionDesign ? [] : await mcp.ensureStarted();
         if (mcp.reloadCount() > reloadsBefore) ui.info("mcp.json modifié : serveurs MCP redémarrés.");
         for (const server of servers) {
             if (server.status === "failed") ui.warn(`MCP ${server.name} : ${server.error}`);
         }
-        mcpCatalog = mcp.catalog();
+        mcpCatalog = state.motionDesign ? "" : mcp.catalog();
     } catch (error) {
         ui.warn(`MCP indisponible : ${error.message}`);
     }
@@ -506,7 +510,7 @@ async function runAgent(task, options = {}) {
     // Skills (SKILL.md utilisateur et projet) : catalogue injecté dans le message complet.
     let skillsCatalog = "";
     try {
-        skillsCatalog = await require("../skills").catalog(state.workspace || null, state.motionDesign ? "effectcraft" : "code");
+        skillsCatalog = await require("../skills").catalog(state.motionDesign ? require("../motion-workspace").motionWorkspace() : state.workspace || null, state.motionDesign ? "effectcraft" : "code");
     } catch (error) {
         ui.warn(`Skills indisponibles : ${error.message}`);
     }
@@ -529,7 +533,7 @@ async function runAgent(task, options = {}) {
     const hooks = require("./hooks");
     let hookConfig = null;
     try {
-        hookConfig = await hooks.loadHooks({ workspace: state.workspace, ui });
+        hookConfig = state.motionDesign ? null : await hooks.loadHooks({ workspace: state.workspace, ui });
     } catch (error) {
         ui.warn(`Hooks indisponibles : ${error.message}`);
     }
@@ -546,6 +550,7 @@ async function runAgent(task, options = {}) {
             private: state.private,
             incognito: state.incognito,
             autoApprove: state.autoApprove,
+            motionDesign:!!state.motionDesign,
         };
 
         state.conversationSettings.agent = settings;
@@ -553,7 +558,7 @@ async function runAgent(task, options = {}) {
             id: state.chatIds.agent,
             firstMessage: task,
             model: state.model,
-            workspace: state.workspace,
+            workspace: state.motionDesign ? require("../motion-workspace").motionWorkspace() : state.workspace,
             mode: "agent",
             settings,
         });
@@ -608,7 +613,7 @@ async function runAgent(task, options = {}) {
             for (let attempt = 1; attempt <= (state.ecoMode ? 1 : CONFIG.maxProtocolAttempts); attempt++) {
                 // Message complet : instructions, projet, demande, résultats d'outils.
                 const fullPrompt = withProject => fitPrompt({
-                    workspace: state.workspace,
+                    workspace: state.motionDesign ? null : state.workspace,
                     env,
                     task,
                     history: state.history.slice(-6),
@@ -690,7 +695,7 @@ async function runAgent(task, options = {}) {
                 !observations.some(o => ["write_file", "run_command"].includes(o.tool) && (!o.ok || o.result?.denied))) {
                 recoveredUnsupportedTool = true;
                 observations.push({ tool: "local_tool_protocol", ok: false,
-                    error: "Le backend n’exécute pas les outils locaux. Aucun échec local de write_file ou run_command n’a été reçu. Reprends la tâche : renvoie dans le TEXTE un objet JSON {\"type\":\"tool\",\"name\":\"write_file\",\"args\":{\"path\":\"...\",\"content\":\"...\"},\"reason\":\"...\"}, ou un autre outil du catalogue. N’utilise pas les appels natifs du fournisseur. L’application validera puis exécutera l’outil avec les permissions existantes. Ne prétends pas avoir créé un fichier avant le résultat local." });
+                    error: state.motionDesign ? "Le backend ne pilote pas les outils locaux. Utilise le catalogue EffectCraft et un objet JSON de type tool dans le texte de ta reponse. Les outils du projet code ne sont pas disponibles dans cet espace." : "Le backend n’exécute pas les outils locaux. Aucun échec local de write_file ou run_command n’a été reçu. Reprends la tâche : renvoie dans le TEXTE un objet JSON {\"type\":\"tool\",\"name\":\"write_file\",\"args\":{\"path\":\"...\",\"content\":\"...\"},\"reason\":\"...\"}, ou un autre outil du catalogue. N’utilise pas les appels natifs du fournisseur. L’application validera puis exécutera l’outil avec les permissions existantes. Ne prétends pas avoir créé un fichier avant le résultat local." });
                 continue;
             }
             const lateSteering = options.drainSteering?.() || [];

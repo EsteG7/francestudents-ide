@@ -23,5 +23,8 @@ test("reopening shows full local actions across compaction and fetches old API m
         await page.waitForFunction(()=>document.querySelector("#transcript").textContent.includes("Old server response 39"));
         assert.match(await page.locator("#transcript").innerText(),/Old server request 0/);assert.equal(await page.locator("#transcript .entry.assistant").count(),40);
         const resumed=await page.evaluate(()=>window.frst.conversationsOpen("before-compaction"));assert.equal(resumed.id,"after-compaction");
+        await page.evaluate(()=>window.frst.motionConversation("motion"));
+        await assert.rejects(page.evaluate(()=>window.frst.conversationsOpen("before-compaction")),/autre espace/);
+        await page.evaluate(()=>window.frst.motionConversation("code"));
     }finally{await app.close();}
 });

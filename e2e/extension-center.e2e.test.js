@@ -77,7 +77,8 @@ test("e2e : bibliothèque, profils, marketplace, MCP réel et paramètres persis
         await page.locator("#skill-editor-cancel").click();
         await titleSkill.getByRole("button",{name:"Installer",exact:true}).click();
         await titleSkill.getByRole("button",{name:"Installé",exact:true}).waitFor();
-        assert.ok(fs.existsSync(path.join(project,".frst/skills/motion-titles/SKILL.md")));
+        assert.ok(fs.existsSync(path.join(dir,"motion-workspace/.frst/skills/motion-titles/SKILL.md")));
+        assert.equal(fs.existsSync(path.join(project,".frst/skills/motion-titles/SKILL.md")),false);
         await page.locator('[data-motion-collection="code"]').click();
         assert.equal(await page.locator("#motion-marketplace-list .center-card").count(),5);
         assert.match(await page.locator("#motion-marketplace-note").innerText(),/ne pilotent pas EffectCraft/);

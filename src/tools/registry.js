@@ -77,7 +77,7 @@ const TOOLS = {};
 const DESCRIBE = {};
 
 for (const tool of MODULES) {
-    TOOLS[tool.name] = { run: tool.run, check: tool.check };
+    TOOLS[tool.name] = { run: (...args)=>{require("./motion-scope").assertToolScope(tool.name);return tool.run(...args);}, check: tool.check };
     DESCRIBE[tool.name] = tool.describe;
 }
 
@@ -88,9 +88,10 @@ function validateToolCall(action) {
 
     if (!Object.hasOwn(TOOLS, action.name)) {
         throw new Error(
-            `Outil inconnu : ${action.name}. Outils valides : ${Object.keys(TOOLS).join(", ")}.`
+            `Outil inconnu : ${action.name}. Outils valides : ${(require("../state").state.motionDesign?[...require("./motion-scope").MOTION_TOOLS]:Object.keys(TOOLS)).join(", ")}.`
         );
     }
+    require("./motion-scope").assertToolScope(action.name);
 
     if (!action.args || typeof action.args !== "object" || Array.isArray(action.args)) {
         throw new Error("args doit être un objet.");

@@ -25,6 +25,13 @@ async function atomicWrite(file, text) {
 }
 function createExtensionCenter({ workspace = () => null, busy = () => false } = {}) {
     let pending = Promise.resolve();
+    const motionWorkspace=()=>require("../src/motion-workspace").motionWorkspace();
+    const workspaceFor=skill=>skill.scope==="motion"?motionWorkspace():workspace();
+    async function installedSkills(){
+        const code=await skills.listSkills(workspace());
+        const motion=(await skills.listSkills(motionWorkspace())).filter(skill=>skill.scope==="projet").map(skill=>({...skill,scope:"motion"}));
+        return [...code,...motion];
+    }
     function mutate(fn) {
         const operation = pending.then(() => {
             if (busy()) throw new Error("Attends la fin de la tâche avant de modifier les extensions.");
@@ -34,7 +41,7 @@ function createExtensionCenter({ workspace = () => null, busy = () => false } = 
         return operation;
     }
     async function resolveSkill(key) {
-        const skill = (await skills.listSkills(workspace())).find(s => keyOf(s) === key);
+        const skill = (await installedSkills()).find(s => keyOf(s) === key);
         if (!skill) throw new Error("Skill introuvable. Actualise la liste.");
         const actual = await fs.realpath(skill.file);
         const rel = path.relative(await fs.realpath(skill.dir), actual);
@@ -44,7 +51,7 @@ function createExtensionCenter({ workspace = () => null, busy = () => false } = 
     async function list() {
         const saved = settings.load();
         return {
-            skills: (await skills.listSkills(workspace())).map(s => ({ ...s, key: keyOf(s), favorite: (saved.skillFavorites || []).includes(keyOf(s)) })),
+            skills: (await installedSkills()).map(s => ({ ...s, key: keyOf(s), favorite: (saved.skillFavorites || []).includes(keyOf(s)) })),
             library, motionCommunity:require("./motion-marketplace").catalog, profiles: saved.skillProfiles || {}, workspace: workspace(),
             userDir: skills.userSkillsDir(), projectDir: skills.projectSkillsDir(workspace())
         };
@@ -52,6 +59,7 @@ function createExtensionCenter({ workspace = () => null, busy = () => false } = 
     async function install({ name, content, scope, files = [] }) {
         const folder = safeName(name).toLowerCase();
         validateContent(content);
+        if(scope==="projet" && skills.parseFrontmatter(content).meta.application==="effectcraft")scope="motion";
         if(!Array.isArray(files) || files.length>200)throw new Error("Trop de ressources dans le skill.");
         let bytes=0;const names=new Set(["skill.md"]);
         for(const file of files){
@@ -59,7 +67,7 @@ function createExtensionCenter({ workspace = () => null, busy = () => false } = 
             const key=file.path.toLowerCase();if(names.has(key))throw new Error("Ressource de skill en double.");names.add(key);
             bytes+=file.data.length;if(bytes>4000000)throw new Error("Ressources du skill trop volumineuses.");
         }
-        const base = scope === "projet" ? skills.projectSkillsDir(workspace()) : skills.userSkillsDir();
+        const base = scope === "motion" ? skills.projectSkillsDir(motionWorkspace()) : scope === "projet" ? skills.projectSkillsDir(workspace()) : skills.userSkillsDir();
         if (!base) throw new Error("Ouvre un projet pour y installer un skill.");
         // mkdir non récursif sur le dossier cible empêche d’écraser un skill existant.
         await fs.mkdir(base, { recursive: true });
@@ -92,20 +100,20 @@ function createExtensionCenter({ workspace = () => null, busy = () => false } = 
                 if (!name || name.length > 50) throw new Error("Donne un nom de profil de 1 à 50 caractères.");
                 const profiles = settings.load().skillProfiles || {};
                 if (["__proto__", "constructor", "prototype"].includes(name)) throw new Error("Nom réservé.");
-                settings.save({ skillProfiles: { ...profiles, [name]: (await skills.listSkills(workspace())).filter(s => !s.disabled).map(keyOf) } });
+                settings.save({ skillProfiles: { ...profiles, [name]: (await installedSkills()).filter(s => !s.disabled).map(keyOf) } });
             } else if (type === "profile-apply" || type === "profile-delete") {
                 const profiles = settings.load().skillProfiles || {};
                 if (!Object.hasOwn(profiles, payload.name)) throw new Error("Profil introuvable.");
                 if (type === "profile-delete") { delete profiles[payload.name]; settings.save({ skillProfiles: profiles }); }
                 else {
-                    for (const skill of await skills.listSkills(workspace())) {
+                    for (const skill of await installedSkills()) {
                         const enabled = profiles[payload.name].includes(keyOf(skill));
-                        if (skill.disabled === enabled) await skills.setSkillDisabled(skill.name, !enabled, workspace());
+                        if (skill.disabled === enabled) await skills.setSkillDisabled(skill.name, !enabled, workspaceFor(skill));
                     }
                 }
             } else {
                 const skill = await resolveSkill(payload.key);
-                if (type === "toggle") await skills.setSkillDisabled(skill.name, payload.disabled === true, workspace());
+                if (type === "toggle") await skills.setSkillDisabled(skill.name, payload.disabled === true, workspaceFor(skill));
                 else if (type === "save") await atomicWrite(skill.file, validateContent(payload.content));
                 else if (type === "remove") {
                     const trash = path.join(path.dirname(skill.dir), ".trash");

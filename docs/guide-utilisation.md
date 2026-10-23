@@ -105,6 +105,8 @@ Le bouton **Skills** ouvre **Extensions → Motion design**. Choisis EffectCraft
 
 La collection **Remotion · chat code** propose cinq skills populaires de l’équipe Remotion. Ils servent aux vidéos créées en React, pas à l’éditeur EffectCraft. Leurs fichiers annexes sont inclus et ils sont installés désactivés : active-les dans **Mes skills** après lecture. Les chiffres d’installations sont datés et le classement source est consultable.
 
+Le chat **Motion design** travaille sur le projet EffectCraft, indépendamment du dossier ouvert dans le code. Il ne parcourt pas ses fichiers et ne lance pas son terminal, ses hooks ou ses serveurs MCP. Les rendus de vérification et les skills installés pour **Projet EffectCraft** sont stockés dans les données motion de l’application. Pour utiliser un média, joins-le au message ou choisis **Importer** dans EffectCraft.
+
 **Avancé** affiche les outils et panneaux complets d’EffectCraft, dont les fonctions de fichier pour conserver une copie `.ecproj`. Enregistrer un projet et exporter une vidéo sont deux opérations différentes : pour obtenir un fichier à partager, demande à l’agent de vérifier les formats d’export disponibles. **Retour au code** conserve l’animation ouverte et retrouve ta conversation de programmation.
 
 

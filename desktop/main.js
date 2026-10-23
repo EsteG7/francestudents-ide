@@ -248,7 +248,7 @@ async function submit(raw, attachments, { queued = false } = {}) {
     supportsSteering = !text.trim().startsWith("/") && state.mode !== "chat";
     if(!text.trim().startsWith("/") || /^\/plan\s/i.test(text.trim())){
         transcriptMode=state.mode==="chat"?"chat":"agent";transcriptFailure=null;
-        await transcriptStore.begin(state.chatIds[transcriptMode],{mode:transcriptMode,model:state.model,workspace:state.workspace,motionDesign:!!state.motionDesign,settings:state.conversationSettings[transcriptMode]});recordingTranscript=true;
+        await transcriptStore.begin(state.chatIds[transcriptMode],{mode:transcriptMode,model:state.model,workspace:require("../src/motion-workspace").toolWorkspace(),motionDesign:!!state.motionDesign,settings:state.conversationSettings[transcriptMode]});recordingTranscript=true;
     }
     backend.startRun(display || text);
     pushStatus();
@@ -268,7 +268,7 @@ async function submit(raw, attachments, { queued = false } = {}) {
             await require("../src/cli/profile-commands").handleProfileCommand(input);
             result = { exit: false };
         } else {
-            if (!input.startsWith("/")) {
+            if (!input.startsWith("/") && !state.motionDesign) {
                 require("../src/project/profile").observe(input).catch(() => {});
             }
             result = await session.handleInput(text, { onChatDelta, preferAgent: true, forceAgent: queued, shouldStop: () => submissionInterrupted, drainSteering: () => taskQueue.takeSteering() });
@@ -787,6 +787,8 @@ async function openDesktopConversation(id,fromCommand=false){
         const saved=await transcriptStore.load(String(id));
         let entries=saved?.entries || [];
         const latestId=saved?.latestId || String(id),metadata=saved?.metadata || {};
+        const targetMotion=!!(metadata.motionDesign || target?.settings?.motionDesign);
+        if(targetMotion!==!!st.state.motionDesign)throw new Error("Cette conversation appartient à l’autre espace. Ouvre le chat Motion design pour EffectCraft ou le chat code pour ce projet.");
         if(!saved){
             const detail=await require("../src/api/account").getJson(`/chats/${encodeURIComponent(latestId)}`);
             entries=require("./conversation-transcript").serverEntries(detail);
@@ -796,6 +798,7 @@ async function openDesktopConversation(id,fromCommand=false){
             await transcriptStore.finish(latestId);
         }
         const mode=metadata.mode || target?.mode || "agent";
+        if(targetMotion!==!!st.state.motionDesign)throw new Error("L’espace de travail a changé pendant le chargement. Ouvre la conversation depuis son espace code ou motion.");
         st.resetConversation(mode);st.setConversation(mode,latestId,metadata.settings || target?.settings || {model:metadata.model ?? target?.model ?? st.state.model});st.state.mode=mode;
         const history=entries.filter(entry=>["user","assistant"].includes(entry.type)).map(entry=>({role:entry.type,content:entry.text || ""}));
         st.state.history=history.slice(-30);
@@ -1201,7 +1204,7 @@ function registerIpc() {
             updatedAt: entry.updatedAt || null,
             model: modelLabel(entry.model),
             mode: entry.mode || "chat",
-            motionDesign:!!(await transcriptStore.metadata(entry.id))?.metadata?.motionDesign,
+            motionDesign:!!((await transcriptStore.metadata(entry.id))?.metadata?.motionDesign || entry.settings?.motionDesign),
             workspace: entry.workspace || null,
             messages: Array.isArray(entry.messages) ? entry.messages.length : Number(entry.messages) || 0
         })));

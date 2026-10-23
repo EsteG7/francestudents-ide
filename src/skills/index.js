@@ -155,7 +155,7 @@ function catalogText(skills) {
 }
 
 async function catalog(workspace, application) {
-    return catalogText((await loadSkills(workspace)).filter(skill=>!application || !skill.application || skill.application===application));
+    return catalogText((await loadSkills(workspace)).filter(skill=>application==="effectcraft" ? skill.application==="effectcraft" : !application || !skill.application || skill.application===application));
 }
 
 async function listExtraFiles(dir) {
