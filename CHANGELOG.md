@@ -2,6 +2,12 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
+## [1.3.3-mac.1] — Bêta macOS
+
+- Installateurs Mac Intel et Apple Silicon, avec tests sur chaque architecture.
+- Message bêta à chaque démarrage sur Mac.
+- Publication Mac séparée ; les fichiers Windows v1.3.3 restent inchangés.
+
 ## À publier
 
 - Carte rouge « Conversation verrouillée » pour CHAT_LOCKED et les signalements du fournisseur, avec explication, indication d’ouvrir un nouveau chat et bouton « J’ai bien compris ». Aucun nouveau chat ni renvoi de demande n’est déclenché par ce bouton.

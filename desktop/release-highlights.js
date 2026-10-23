@@ -1,6 +1,11 @@
 "use strict";
 // Maintain this short summary with each release. Unknown versions get a safe fallback.
 const releases={
+    "1.3.3-mac.1":{headline:"FranceStudent IDE arrive sur Mac en beta.",items:[
+        {icon:"spark",title:"Intel et Apple Silicon",text:"Une application adaptee a chaque architecture Mac."},
+        {icon:"tools",title:"EffectCraft et terminal integres",text:"Le studio motion design et le terminal sont verifies dans les applications empaquetees."},
+        {icon:"chat",title:"Une premiere beta",text:"Enregistre regulierement ton travail et signale les problemes rencontres."}
+    ]},
     "1.3.3":{headline:"Un IDE plus clair, du chat au studio.",items:[
         {icon:"spark",title:"FranceStudent IDE",text:"Un nouveau nom et une interface plus soignée, avec un studio EffectCraft réorganisé."},
         {icon:"chat",title:"Tes conversations, mieux rangées",text:"Des cartes lisibles, des titres proposés par l’IA et un chat vide quand tu démarres une nouvelle conversation."},
