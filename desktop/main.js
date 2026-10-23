@@ -1332,12 +1332,12 @@ if (!gotLock) {
         session = require("../src/core/session");
         const updateSettings=require("../src/settings");
         const updateEnabled=app.isPackaged&&process.platform==="win32"&&!process.env.PORTABLE_EXECUTABLE_DIR&&require("node:fs").existsSync(path.join(process.resourcesPath,"app-update.yml"));
-        updates=require("./updates").createUpdateController({updater:updateEnabled?require("electron-updater").autoUpdater:null,enabled:updateEnabled,version:app.getVersion(),getPreference:()=>updateSettings.load().automaticUpdates!==false,savePreference:automaticUpdates=>updateSettings.save({automaticUpdates}),onChange:data=>send("appUpdate",data),checkRelease:app.isPackaged&&process.platform==="win32"&&!updateEnabled?require("./startup-updates").checkPortableRelease:null});
+        updates=require("./updates").createUpdateController({updater:updateEnabled?require("electron-updater").autoUpdater:null,enabled:updateEnabled,version:app.getVersion(),getPreference:()=>updateSettings.load().automaticUpdates!==false,savePreference:automaticUpdates=>updateSettings.save({automaticUpdates}),onChange:data=>send("appUpdate",data),checkRelease:app.isPackaged&&process.platform==="darwin"?version=>require("./mac-release-check").checkMacRelease(version):app.isPackaged&&process.platform==="win32"&&!updateEnabled?require("./startup-updates").checkPortableRelease:null,manualPlatform:process.platform==="darwin"?"darwin":null,openDownload:process.platform==="darwin"?url=>shell.openExternal(url):null});
 
         registerIpc();
         createWindow();
         // Initial check is requested by the startup loading screen once visible.
-        if(updateEnabled){const checkUpdate=()=>{if(updateSettings.load().automaticUpdates!==false)updates.action("check").catch(()=>{});};setInterval(checkUpdate,4*60*60*1000).unref();}
+        if(updateEnabled||(app.isPackaged&&process.platform==="darwin")){const checkUpdate=()=>{if(updateSettings.load().automaticUpdates!==false)updates.action("check").catch(()=>{});};setInterval(checkUpdate,4*60*60*1000).unref();}
 
         setInterval(pushStatus, 2000).unref();
     });

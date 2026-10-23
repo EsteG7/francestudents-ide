@@ -1,6 +1,10 @@
 "use strict";
 // Maintain this short summary with each release. Unknown versions get a safe fallback.
 const releases={
+    "1.3.3-mac.2":{headline:"Les nouvelles versions Mac, plus faciles a trouver.",items:[
+        {icon:"clock",title:"Verification automatique",text:"L’IDE recherche les nouvelles versions Mac au demarrage et toutes les quatre heures."},
+        {icon:"tools",title:"Le bon installateur",text:"Un bouton ouvre le telechargement Intel ou Apple Silicon. L’installation reste manuelle."}
+    ]},
     "1.3.3-mac.1":{headline:"FranceStudent IDE arrive sur Mac en beta.",items:[
         {icon:"spark",title:"Intel et Apple Silicon",text:"Une application adaptee a chaque architecture Mac."},
         {icon:"tools",title:"EffectCraft et terminal integres",text:"Le studio motion design et le terminal sont verifies dans les applications empaquetees."},

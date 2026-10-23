@@ -2,6 +2,12 @@
 
 Historique du fork d’amélioration de **extraopaa**. **FranceStudent IDE est un projet de [EsteG7](https://github.com/EsteG7/francestudents-ide).** La numérotation du fork est indépendante des tags historiques du dépôt amont.
 
+## [1.3.3-mac.2] — Mises à jour Mac
+
+- Détection des nouvelles versions Mac au démarrage et toutes les quatre heures, selon la préférence de mise à jour.
+- Téléchargement du DMG correspondant au Mac Intel ou Apple Silicon depuis le chat de démarrage et les réglages ; installation manuelle.
+- Les préversions Mac sont reconnues sans proposer de version antérieure ni de fichier Windows.
+
 ## [1.3.3-mac.1] — Bêta macOS
 
 - Installateurs Mac Intel et Apple Silicon, avec tests sur chaque architecture.

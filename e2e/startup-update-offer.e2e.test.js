@@ -20,3 +20,23 @@ test("startup offers an available update, supports later, download and explicit 
         assert.equal(await app.evaluate(()=>globalThis.updateInstalls),1);
     }finally{await app.close();fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+test("Mac startup offers the matching DMG without a restart or automatic installation",{timeout:45000},async()=>{
+    const root=path.resolve(__dirname,".."),dir=fs.mkdtempSync(path.join(os.tmpdir(),"frst-mac-update-offer-")),h=path.join(dir,"launch.cjs");
+    const url="https://github.com/extraopaa/francestudents-ide/releases/download/v1.3.3-mac.2/FranceStudentIDE-1.3.3-mac.2-mac-arm64.dmg";
+    fs.writeFileSync(h,`require(${JSON.stringify(path.join(root,"src/core/session"))}).bootstrap=async()=>({ok:true});const moduleUpdates=require(${JSON.stringify(path.join(root,"desktop/updates"))}),original=moduleUpdates.createUpdateController;globalThis.macDownloads=[];moduleUpdates.createUpdateController=options=>original({...options,enabled:false,version:'1.3.3-mac.1',updater:null,manualPlatform:'darwin',checkRelease:async()=>({status:'available',availableVersion:'1.3.3-mac.2',downloadUrl:${JSON.stringify(url)},manualPlatform:'darwin',message:'Nouvelle version pour Mac Apple Silicon. Installation manuelle.'}),openDownload:url=>globalThis.macDownloads.push(url)});require(${JSON.stringify(path.join(root,"desktop/main.js"))});`);
+    const env={...process.env,FS_DATA_DIR:dir,FS_STATE_DIR:dir};delete env.ELECTRON_RUN_AS_NODE;
+    const app=await _electron.launch({executablePath:require("electron"),args:[h,"--user-data-dir="+path.join(dir,"electron")],env,cwd:root});
+    try{
+        const page=await app.firstWindow();
+        await page.getByRole("button",{name:"Télécharger l’installateur",exact:true}).waitFor();
+        assert.match(await page.locator("#startup-message").innerText(),/Mac Apple Silicon/);
+        assert.doesNotMatch(await page.locator("#startup-message").innerText(),/Windows|portable/);
+        assert.deepEqual(await app.evaluate(()=>globalThis.macDownloads),[]);
+        await page.getByRole("button",{name:"Télécharger l’installateur",exact:true}).click();
+        assert.deepEqual(await app.evaluate(()=>globalThis.macDownloads),[url]);
+        assert.equal(await page.locator("#startup-loading").isVisible(),false);
+        assert.equal(await page.locator("#studio-update-download").evaluate(el=>el.classList.contains("hidden")),false);
+        assert.equal(await page.locator("#studio-update-install").evaluate(el=>el.classList.contains("hidden")),true);
+    }finally{await app.close();fs.rmSync(dir,{recursive:true,force:true});}
+});

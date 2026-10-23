@@ -1,10 +1,11 @@
 "use strict";
 const {EventEmitter}=require("node:events");
-function createUpdateController({updater,enabled=false,version="",getPreference=()=>true,savePreference=()=>{},onChange=()=>{},checkRelease=null}={}) {
+function createUpdateController({updater,enabled=false,version="",getPreference=()=>true,savePreference=()=>{},onChange=()=>{},checkRelease=null,openDownload=null,manualPlatform=null}={}) {
     const state={version,status:enabled?"idle":"unavailable",availableVersion:null,progress:0,automatic:getPreference(),message:enabled?"Les mises à jour sont distribuées via les versions GitHub publiées.":"Les mises à jour automatiques seront disponibles dans la version Windows installée. Le mode développement et la version portable restent manuels."};
     const publish=patch=>{Object.assign(state,patch);onChange({...state});};
     state.canInstall=enabled;
-    if(checkRelease){state.status="idle";state.message="Vérification des versions publiées disponible. Les mises à jour de la version portable restent manuelles.";}
+    state.manualPlatform=manualPlatform;
+    if(checkRelease){state.status="idle";state.message="Vérification des versions publiées disponible. Les mises à jour de cette version restent manuelles.";}
     let checking=null,downloading=null;
     if(enabled&&updater){
         updater.autoDownload=state.automatic;updater.autoInstallOnAppQuit=state.automatic;
@@ -22,6 +23,7 @@ function createUpdateController({updater,enabled=false,version="",getPreference=
             if(!checking){publish({status:"checking",message:"Recherche de mises à jour…"});checking=Promise.resolve().then(()=>checkRelease(version)).then(publish).catch(()=>publish({status:"error",message:"Vérification impossible. Tu peux continuer et réessayer plus tard."})).finally(()=>{checking=null;});}
             await checking;return {...state};
         }
+        if(!enabled&&type==="download"&&openDownload&&state.status==="available"&&state.downloadUrl){await openDownload(state.downloadUrl);return {...state};}
         if(!enabled||!updater)return {...state};
         if(type==="check"){
             if(["downloading","downloaded"].includes(state.status))return {...state};
