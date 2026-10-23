@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   windows:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.release.tag_name, '-mac.')
     runs-on: windows-latest
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
