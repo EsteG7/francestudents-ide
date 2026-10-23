@@ -3,7 +3,7 @@
 ui.sideView = "explorer";
 
 function setActivity(view) {
-    for (const b of document.querySelectorAll('[data-view="explorer"], [data-view="search"], [data-view="git"], [data-view="worktrees"], [data-view="extensions"], [data-view="settings"]')) {
+    for (const b of document.querySelectorAll('[data-view="explorer"], [data-view="search"], [data-view="git"], [data-view="worktrees"], [data-view="extensions"], [data-view="settings"], [data-view="project"]')) {
         b.classList.toggle("active", b.dataset.view === view);
     }
 }
@@ -11,17 +11,20 @@ function setActivity(view) {
 function showSideView(view) {
     const app = $("app");
     ui.sideView = view;
+    setAgentFocus(false);
     app.classList.remove("no-sidebar");
     app.classList.toggle("view-search", view === "search");
     app.classList.toggle("view-ext", view === "extensions");
     app.classList.toggle("view-settings", view === "settings");
     app.classList.toggle("view-git", view === "git");
     app.classList.toggle("view-worktrees", view === "worktrees");
+    app.classList.toggle("view-project", view === "project");
     setActivity(view);
     if (view === "git") refreshGit();
     if (view === "worktrees") refreshWorktrees();
     if (view === "extensions") refreshExtensions();
-    if (view === "settings") refreshSettings();
+    if (view === "settings") { refreshSettings(); loadPreferences(); }
+    if (view === "project") refreshProjectStudio();
     if (view === "search") {
         setTimeout(() => {
             $("search-input").focus();
@@ -54,19 +57,39 @@ document.querySelector('[data-view="extensions"]').onclick = () => toggleSideVie
 document.querySelector('[data-view="settings"]').onclick = () => toggleSideView("settings");
 
 /* ---------- Vue Paramètres : auto-approbation des écritures et des commandes ---------- */
+let settingsAccessMode = "ask";
 
 function applySettings(s) {
     if (!s || typeof s !== "object") return;
+    settingsAccessMode = s.fullAccess ? "full" : s.autoApprove && s.autoApproveCommands ? "auto" : !s.autoApprove && !s.autoApproveCommands ? "ask" : "custom";
+    for (const button of document.querySelectorAll("[data-access-mode]")) {
+        const selected = button.dataset.accessMode === settingsAccessMode;
+        button.setAttribute("aria-checked", String(selected));
+        button.classList.toggle("selected", selected);
+        button.tabIndex = selected || (settingsAccessMode === "custom" && button.dataset.accessMode === "ask") ? 0 : -1;
+    }
+    const descriptions = {
+        ask: "L’agent demande ton accord avant de modifier des fichiers ou de lancer des commandes sensibles.",
+        auto: "Les modifications et les commandes autorisées s’exécutent sans demander. Les commandes bloquées restent interdites.",
+        full: "Toutes les actions sont autorisées sans confirmation, y compris hors du projet. Lis l’avertissement ci-dessous.",
+        custom: "Tu utilises des autorisations personnalisées. Choisis un mode ci-dessus ou ajuste les options détaillées."
+    };
+    $("access-mode-description").textContent = descriptions[settingsAccessMode];
+    $("full-access-warning").classList.toggle("hidden", !s.fullAccess);
+    $("set-remember-access").checked = s.rememberAccess !== undefined ? Boolean(s.rememberAccess) : settingsAccessMode === "full" ? Boolean(s.fullAccessAlways) : Boolean(s.always && s.commandsAlways);
+    $("set-remember-access").disabled = settingsAccessMode === "custom";
+    $("detailed-permissions").disabled = Boolean(s.fullAccess);
     $("set-auto-writes").checked = Boolean(s.autoApprove);
     $("set-auto-writes-always").checked = Boolean(s.always);
     $("set-auto-commands").checked = Boolean(s.autoApproveCommands);
     $("set-auto-commands-always").checked = Boolean(s.commandsAlways);
     if (s.webSearch !== undefined) $("set-web-search").checked = Boolean(s.webSearch);
+    if (s.automaticWeb !== undefined) $("set-automatic-web").checked = Boolean(s.automaticWeb);
     if (s.extensionsMode !== undefined) {
         $("set-extensions-auto").checked = s.extensionsMode !== "manual";
         $("set-extensions-manual").checked = s.extensionsMode === "manual";
     }
-    $("st-auto").textContent = s.autoApprove ? "auto-approbation" : "";
+    $("st-auto").textContent = s.fullAccess ? "Full accès" : s.autoApprove ? "auto-approbation" : "";
 }
 
 async function refreshSettings() {
@@ -89,13 +112,25 @@ async function changeSetting(mode) {
     }
 }
 
+for (const button of document.querySelectorAll("[data-access-mode]")) button.onclick = () => changeSetting(`access-${button.dataset.accessMode}-${$("set-remember-access").checked ? "always" : "session"}`);
+for (const button of document.querySelectorAll("[data-access-mode]")) button.onkeydown = event => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const buttons = [...document.querySelectorAll("[data-access-mode]")];
+    const index = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (buttons.indexOf(button) + (event.key === "ArrowLeft" ? buttons.length - 1 : 1)) % buttons.length;
+    buttons[index].focus(); buttons[index].click();
+};
+$("set-remember-access").onchange = e => changeSetting(`access-${settingsAccessMode}-${e.target.checked ? "always" : "session"}`);
+
 $("set-auto-writes").onchange = (e) => changeSetting(e.target.checked ? "on" : "off");
 $("set-auto-writes-always").onchange = (e) => changeSetting(e.target.checked ? "always" : "never");
 $("set-auto-commands").onchange = (e) => changeSetting(e.target.checked ? "commands-on" : "commands-off");
 $("set-auto-commands-always").onchange = (e) => changeSetting(e.target.checked ? "commands-always" : "commands-never");
 $("set-web-search").onchange = (e) => changeSetting(e.target.checked ? "web-on" : "web-off");
+$("set-automatic-web").onchange = (e) => changeSetting(e.target.checked ? "auto-web-on" : "auto-web-off");
 $("set-extensions-auto").onchange = (e) => { if (e.target.checked) changeSetting("extensions-auto"); };
 $("set-extensions-manual").onchange = (e) => { if (e.target.checked) changeSetting("extensions-manual"); };
+$("settings-close").onclick = () => showSideView("explorer");
 
 /* ---------- Vue Extensions : serveurs MCP et skills (modules réels du CLI) ---------- */
 
@@ -152,13 +187,7 @@ async function refreshMcp(action = "") {
             const sub = server.status === "running"
                 ? `${server.tools.length} outil(s) : ${server.tools.join(", ")}`
                 : server.error || server.status;
-            list.appendChild(extItem(server.name, {
-                dot: server.status,
-                tag: server.status,
-                sub,
-                error: server.status === "failed",
-                title: data.configFile
-            }));
+            list.appendChild(renderMcpCard(server, sub));
         }
     } catch (error) {
         extMessage(list, `MCP : ${error.message}`);
@@ -166,28 +195,7 @@ async function refreshMcp(action = "") {
 }
 
 async function refreshSkills() {
-    const list = $("skills-list");
-    try {
-        const data = await api.skillsList();
-        list.innerHTML = "";
-        if (!data.skills.length) {
-            extMessage(
-                list,
-                `Aucun skill. Un sous-dossier avec SKILL.md dans ${data.userDir}` +
-                (data.projectDir ? ` ou ${data.projectDir}` : "") + "."
-            );
-            return;
-        }
-        for (const skill of data.skills) {
-            list.appendChild(extItem(skill.name, {
-                tag: skill.disabled ? `${skill.scope}, désactivé` : skill.scope,
-                sub: skill.description || "sans description",
-                title: skill.file
-            }));
-        }
-    } catch (error) {
-        extMessage(list, `Skills : ${error.message}`);
-    }
+    return loadExtensionCenter();
 }
 
 function refreshExtensions() {
@@ -331,7 +339,7 @@ async function replaceAllInProject() {
         return;
     }
     const limited = res.truncated ? "\n(Liste de résultats limitée : relance ensuite pour traiter le reste.)" : "";
-    if (!window.confirm(`Remplacer « ${query} » par « ${replacement} » dans ${files.length} fichier(s) ?${limited}`)) return;
+    if (!await confirmStudioAction(`Remplacer « ${query} » par « ${replacement} » dans ${files.length} fichier(s) ?${limited}`)) return;
 
     let changedFiles = 0;
     let total = 0;

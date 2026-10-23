@@ -102,11 +102,11 @@ function apiHeaders(token) {
     return h;
 }
 
-async function request(method, url, { token, body, fetchImpl } = {}) {
+async function request(method, url, { token, body, fetchImpl, signal = require("./tools/action-control").signal() } = {}) {
     const f = fetchImpl || globalThis.fetch;
     const headers = apiHeaders(token);
     if (body !== undefined) headers["Content-Type"] = "application/json";
-    const res = await f(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    const res = await f(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: signal || AbortSignal.timeout(30000), redirect: "error" });
     const text = await res.text();
     let data;
     try {
@@ -255,11 +255,11 @@ function authEnv(token) {
     return env;
 }
 
-function runGit(cwd, args, { token, execFileImpl } = {}) {
+function runGit(cwd, args, { token, execFileImpl, signal = require("./tools/action-control").signal() } = {}) {
     if (!cwd) return Promise.reject(new Error("Aucun projet ouvert."));
     const run = execFileImpl || execFile;
     return new Promise((resolve, reject) => {
-        run("git", args, { cwd, env: authEnv(token), maxBuffer: MAX_BUFFER, windowsHide: true, encoding: "utf8" }, (error, stdout, stderr) => {
+        run("git", args, { cwd, env: authEnv(token), maxBuffer: MAX_BUFFER, windowsHide: true, encoding: "utf8", signal, timeout: 120000 }, (error, stdout, stderr) => {
             const output = redact(`${stdout || ""}${stderr || ""}`.trim(), token);
             if (error) {
                 reject(new Error(output || redact(error.message, token) || "git a échoué."));

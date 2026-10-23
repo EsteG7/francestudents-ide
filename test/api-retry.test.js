@@ -9,6 +9,33 @@ const { requestModel, MAX_REQUEST_FAILURES } = require("../src/api/api");
 
 const originalFetch = global.fetch;
 
+test("initial visual receipt is checked once; later turns never re-attach or ask about memory",async()=>{
+    prepareAuth();const image="11111111-2222-3333-4444-123456789012",bodies=[];
+    state.chatIds.agent=null;state.pendingImages=[image];state.pendingFiles=[];
+    global.fetch=async(url,init)=>{
+        if(String(url).endsWith('/usage'))return Response.json({contextUsagePercent:10});
+        const body=JSON.parse(init.body);bodies.push(body);
+        const answer=body.images.length?JSON.stringify({images:[{index:1,status:'seen',description:'A blue title centered on a dark background.'}]}):'ok';
+        return new Response('event: response.output_text.delta\ndata: '+JSON.stringify({chat_id:'visual-receipt-chat',delta:answer})+'\n\ndata: [DONE]\n\n',{headers:{'content-type':'text/event-stream'}});
+    };
+    try{
+        await requestModel('Analyse image',{conversationMode:'agent'});
+        for(let i=0;i<8;i++)await requestModel('Continue '+i,{conversationMode:'agent'});
+        assert.equal(bodies.length,10);assert.deepEqual(bodies[0].images,[image]);
+        for(const body of bodies.slice(1))assert.deepEqual(body.images,[]);
+        assert.equal(bodies.filter(body=>body.initialContent.includes('R'+String.fromCharCode(201)+'CEPTION VISUELLE INITIALE')).length,1);
+        assert.ok(bodies.every(body=>!body.initialContent.includes('DE M'+String.fromCharCode(201)+'MOIRE')));
+        state.chatIds.agent=null;await requestModel('New unrelated conversation',{conversationMode:'agent'});assert.deepEqual(bodies.at(-1).images,[]);
+    }finally{global.fetch=originalFetch;state.pendingImages=[];state.pendingFiles=[];state.chatIds.agent=null;}
+});
+
+test("an unavailable image stops before the user's task is executed",async()=>{
+    prepareAuth();state.pendingImages=['11111111-2222-3333-4444-123456789012'];let calls=0;
+    global.fetch=async()=>{calls++;return new Response('event: response.output_text.delta\ndata: '+JSON.stringify({chat_id:'unavailable-image',delta:JSON.stringify({images:[{index:1,status:'unavailable',description:'No pixels available'}]})})+'\n\ndata: [DONE]\n\n',{headers:{'content-type':'text/event-stream'}});};
+    try{await assert.rejects(requestModel('Modify site from image',{conversationMode:'agent'}),/confirm/);assert.equal(calls,1);}
+    finally{global.fetch=originalFetch;state.pendingImages=[];state.chatIds.agent=null;}
+});
+
 test.after(() => {
     global.fetch = originalFetch;
 });
@@ -51,6 +78,78 @@ test("sans champ usage, les compteurs de tokens ne bougent pas", { concurrency: 
     assert.equal(usage.inputTokens, before.inputTokens);
 });
 
+test("usage is counted once per stream and context excludes retry billing totals", async () => {
+    prepareAuth();
+    const { usage } = require("../src/api/api");
+    const { AutoCompact } = require("../src/agent/auto-compact");
+    requestModel.compactor = new AutoCompact();
+    const before = { ...usage };
+    let calls = 0;
+    const metrics = { input_tokens: 12000, output_tokens: 500 };
+    global.fetch = async () => {
+        calls++;
+        const events = 'event: response.output_text.delta\ndata: {"delta":"ok"}\n\n' +
+            `event: response.completed\ndata: ${JSON.stringify({ response: { usage: metrics } })}\n\n`;
+        if (calls === 1) return new Response(events + 'event: error\ndata: {"message":"temporary network failure"}\n\n');
+        return new Response(events + `event: completed\ndata: ${JSON.stringify({ usage: metrics })}\n\n`);
+    };
+    assert.equal(await requestModel("continue"), "ok");
+    assert.equal(calls, 2);
+    assert.equal(usage.inputTokens - before.inputTokens, 24000);
+    assert.equal(usage.reported - before.reported, 2);
+    assert.equal(requestModel.compactor.get("chat", "chat-1").tokens, 12500);
+    requestModel.compactor = new AutoCompact();
+});
+
+test("Anthropic cache reads and writes occupy context without accumulating past request counts", async () => {
+    prepareAuth();
+    const { AutoCompact } = require("../src/agent/auto-compact");
+    requestModel.compactor = new AutoCompact();
+    global.fetch = async () => new Response('event: response.output_text.delta\ndata: {"delta":"ok"}\n\n' +
+        'event: completed\ndata: {"usage":{"input_tokens":100,"cache_read_input_tokens":20000,"cache_creation_input_tokens":3000,"output_tokens":500}}\n\n');
+    await requestModel("continue");
+    assert.equal(requestModel.compactor.get("chat", "chat-1").tokens, 23600);
+    requestModel.compactor = new AutoCompact();
+});
+
+test("large-window model does not compact at the old 100k limit", async () => {
+    prepareAuth();
+    const { AutoCompact } = require("../src/agent/auto-compact");
+    requestModel.compactor = new AutoCompact();
+    requestModel.compactor.record("chat", "chat-1", "requirements", "answer", 150000);
+    let calls = 0;
+    global.fetch = async (url, init) => {
+        calls++;
+        assert.ok(String(url).endsWith("/chats/stream"));
+        assert.equal(JSON.parse(init.body).chatId, "chat-1");
+        return successfulResponse();
+    };
+    assert.equal(await requestModel("continue"), "ok");
+    assert.equal(calls, 1);
+    requestModel.compactor = new AutoCompact();
+});
+
+test("actual server occupancy cancels a premature estimated compaction", async () => {
+    prepareAuth();
+    const { AutoCompact } = require("../src/agent/auto-compact");
+    requestModel.compactor = new AutoCompact();
+    requestModel.compactor.record("chat", "chat-1", "requirements", "answer", 1000000);
+    let streams = 0, lookups = 0;
+    global.fetch = async (url, init) => {
+        if (String(url).endsWith("/usage")) {
+            lookups++;
+            return Response.json({ contextUsagePercent: 12 });
+        }
+        streams++;
+        assert.equal(JSON.parse(init.body).chatId, "chat-1");
+        return successfulResponse();
+    };
+    assert.equal(await requestModel("continue"), "ok");
+    assert.equal(lookups, 1);
+    assert.equal(streams, 1);
+    requestModel.compactor = new AutoCompact();
+});
+
 function successfulResponse() {
     const body = new ReadableStream({
         start(controller) {
@@ -75,8 +174,70 @@ function prepareAuth() {
     auth.expiresAt = Date.now() + 300_000;
     auth.deviceId = "test-device";
     state.chatIds.chat = "chat-1";
+    state.history=[];
+    requestModel.compactor=new (require("../src/agent/auto-compact").AutoCompact)();
     state.model = -1002;
 }
+
+test("oversized image in server history recovers once without repeating the poisoned conversation",async()=>{
+    prepareAuth();
+    requestModel.compactor=new (require("../src/agent/auto-compact").AutoCompact)();
+    const bodies=[];
+    global.fetch=async(_url,init)=>{
+        bodies.push(JSON.parse(init.body));
+        if(bodies.length===1)return new Response('event: error\ndata: {"message":"400 BAD_REQUEST image dimensions exceed max allowed size: 8000 pixels (got 1280x10993)"}\n\n',{headers:{"content-type":"text/event-stream"}});
+        return successfulResponse();
+    };
+    assert.equal(await requestModel("Continue inspecting capture"),"ok");
+    assert.equal(bodies.length,3);assert.equal(bodies[0].chatId,"chat-1");assert.equal(bodies[2].chatId,null);
+    assert.match(bodies[2].initialContent,/Continue inspecting capture/);
+});
+
+test("permanent provider 400 in an SSE error is not retried repeatedly",async()=>{
+    prepareAuth();let calls=0;
+    global.fetch=async()=>{calls++;return new Response('event: error\ndata: {"message":"400 BAD_REQUEST invalid_request_error"}\n\n',{headers:{"content-type":"text/event-stream"}});};
+    await assert.rejects(requestModel("Request"),error=>error.status===400);
+    assert.equal(calls,1);
+});
+
+test("automatic compaction opens a fresh conversation and resumes the agent task", { concurrency: false }, async () => {
+    prepareAuth();
+    const { AutoCompact } = require("../src/agent/auto-compact");
+    requestModel.compactor = new AutoCompact();
+    requestModel.compactor.record("chat", "chat-1", "Original user requirements", "Work in progress", 1000000);
+    const requests = [];
+    global.fetch = async (_url, options) => {
+        requests.push(JSON.parse(options.body));
+        return successfulResponse();
+    };
+    assert.equal(await requestModel("Continue current task"), "ok");
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].chatId, null);
+    assert.match(requests[0].initialContent, /Original user requirements/);
+    assert.equal(requests[1].chatId, null);
+    assert.match(requests[1].initialContent, /CONTEXTE CONSERVÉ/);
+    assert.match(requests[1].initialContent, /Continue current task/);
+    requestModel.compactor = new AutoCompact();
+});
+
+test("context overflow compacts once and resumes without repeating the failed request", { concurrency: false }, async () => {
+    prepareAuth();
+    const { AutoCompact } = require("../src/agent/auto-compact");
+    requestModel.compactor = new AutoCompact();
+    requestModel.compactor.record("chat", "chat-1", "Keep my requirements", "Earlier work");
+    const requests = [];
+    global.fetch = async (_url, options) => {
+        requests.push(JSON.parse(options.body));
+        if (requests.length === 1) return new Response("context_length_exceeded", { status: 400 });
+        return successfulResponse();
+    };
+    assert.equal(await requestModel("Finish"), "ok");
+    assert.equal(requests.length, 3);
+    assert.equal(requests[0].chatId, "chat-1");
+    assert.equal(requests[2].chatId, null);
+    assert.match(requests[2].initialContent, /Finish/);
+    requestModel.compactor = new AutoCompact();
+});
 
 test("requestModel retente puis réussit après deux échecs", { concurrency: false }, async () => {
     prepareAuth();

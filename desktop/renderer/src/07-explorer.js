@@ -24,9 +24,9 @@ async function renderTree() {
 const FILE_KINDS = {
     js: "js", mjs: "js", cjs: "js", jsx: "js", ts: "ts", tsx: "ts", json: "json", md: "md",
     css: "css", scss: "css", html: "html", htm: "html", py: "py",
-    png: "img", jpg: "img", jpeg: "img", gif: "img", svg: "img", ico: "img", webp: "img"
+    png: "img", jpg: "img", jpeg: "img", gif: "img", svg: "img", ico: "img", webp: "img", yaml:"yaml", yml:"yaml"
 };
-const FILE_TAGS = { js: "JS", ts: "TS", json: "{}", md: "M↓", css: "#", html: "<>", py: "PY", img: "▣", default: "•" };
+const FILE_TAGS = { js: "JS", ts: "TS", json: "{}", md: "M↓", css: "#", html: "<>", py: "PY", img: "▣", yaml:"YML", default: "•" };
 const FOLDER_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 const FOLDER_OPEN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1H7.5a2 2 0 0 0-1.9 1.4L3 19z"/><path d="M7.2 12h14.3l-2.6 6.6a2 2 0 0 1-1.9 1.4H4z"/></svg>';
 
@@ -104,7 +104,7 @@ async function renderDir(container, rel, depth) {
 }
 
 async function openProject() {
-    if (ui.tabs.some((t) => t.dirty) && !window.confirm("Des fichiers ne sont pas enregistrés. Changer de projet quand même ?")) return;
+    if (ui.tabs.some((t) => t.dirty) && !await confirmStudioAction("Des fichiers ne sont pas enregistrés. Changer de projet quand même ?")) return;
     try {
         const ws = await api.openProject();
         if (ws && ws !== ui.workspace) {
@@ -117,6 +117,7 @@ async function openProject() {
 }
 
 function onWorkspaceChanged() {
+    studioWorkspaceChanged();
     expanded.clear();
     ui.tabs = [];
     ui.active = null;

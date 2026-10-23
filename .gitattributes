@@ -1,4 +1,5 @@
 * text=auto eol=crlf
+patches/*.patch text eol=lf
 
 *.png binary
 *.jpg binary

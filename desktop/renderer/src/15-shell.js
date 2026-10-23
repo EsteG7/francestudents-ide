@@ -5,6 +5,7 @@ function isEditable(el) {
 }
 
 window.addEventListener("keydown", (ev) => {
+    if (document.querySelector("dialog[open]")) return;
     if (!ev.ctrlKey && !ev.altKey && !ev.metaKey) {
         if (ev.key === "Escape" && !contextMenu.classList.contains("hidden")) {
             ev.stopPropagation();
@@ -190,10 +191,14 @@ api.onEvent((channel, data) => {
             appendOutput(data);
             break;
         case "clear":
+            studioEntries.length = 0;
             transcript.innerHTML = "";
+            $("agent-starter").classList.remove("hidden");
             toolGroup = null;
             liveEnd();
             clearChanges();
+            ui.interrupted = false;
+            $("btn-resume").classList.add("hidden");
             break;
         case "terminalData":
             termData(data);
@@ -209,6 +214,12 @@ api.onEvent((channel, data) => {
             break;
         case "status":
             applyStatus(data);
+            break;
+        case "taskQueue":
+            renderTaskQueue(data);
+            break;
+        case "agentActivity":
+            renderAgentActivity(data);
             break;
         default:
             break;

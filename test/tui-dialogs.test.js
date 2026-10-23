@@ -47,7 +47,9 @@ function setupBackend() {
     const backend = createTuiBackend(store);
     const previousAuto = state.autoApprove;
     state.autoApprove = false;
-    return { store, backend, restore: () => { state.autoApprove = previousAuto; } };
+    const previousFull = state.fullAccess;
+    state.fullAccess = false;
+    return { store, backend, restore: () => { state.autoApprove = previousAuto; state.fullAccess = previousFull; } };
 }
 
 async function mountApp(store, backend) {

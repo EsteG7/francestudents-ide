@@ -9,6 +9,9 @@ const state = {
     conversationSettings: { chat: null, agent: null },
     model: CONFIG.defaultAgentId,
     webSearch: false,
+    ecoMode: settings.load().ecoMode === true,
+    automaticWeb: settings.load().automaticWeb !== false,
+    agentPlan: [],
     private: true,
     incognito: false,
     workspace: null,
@@ -17,6 +20,7 @@ const state = {
     mode: "auto",        // auto | agent | chat
     autoApprove: settings.autoApproveAlways(),  // true = plus de confirmation (session, ou toujours si mémorisé)
     autoApproveCommands: settings.autoApproveCommandsAlways(),  // true = run_command sans question (deny toujours bloqué)
+    fullAccess: settings.load().fullAccessAlways === true,
     activeFile: null,    // fichier actif dans l'éditeur de l'application de bureau
     openFiles: [],       // onglets ouverts dans l'éditeur de l'application de bureau
     pendingImages: [],   // images (data URL) jointes au prochain message, consommées par l'API

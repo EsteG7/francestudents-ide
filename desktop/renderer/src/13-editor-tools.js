@@ -6,8 +6,8 @@ $("st-busy").parentNode.insertBefore(cursorInfo, $("st-busy"));
 
 function updateCursor() {
     const tab = currentTab();
-    if (!tab) {
-        cursorInfo.textContent = "";
+    if (!tab||tab.kind==="asset") {
+        cursorInfo.textContent = tab?"Aperçu · lecture seule":"";
         return;
     }
     const before = code.value.slice(0, code.selectionStart);
@@ -112,6 +112,20 @@ function paletteCommands() {
         ["Formater le document", "Maj+Alt+F", () => lspFormatDocument()],
         ["Modifier la sélection avec l'IA…", "Ctrl+K", () => inlineEditStart()]
     ].map(([label, detail, run]) => ({ label, detail, run }));
+    cmds.push(...[
+        ["Cockpit du projet","Ctrl+Maj+D",()=>showSideView("project")],
+        ["Commandes et exécutions du projet","",()=>{showSideView("project");setStudioTab("tasks");}],
+        ["Vérifier l’environnement","",()=>{showSideView("project");setStudioTab("quality");diagnoseStudio();}],
+        ["Boîte à outils locale : JSON, Base64, SHA-256","",()=>{showSideView("project");setStudioTab("tools");}],
+        ["Enregistrer tous les fichiers","Ctrl+Maj+S",saveAllStudioFiles],
+        ["Aperçu Markdown ou HTML","Ctrl+Maj+V",openDocumentPreview],
+        ["Comparer le document côte à côte","",openStudioCompare],
+        ["Naviguer dans les symboles du document","Ctrl+Maj+O",openStudioSymbols],
+        ["Marquer la ligne actuelle","Ctrl+F2",toggleStudioBookmark],
+        ["Bibliothèque de skills","",()=>showSideView("extensions")],
+        ["Paramètres de l’éditeur","",()=>showSideView("settings")],
+        ["Raccourcis clavier","",()=>{showSideView("project");setStudioTab("shortcuts");}]
+    ].map(([label,detail,run])=>({label,detail,run})));
     for (const [cmd, desc] of SLASH_COMMANDS) {
         cmds.push({
             label: `Agent : ${desc}`,
@@ -135,10 +149,11 @@ function updatePalette() {
     let items = [];
     if (raw.startsWith(">")) {
         const q = raw.slice(1).trim();
-        items = paletteCommands()
+        const commands=paletteCommands();
+        items = q&&window.StudioVendor ? new window.StudioVendor.Fuse(commands,{keys:["label","detail"],threshold:.42,ignoreLocation:true}).search(q,{limit:100}).map(result=>result.item) : commands
             .map((c) => ({ ...c, score: fuzzyScore(`${c.label} ${c.detail}`, q) }))
             .filter((c) => c.score > 0);
-        if (q) items.sort((a, b) => b.score - a.score);
+        if (q&&!window.StudioVendor) items.sort((a, b) => b.score - a.score);
     } else if (raw.startsWith(":")) {
         const tab = currentTab();
         const n = parseInt(raw.slice(1), 10);
@@ -155,10 +170,12 @@ function updatePalette() {
         if (palette.files === null) {
             items = [{ label: "Chargement des fichiers…", detail: "", run: null }];
         } else {
-            items = palette.files
+            const files=q&&window.StudioVendor ? new window.StudioVendor.Fuse(palette.files,{threshold:.4,ignoreLocation:true}).search(q,{limit:200}).map(result=>result.item):palette.files;
+            const matches=q&&window.StudioVendor?files.map(p=>({p})):files
                 .map((p) => ({ p, score: fuzzyScore(p, q) }))
                 .filter((x) => x.score > 0)
-                .sort((a, b) => b.score - a.score)
+                .sort((a, b) => b.score - a.score);
+            items = matches
                 .slice(0, 200)
                 .map(({ p }) => ({ label: p.split("/").pop(), detail: p, run: () => openFile(p) }));
         }

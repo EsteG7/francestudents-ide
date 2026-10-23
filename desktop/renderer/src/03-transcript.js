@@ -1,6 +1,7 @@
 /* ---------- Transcript ---------- */
 
 function scrollDown() {
+    if(ui.replayingConversation)return;
     transcript.scrollTop = transcript.scrollHeight;
 }
 
@@ -56,13 +57,25 @@ function appendOutput(text) {
 }
 
 function renderEntry(e) {
+    recordStudioEntry(e);
     switch (e.type) {
         case "welcome":
             return null;
         case "user":
-            return addEntry("user", escapeHtml(e.text));
-        case "assistant":
-            return addEntry("assistant", renderMarkdown(e.text));
+            $("agent-starter").classList.add("hidden");
+            return addEntry("user", `<div class="message-content">${escapeHtml(e.text)}</div>`);
+        case "assistant": {
+            $("agent-starter").classList.add("hidden");
+            const message = addEntry("assistant", `<div class="message-content">${renderMarkdown(e.text)}</div>`);
+            const actions = document.createElement("div");
+            actions.className = "message-actions";
+            const copy = document.createElement("button");
+            copy.type = "button"; copy.textContent = "Copier";
+            copy.onclick = () => api.copyText(e.text).then(() => { copy.textContent = "Copié ✓"; }).catch(error => studioFeedback(error.message));
+            actions.appendChild(copy); message.appendChild(actions);
+            attachServerControls(message, e.text);
+            return message;
+        }
         case "reason": {
             const el = addEntry("reason collapsed", `<span class="reason-mark">✻</span><span class="reason-text">${inline(e.text)}</span>`);
             el.title = "Cliquer pour déplier ou replier la réflexion";
@@ -73,8 +86,18 @@ function renderEntry(e) {
         }
         case "info":
         case "warn":
-        case "error":
+        case "error": {
+            if (e.type === "error") {
+                $("agent-starter").classList.add("hidden");
+                const budget = parseBudgetNotice(e.text);
+                if (budget) return renderBudgetEntry(budget, e.text);
+                const context=parseContextLimitNotice(e.text);
+                if(context)return renderContextLimitEntry(context,e.text);
+                const apiError=parseApiErrorNotice(e.text);
+                if(apiError)return renderApiErrorEntry(apiError,e.text);
+            }
             return addEntry(e.type, escapeHtml(e.text));
+        }
         case "print":
             return addEntry("print", `<pre>${escapeHtml((e.lines || []).join("\n"))}</pre>`);
         case "plan":
@@ -120,6 +143,7 @@ function liveAppend(text) {
 }
 
 function liveEnd() {
+    if (ui.live && ui.liveText) attachServerControls(ui.live, ui.liveText);
     ui.live = null;
     ui.liveText = "";
 }

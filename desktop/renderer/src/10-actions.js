@@ -23,10 +23,13 @@ $("btn-history").onclick = (ev) => {
     toggleHistoryMenu();
 };
 $("st-usage").onclick = () => {
-    if (ui.status && ui.status.busy) return;
-    api.submit("/usage", []).catch((err) => renderEntry({ type: "error", text: err.message }));
+    setAgentTab("usage");
 };
-if (!$("st-usage").title) $("st-usage").title = "Cliquer pour afficher la consommation (/usage)";
+$("st-usage").setAttribute("role", "button");
+$("st-usage").tabIndex = 0;
+$("st-usage").onkeydown = event => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setAgentTab("usage"); }
+};
 $("btn-open-project").onclick = openProject;
 $("btn-open-project-2").onclick = openProject;
 $("btn-refresh-tree").onclick = () => renderTree();
@@ -41,12 +44,12 @@ function toggleSidebar() {
 }
 
 document.querySelector('[data-view="explorer"]').onclick = toggleSidebar;
-document.querySelector('[data-view="agent"]').onclick = () => input.focus();
 
 const IS_MAC = /Mac/i.test(navigator.platform || navigator.userAgent || "");
 if (IS_MAC) document.documentElement.classList.add("mac");
 
 document.addEventListener("keydown", (ev) => {
+    if(document.querySelector("dialog[open]"))return;
     if (!(ev.ctrlKey || (IS_MAC && ev.metaKey))) {
         if (ev.key === "Escape" && ui.status.busy && document.activeElement !== input) {
             api.interrupt().catch(() => {});

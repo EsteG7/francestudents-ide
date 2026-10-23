@@ -156,6 +156,14 @@ function createXtermTerminal(focus) {
     terms.push(term);
     selectTerminal(term.key, false);
     xterm.open(el);
+    xterm.registerLinkProvider({provideLinks(line,callback){
+        const text=xterm.buffer.active.getLine(line-1)?.translateToString(true)||"";
+        const links=[];
+        for(const match of text.matchAll(/https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/[^\s<>"']*)?/gi)){
+            links.push({text:match[0],range:{start:{x:match.index+1,y:line},end:{x:match.index+match[0].length,y:line}},activate:()=>openLocalBrowser(match[0])});
+        }
+        callback(links);
+    }});
     // Laisse passer les raccourcis globaux de l'application (Ctrl+², Ctrl+J, Ctrl+P…).
     xterm.attachCustomKeyEventHandler((ev) => {
         if (ev.type !== "keydown" || !(ev.ctrlKey || ev.metaKey)) return true;

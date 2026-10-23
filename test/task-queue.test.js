@@ -1,0 +1,156 @@
+"use strict";
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { createTaskQueue } = require("../desktop/task-queue");
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "frst-queue-"));
+test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+const tick = () => new Promise(resolve => setImmediate(resolve));
+test("orienting sends files exactly once and preserves them when steering is released",()=>{
+    const file=path.join(dir,"steered-files.json"),received=[];
+    const queue=createTaskQueue({file,workspace:()=>"a",canRun:()=>false,run:()=>{},onSteeringFiles:files=>{received.push(files);return "Attached design.png";}});
+    const image={kind:"image",name:"design.png",size:3,data:"data:image/png;base64,YWJj"};
+    queue.action("add",{prompt:"Change layout",attachments:[image]});const id=queue.snapshot().tasks[0].id;
+    queue.action("steer",{id});queue.releaseSteering();assert.equal(queue.snapshot().tasks[0].status,"pending");assert.deepEqual(received,[]);
+    queue.action("steer",{id});assert.deepEqual(queue.takeSteering(),["Change layout\n\nAttached design.png"]);
+    assert.deepEqual(received,[[image]]);assert.deepEqual(queue.takeSteering(),[]);assert.equal(queue.snapshot().tasks[0].status,"steered");
+});
+test("queued attachments survive restart, stay out of snapshots and run with the correct prompt",async()=>{
+    const file=path.join(dir,"with-files.json"),calls=[];
+    const options={file,workspace:()=>"project-a",canRun:()=>true,run:async(prompt,options)=>{calls.push({prompt,attachments:options.attachments});return {ok:true};}};
+    let queue=createTaskQueue(options);
+    const image={name:"design.png",kind:"image",size:3,data:"data:image/png;base64,YWJj"};
+    const text={name:"notes.txt",kind:"text",size:5,data:"notes"};
+    queue.action("add",{prompt:"Use design",attachments:[image]});queue.action("add",{prompt:"Read notes",attachments:[text]});
+    assert.equal(queue.snapshot().tasks[0].attachments[0].data,undefined);
+    queue=createTaskQueue(options);
+    const first=queue.snapshot().tasks[0];
+    assert.deepEqual(queue.action("attachments",{id:first.id}).attachments,[image]);
+    assert.throws(()=>queue.action("steer",{id:first.id}),/pièces jointes/);
+    queue.action("edit",{id:first.id,prompt:"Use changed design"});
+    queue.action("start");for(let i=0;i<8;i++)await tick();
+    assert.deepEqual(calls,[{prompt:"Use changed design",attachments:[image]},{prompt:"Read notes",attachments:[text]}]);
+    queue.action("clear");assert.equal(fs.readdirSync(file+".attachments").length,0);
+});
+test("queued attachments can be edited or removed; missing files stop execution",async()=>{
+    const h=setup("attachment-failure"),image={name:"a.png",kind:"image",data:"data:image/png;base64,YWJj",size:3};
+    h.queue.action("add",{prompt:"A",attachments:[image]});const task=h.queue.snapshot().tasks[0];
+    h.queue.action("edit",{id:task.id,prompt:"A",attachments:[]});assert.deepEqual(h.queue.action("attachments",{id:task.id}).attachments,[]);
+    h.queue.action("edit",{id:task.id,prompt:"A",attachments:[image]});
+    assert.throws(()=>h.queue.action("edit",{id:task.id,prompt:"bad",attachments:[{kind:"bad"}]}),/invalide/);
+    assert.equal(h.queue.snapshot().tasks[0].prompt,"A");
+    fs.unlinkSync(path.join(h.file+".attachments",task.id+".json"));
+    h.queue.action("add",{prompt:"B"});h.queue.action("start");await tick();await tick();
+    assert.deepEqual(h.calls,[]);assert.equal(h.queue.snapshot().tasks[0].status,"failed");assert.equal(h.queue.snapshot().enabled,false);
+});
+function setup(name) {
+    let workspace = "project-a";
+    let available = true;
+    const calls = [];
+    const resolvers = [];
+    const file = path.join(dir, `${name}.json`);
+    const options = { file, workspace: () => workspace, canRun: () => available, run: prompt => {
+        calls.push(prompt);
+        return new Promise(resolve => resolvers.push(resolve));
+    } };
+    const queue = createTaskQueue(options);
+    return { queue, calls, resolvers, options, file, setWorkspace: v => { workspace = v; }, setAvailable: v => { available = v; } };
+}
+
+test("file : ordre, une seule tâche active et enchaînement", async () => {
+    const h = setup("sequence");
+    h.queue.action("add", { prompt: "Première" });
+    h.queue.action("add", { prompt: "Deuxième" });
+    h.queue.action("start");
+    await tick();
+    assert.deepEqual(h.calls, ["Première"]);
+    assert.deepEqual(h.queue.snapshot().tasks.map(t => t.status), ["running", "pending"]);
+    h.resolvers.shift()({ ok: true });
+    await tick(); await tick();
+    assert.deepEqual(h.calls, ["Première", "Deuxième"]);
+    h.resolvers.shift()({ ok: true });
+    await tick(); await tick();
+    assert.deepEqual(h.queue.snapshot().tasks.map(t => t.status), ["done", "done"]);
+    assert.equal(h.queue.snapshot().enabled, false);
+});
+test("file : erreur et interruption suspendent les tâches suivantes", async () => {
+    const h = setup("failure");
+    h.queue.action("add", { prompt: "A" });
+    h.queue.action("add", { prompt: "B" });
+    h.queue.action("start"); await tick();
+    h.resolvers.shift()({ ok: false, message: "Information manquante" });
+    await tick(); await tick();
+    assert.deepEqual(h.calls, ["A"]);
+    assert.equal(h.queue.snapshot().tasks[0].status, "failed");
+    assert.equal(h.queue.snapshot().enabled, false);
+    h.queue.action("retry", { id: h.queue.snapshot().tasks[0].id });
+    h.queue.action("start"); await tick();
+    h.queue.pause({ interrupt: true });
+    h.resolvers.shift()({ ok: true });
+    await tick(); await tick();
+    assert.equal(h.queue.snapshot().tasks[0].status, "interrupted");
+    assert.deepEqual(h.calls, ["A", "A"]);
+});
+test("file : pause, édition, réorganisation et séparation des projets", async () => {
+    const h = setup("edit");
+    h.queue.action("add", { prompt: "A" });
+    h.queue.action("add", { prompt: "B" });
+    const b = h.queue.snapshot().tasks[1].id;
+    h.queue.action("edit", { id: b, prompt: "B modifiée" });
+    h.queue.action("move", { id: b, direction: "up" });
+    h.queue.action("start"); await tick();
+    assert.deepEqual(h.calls, ["B modifiée"]);
+    assert.throws(() => h.queue.action("remove", { id: b }));
+    h.queue.action("pause");
+    h.resolvers.shift()({ ok: true });
+    await tick(); await tick();
+    assert.equal(h.calls.length, 1);
+    h.setWorkspace("project-b");
+    assert.equal(h.queue.snapshot().tasks.length, 0);
+    assert.throws(() => h.queue.action("retry", { id: b }));
+    h.queue.action("add", { prompt: "Projet B" });
+    h.setWorkspace("project-a");
+    assert.equal(h.queue.snapshot().tasks.length, 2);
+    h.queue.action("clear");
+    assert.equal(h.queue.snapshot().tasks.length, 1);
+});
+test("file : reprise après redémarrage en pause, tâche active interrompue", async () => {
+    const h = setup("restart");
+    h.queue.action("add", { prompt: "A" });
+    h.queue.action("start"); await tick();
+    const restored = createTaskQueue(h.options);
+    assert.equal(restored.snapshot().enabled, false);
+    assert.equal(restored.snapshot().tasks[0].status, "interrupted");
+    assert.throws(() => restored.action("add", { prompt: "/project autre" }));
+    h.queue.pause();
+    h.resolvers.shift()({ ok: true });
+    await tick();
+});
+test("file : attend la fin d’une demande manuelle avant de démarrer", async () => {
+    const h = setup("busy");
+    h.setAvailable(false);
+    h.queue.action("add", { prompt: "A" });
+    h.queue.action("start"); await tick();
+    assert.equal(h.calls.length, 0);
+    h.setAvailable(true); h.queue.kick(); await tick();
+    assert.deepEqual(h.calls, ["A"]);
+    h.resolvers.shift()({ ok: true }); await tick(); await tick();
+});
+
+test("file : orienter transmet une fois, et une consigne non transmise reste en attente", () => {
+    const h = setup("steering");
+    h.queue.action("add", { prompt: "Consigne A" });
+    h.queue.action("add", { prompt: "Consigne B" });
+    const [a, b] = h.queue.snapshot().tasks;
+    h.queue.action("steer", { id: a.id });
+    assert.deepEqual(h.queue.takeSteering(), ["Consigne A"]);
+    assert.deepEqual(h.queue.takeSteering(), []);
+    assert.equal(h.queue.snapshot().tasks[0].status, "steered");
+    h.queue.action("steer", { id: b.id });
+    h.queue.releaseSteering();
+    assert.equal(h.queue.snapshot().tasks[1].status, "pending");
+    h.setWorkspace("");
+    assert.doesNotThrow(() => h.queue.action("add", { prompt: "Sans projet" }));
+});

@@ -15,11 +15,12 @@ const router = require("../cli/router");
  * puis restauration des conversations chat et agent.
  * Renvoie { ok: true } ou { ok: false, reason } (message d'erreur à afficher).
  */
-async function bootstrap() {
+async function bootstrap({ interactive = true } = {}) {
     try {
         await auth.initAuth();
     } catch (error) {
         if (!error.needsLogin) return { ok: false, reason: error.message };
+        if (!interactive) return { ok: false, needsLogin: true, reason: "Connecte-toi avec ton compte FranceStudent." };
 
         ui.warn("Pas de session valide : connexion avec ton compte France Student.");
 
@@ -53,16 +54,25 @@ async function bootstrap() {
  * pour qu'il puisse toujours lire et modifier les fichiers du projet.
  * Renvoie { exit } : true si la session doit s'arrêter.
  */
-async function handleInput(rawInput, { onChatDelta, sendChat, preferAgent = false } = {}) {
+async function handleInput(rawInput, { onChatDelta, sendChat, preferAgent = false, forceAgent = false, shouldStop, drainSteering } = {}) {
     const input = String(rawInput ?? "").trim();
 
     if (!input) return { exit: false };
+
+    if (forceAgent && /^\/plan\s+/i.test(input)) {
+        const outcome = await agent.runAgent(`Prépare un plan en lecture seule, sans modifier les fichiers ni lancer de commande.\n\n${input.replace(/^\/plan\s+/i, "")}`, { readOnly: true, shouldStop });
+        return { exit: false, ...outcome };
+    }
 
     if (input.startsWith("/")) {
         const keepGoing = await commands.handleCommand(input);
         return { exit: !keepGoing };
     }
 
+    if(state.motionDesign){
+        const outcome=await agent.runAgent(input,{shouldStop,drainSteering});
+        return {exit:false,...outcome};
+    }
     if (router.isWorkspaceQuestion(input)) {
         ui.assistant(`Projet actuel : ${state.workspace || "aucun projet sélectionné."}`);
         return { exit: false };
@@ -77,9 +87,13 @@ async function handleInput(rawInput, { onChatDelta, sendChat, preferAgent = fals
     }
 
     const wantsAgent =
-        Boolean(state.workspace) && state.mode !== "chat" && preferAgent;
+        (Boolean(state.workspace) && (forceAgent || (state.mode !== "chat" && preferAgent))) ||
+        (preferAgent && state.mode !== "chat" && state.automaticWeb && !state.ecoMode);
 
-    if (wantsAgent || router.shouldUseAgent(input)) await agent.runAgent(input);
+    if (wantsAgent || router.shouldUseAgent(input)) {
+        const outcome = await agent.runAgent(input, { shouldStop, drainSteering });
+        if (outcome) return { exit: false, ...outcome };
+    }
     else if (sendChat) await sendChat(input);
     else await chat.send(input, { onDelta: onChatDelta });
 

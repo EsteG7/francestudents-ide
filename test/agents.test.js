@@ -54,6 +54,8 @@ test("listAgents appelle GET /chats/agents avec le token et filtre les agents in
     assert.deepEqual(result.agents.map((a) => a.id), [-1002, -3001]);
     assert.equal(result.agents[0].provider, "openai");
     assert.equal(result.agents[0].isDefault, true);
+    assert.equal(agents.agentContext(-1002).contextWindowTokens, 1050000);
+    assert.equal(agents.agentContext(-3001).contextWindowTokens, null, "un identifiant réutilisé ne conserve pas la capacité de l’ancien modèle");
 
     // Le cache sert le nom renvoyé par l'API ; un nouvel échec conserve la liste en cache.
     assert.equal(agents.agentName(-3001), "Mistral Large 4");

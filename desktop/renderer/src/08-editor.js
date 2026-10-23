@@ -15,19 +15,25 @@ async function openFile(rel) {
     let tab = ui.tabs.find((t) => t.path === rel);
     if (!tab) {
         try {
+            if(/\.(png|jpe?g|gif|webp|bmp|ico|mp3|wav|ogg|m4a|mp4|webm|mov|pdf|docx?|xlsx?|pptx?|zip|gz|7z|rar)$/i.test(rel)) {
+                tab={path:rel,content:"",saved:"",dirty:false,kind:"asset",asset:await api.inspectFile(rel),eol:"\n",scroll:0};
+            }else{
             const file = await api.readFile(rel);
             const text = normalize(file.content);
-            tab = { path: rel, content: text, saved: text, eol: file.content.includes("\r\n") ? "\r\n" : "\n", dirty: false, scroll: 0 };
+            tab = { path: rel, content: text, saved: text, encoding:file.encoding||"utf8",bom:file.bom===true,eol: file.content.includes("\r\n") ? "\r\n" : "\n", dirty: false, scroll: 0 };
+            }
             ui.tabs.push(tab);
         } catch (err) {
-            renderEntry({ type: "error", text: `${rel} : ${err.message}` });
-            return;
+            try {tab={path:rel,content:"",saved:"",dirty:false,kind:"asset",asset:await api.inspectFile(rel),eol:"\n",scroll:0};ui.tabs.push(tab);}
+            catch {renderEntry({ type: "error", text: `${rel} : ${err.message}` });return;}
         }
     }
+    if(["project","settings","extensions"].includes(ui.sideView))showSideView("explorer");
     activate(rel);
 }
 
 function activate(rel) {
+    window.frstBrowserHide?.();
     const previous = currentTab();
     if (previous) {
         previous.scroll = code.scrollTop;
@@ -45,6 +51,7 @@ function activate(rel) {
             : "Ouvre un dossier, puis discute avec l'agent dans le panneau de droite.";
     }
     code.load(tab ? tab.content : "", tab ? extKind(tab.path) : "default", tab && tab.cmState);
+    showStudioAsset(tab);
     const scroll = tab ? tab.scroll : 0;
     code.scrollTop = scroll;
     /* CodeMirror mesure la mise en page de façon asynchrone : on réapplique le défilement à l'image suivante. */
@@ -57,9 +64,10 @@ function activate(rel) {
     syncHighlight();
     renderTabs();
     document.querySelectorAll(".node").forEach((n) => n.classList.toggle("selected", n.dataset.path === rel));
-    if (tab) code.focus();
+    if (tab&&tab.kind!=="asset") code.focus();
     syncEditorContext();
     lspOnActivate();
+    if(studioPreviewVisible)updateDocumentPreview();
 }
 
 /* Indique au processus principal quels fichiers sont ouverts (contexte de l'agent). */
@@ -140,7 +148,7 @@ function syncEditorContext() {
 function updateBreadcrumbs(tab) {
     const bc = $("breadcrumbs");
     const name = tab ? tab.path.split("/").pop() : "";
-    document.title = tab ? `${name} — FranceStudent Code` : "FranceStudent Code";
+    document.title = tab ? `${name} — FranceStudent IDE` : "FranceStudent IDE";
     const tbTitle = $("tb-title");
     if (tbTitle) tbTitle.textContent = document.title;
     if (!bc) return;
@@ -183,12 +191,13 @@ function renderTabs() {
         el.append(fileIcon(t.path, "file"), label, close);
         bar.appendChild(el);
     }
+    window.frstBrowserTab?.();
 }
 
-function closeTab(rel) {
+async function closeTab(rel) {
     const tab = ui.tabs.find((t) => t.path === rel);
     if (!tab) return;
-    if (tab.dirty && !window.confirm(`${rel} n'est pas enregistré. Fermer quand même ?`)) return;
+    if (tab.dirty && !await confirmStudioAction(`${rel} n'est pas enregistré. Fermer quand même ?`)) return;
     const index = ui.tabs.indexOf(tab);
     ui.tabs.splice(index, 1);
     lspOnClose(rel);
@@ -203,15 +212,18 @@ function closeTab(rel) {
 
 async function saveCurrent() {
     const tab = currentTab();
-    if (!tab) return;
-    const content = tab.eol === "\r\n" ? tab.content.split("\n").join("\r\n") : tab.content;
+    if (!tab||tab.kind==="asset") return;
+    if(studioEditorPreferences.formatOnSave&&currentTab()===tab)await formatEditorDocument();
+    const snapshot=tab.content;
+    const content = tab.eol === "\r\n" ? snapshot.split("\n").join("\r\n") : snapshot;
     try {
-        await api.writeFile(tab.path, content);
-        tab.saved = tab.content;
-        tab.dirty = false;
+        await api.writeFile(tab.path, content,{encoding:tab.encoding||"utf8",bom:tab.bom===true});
+        tab.saved = snapshot;
+        tab.dirty = tab.content!==snapshot;
         renderTabs();
         $("st-file").textContent = `${tab.path} (enregistré)`;
         scheduleGitRefresh();
+        if(studioPreviewVisible)updateDocumentPreview();
     } catch (err) {
         renderEntry({ type: "error", text: `Enregistrement impossible : ${err.message}` });
     }
@@ -254,6 +266,7 @@ code.addEventListener("scroll", () => {
 
 code.addEventListener("input", () => {
     const tab = currentTab();
+    if(tab?.kind==="asset")return;
     if (tab) {
         tab.content = code.value;
         const dirty = tab.content !== tab.saved;

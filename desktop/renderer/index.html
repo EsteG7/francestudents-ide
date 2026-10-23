@@ -2,18 +2,38 @@
 <html lang="fr">
 <head>
     <meta charset="utf-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
-    <title>FranceStudent Code</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; frame-src http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*">
+    <title>FranceStudent IDE</title>
     <link rel="stylesheet" href="vendor/xterm.css">
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="theme.css">
+    <link rel="stylesheet" href="agent-workspace.css">
+    <link rel="stylesheet" href="controls.css">
+    <link rel="stylesheet" href="extension-center.css">
+    <link rel="stylesheet" href="studio.css">
+    <link rel="stylesheet" href="workbench.css">
+    <link rel="stylesheet" href="motion.css">
+    <link rel="stylesheet" href="surfaces.css">
 </head>
 <body>
+    <section id="startup-loading" class="startup-loading" role="dialog" aria-modal="true" aria-labelledby="startup-heading" tabindex="-1">
+        <div class="startup-card">
+            <img src="assets/francestudent-logo.png" width="44" height="44" alt="">
+            <p class="startup-brand">FRANCESTUDENT IDE</p>
+            <h1 id="startup-heading">Préparation de ton espace.</h1>
+            <div class="startup-track" aria-hidden="true"><span></span></div>
+            <p id="startup-message" role="status" aria-live="polite">Recherche des mises à jour disponibles…</p>
+            <p class="startup-hint">Tes projets restent à leur place. On vérifie simplement la dernière version.</p>
+            <progress id="startup-update-progress" max="100" value="0" class="hidden" aria-label="Téléchargement de la mise à jour"></progress>
+            <div class="startup-update-actions"><button type="button" id="startup-update-now" class="hidden">Mettre à jour maintenant</button></div>
+            <button type="button" id="startup-continue">Continuer sans attendre</button>
+        </div>
+    </section>
     <div id="app">
         <header id="titlebar">
             <div class="tb-left">
                 <img class="tb-logo-img" src="assets/francestudent-logo.png" alt="FranceStudent" width="18" height="18">
-                <span id="tb-title" class="tb-title">FranceStudent Code</span>
+                <span id="tb-title" class="tb-title">FranceStudent IDE</span>
             </div>
             <button type="button" id="tb-palette" class="command-center" title="Aller au fichier / commandes (Ctrl+P)">
                 <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -21,6 +41,7 @@
                 <kbd>Ctrl+P</kbd>
             </button>
             <div class="tb-right">
+                <button type="button" id="startup-update-open" class="hidden" title="Une mise à jour est disponible">Mise à jour</button>
                 <button type="button" id="tb-toggle-sidebar" class="icon-btn active" title="Afficher/masquer la barre latérale (Ctrl+B)">
                     <svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
                 </button>
@@ -41,21 +62,18 @@
                 <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
             </button>
             <button class="activity" data-view="git" title="Git : modifications et historique (Ctrl+Maj+G)">
-                <svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7"/><path d="M18 10.5c0 4-6 3-115.5"/></svg>
+                <svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7"/><path d="M18 10.5c0 4-6 3-11 5.5"/></svg>
                 <span id="git-count" class="activity-badge hidden"></span>
             </button>
-            <button class="activity" data-view="worktrees" title="Worktrees : agents parallèles (Ctrl+Maj+W)">
+            <button class="activity" data-view="worktrees" title="Tâches en parallèle, option avancée (Ctrl+Maj+W)">
                 <svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 7.5v9"/><path d="M8.5 5.5c5 0 7.5 2 7.5 4.5"/><path d="M8.5 18.5c5 0 7.5-2 7.5-4.5"/></svg>
                 <span id="wt-count" class="activity-badge hidden"></span>
             </button>
-            <button class="activity" data-view="extensions" title="Extensions : serveurs MCP et skills">
+            <button class="activity" data-view="extensions" title="Outils supplémentaires : skills et MCP">
                 <svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M17.5 14v7M14 17.5h7"/></svg>
             </button>
-            <button class="activity" data-view="agent" title="Agent (Ctrl+Maj+A)">
-                <svg class="i" viewBox="0 0 24 24"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"/><path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z"/></svg>
-            </button>
             <div class="spacer"></div>
-            <button class="activity" data-view="settings" title="Paramètres : auto-approbation des écritures et des commandes">
+            <button class="activity" data-view="settings" title="Paramètres : autorisations, Internet et aide">
                 <svg class="i" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
             <button class="activity" id="btn-help" title="Aide (/help)">
@@ -108,6 +126,7 @@
                     <div class="ext-section-head"><span>GitHub</span></div>
                     <div class="git-gh">
                         <div id="gh-account" class="settings-note"></div>
+                        <button type="button" id="gh-connector-open" class="git-btn">Connecteur GitHub · Bêta</button>
                         <div id="gh-login-row" class="git-form-row">
                             <input id="gh-token" class="git-input" type="password" autocomplete="off" spellcheck="false" placeholder="Token GitHub (ghp_… ou github_pat_…)">
                             <button id="btn-gh-login" class="git-btn">Connecter</button>
@@ -160,24 +179,42 @@
             </div>
             <div id="ext-view" class="ext-view">
                 <div class="sidebar-header">
-                    <span>Extensions</span>
+                    <span>Centre d’extensions</span><button type="button" id="ext-close">Retour au projet</button>
                     <div class="sidebar-actions">
                         <button id="btn-ext-refresh" title="Actualiser (relit mcp.json et les skills)">
                             <svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
                         </button>
                     </div>
                 </div>
-                <div class="ext-section">
+                <p class="settings-intro">Ajoute des méthodes de travail à l’IA et connecte tes outils. Tout se gère ici, dans le même thème que ton projet.</p>
+                <div class="center-toolbar"><div class="center-tabs" role="tablist" aria-label="Centre d’extensions">
+                    <button type="button" role="tab" data-center-tab="library" aria-selected="true">Bibliothèque</button>
+                    <button type="button" role="tab" data-center-tab="installed" aria-selected="false">Mes skills</button>
+                    <button type="button" role="tab" data-center-tab="marketplace" aria-selected="false">Marketplace code</button>
+                    <button type="button" role="tab" data-center-tab="motion" aria-selected="false">Motion design</button>
+                    <button type="button" role="tab" data-center-tab="mcp" aria-selected="false">Serveurs MCP</button>
+                </div><span id="center-count" class="settings-help"></span></div>
+                <p id="center-message" class="settings-feedback" role="status"></p>
+                <section id="center-library" data-center-panel="library">
+                    <div class="center-hero"><span class="ext-tag">Inclus · hors ligne</span><h2>Des méthodes pour mieux travailler.</h2><p>Des skills prêts à l’emploi, avec leurs instructions lisibles avant installation. Aucun compte ni clé API supplémentaire.</p></div>
+                    <div class="center-filters"><input id="library-search" type="search" placeholder="Rechercher : tests, sécurité, web…" aria-label="Rechercher un skill dans la bibliothèque"><select id="library-category" aria-label="Catégorie"><option value="">Toutes les catégories</option><option>Web</option><option>Qualité</option><option>Backend</option><option>Projet</option><option>Sécurité</option></select><select id="library-scope" aria-label="Installer pour"><option value="utilisateur">Tous mes projets</option><option value="projet">Ce projet seulement</option></select></div>
+                    <div id="library-list" class="center-grid"></div>
+                </section>
+                <section class="hidden" data-center-panel="motion" aria-label="Marketplace motion design"></section>
+                <section class="hidden" data-center-panel="marketplace"><div class="center-hero"><span class="ext-tag">SkillsMP · Communauté</span><h2>Explore les skills de la communauté.</h2><p>Recherche en ligne, lis les instructions puis choisis où les installer. Les skills communautaires sont installés désactivés : active-les dans Mes skills après vérification. Seul le SKILL.md est importé, sans les scripts ni les fichiers annexes.</p></div><form id="marketplace-search-form" class="center-filters"><input id="marketplace-query" type="search" required maxlength="160" placeholder="Rechercher sur SkillsMP : playwright, react, python…" aria-label="Rechercher dans la marketplace"><select id="marketplace-sort" aria-label="Trier les résultats"><option value="stars">Étoiles GitHub</option><option value="recent">Plus récents</option></select><button type="submit" id="marketplace-search-button" class="primary">Rechercher</button></form><p id="marketplace-status" class="settings-help" role="status">La recherche ne démarre que lorsque tu cliques sur Rechercher.</p><div id="marketplace-results" class="center-grid"></div><div class="center-dialog-actions"><button type="button" id="marketplace-previous" disabled>Précédent</button><span id="marketplace-page" class="settings-help"></span><button type="button" id="marketplace-next" disabled>Suivant</button></div></section>
+                <section class="ext-section hidden" data-center-panel="mcp">
                     <div class="ext-section-head">
                         <span>Serveurs MCP</span>
                         <span class="ext-actions">
+                            <button type="button" id="btn-mcp-add" class="primary">+ Ajouter un serveur</button>
                             <button type="button" id="btn-mcp-config" title="Ouvrir mcp.json">mcp.json</button>
                             <button type="button" id="btn-mcp-restart" title="Redémarrer les serveurs MCP">Redémarrer</button>
                         </span>
                     </div>
+                    <p class="settings-help">MCP permet à l’IA d’utiliser les outils d’un serveur local. Ajoute une commande stdio ; seuls les serveurs activés sont démarrés. Une sauvegarde de mcp.json est conservée à chaque modification.</p>
                     <div id="mcp-list" class="ext-list"></div>
-                </div>
-                <div class="ext-section">
+                </section>
+                <section class="ext-section hidden" data-center-panel="installed">
                     <div class="ext-section-head">
                         <span>Skills</span>
                         <span class="ext-actions">
@@ -185,34 +222,63 @@
                             <button type="button" id="btn-skill-dir" title="Ouvrir le dossier des skills utilisateur">Dossier</button>
                         </span>
                     </div>
-                    <div id="skills-list" class="ext-list"></div>
-                </div>
+                    <div class="center-filters"><input type="search" id="skills-search" placeholder="Filtrer mes skills" aria-label="Rechercher parmi les skills installés"><select id="skills-filter" aria-label="Filtrer les skills"><option value="all">Tous les skills</option><option value="active">Activés</option><option value="disabled">Désactivés</option><option value="favorites">Favoris</option><option value="projet">Ce projet</option><option value="utilisateur">Globaux</option></select></div>
+                    <div class="center-profile"><div><b>Profils d’activation</b><p class="settings-help">Enregistre un ensemble de skills actifs pour retrouver ta façon de travailler.</p></div><select id="skill-profile" aria-label="Profil de skills"><option value="">Choisir un profil</option></select><button type="button" id="profile-apply">Appliquer</button><button type="button" id="profile-save">Enregistrer le profil actuel</button><button type="button" id="profile-delete">Supprimer le profil</button></div>
+                    <div id="skills-list" class="center-grid"></div>
+                </section>
             </div>
             <div id="settings-view" class="ext-view settings-view">
-                <div class="sidebar-header"><span>Paramètres</span></div>
-                <div class="ext-section">
-                    <div class="ext-section-head"><span>Écritures de fichiers</span></div>
-                    <label class="settings-row"><input type="checkbox" id="set-auto-writes"> Sans confirmation (cette session)</label>
-                    <label class="settings-row"><input type="checkbox" id="set-auto-writes-always"> Toujours, y compris aux prochains démarrages</label>
-                </div>
-                <div class="ext-section">
-                    <div class="ext-section-head"><span>Commandes</span></div>
-                    <label class="settings-row"><input type="checkbox" id="set-auto-commands"> Sans confirmation (cette session)</label>
-                    <label class="settings-row"><input type="checkbox" id="set-auto-commands-always"> Toujours, y compris aux prochains démarrages</label>
-                    <div class="settings-note">Les commandes interdites (rm, shells, sudo, git push…) restent toujours bloquées.</div>
-                </div>
-                <div class="ext-section">
-                    <div class="ext-section-head"><span>Accès web</span></div>
-                    <label class="settings-row"><input type="checkbox" id="set-web-search"> Recherche web (cette session)</label>
-                    <div class="settings-note">Le modèle peut chercher sur Internet pour répondre (équivalent de /web on dans le CLI).</div>
-                </div>
-                <div class="ext-section">
-                    <div class="ext-section-head"><span>Skills et MCP</span></div>
-                    <label class="settings-row"><input type="radio" name="set-extensions-mode" id="set-extensions-auto" value="auto"> L'agent détecte seul s'il en a besoin</label>
-                    <label class="settings-row"><input type="radio" name="set-extensions-mode" id="set-extensions-manual" value="manual"> Je choisis : seuls ceux nommés dans ma demande</label>
-                    <div class="settings-note">En mode manuel, cite le skill ou le serveur MCP dans ta demande (ex. « utilise le skill pdf », « @rea »). Équivalent de /extensions auto|manual dans le CLI.</div>
-                </div>
-                <div id="settings-message" class="settings-note"></div>
+                <div class="sidebar-header"><span>Paramètres</span><button type="button" id="settings-close">Retour au projet</button></div>
+                <p class="settings-intro">Choisis ce que l’agent peut faire et quand il doit te demander ton accord.</p>
+                <div class="settings-search-wrap"><input id="settings-search" type="search" placeholder="Rechercher un paramètre : modèle, connexion, accès…" aria-label="Rechercher un paramètre"><p id="settings-search-empty" class="settings-help hidden">Aucun paramètre ne correspond.</p></div>
+                <section class="settings-card" aria-labelledby="settings-model-title"><h3 id="settings-model-title">Modèle au démarrage</h3><p class="settings-help">Le choix est enregistré automatiquement pour les prochains démarrages. Le sélecteur du chat change le modèle de la conversation en cours.</p><select id="settings-default-model" aria-label="Modèle par défaut"><option value="">Modèle par défaut de l’application</option></select></section>
+                <section class="settings-card" aria-labelledby="settings-context-title"><h3 id="settings-context-title">Contexte et indexation du projet</h3><p class="settings-help">Plus de contexte permet d’examiner davantage de code, avec plus de mémoire et de tokens. Les secrets, fichiers binaires et dossiers exclus restent ignorés. Ces limites s’appliquent à la prochaine indexation ou ouverture de dossier.</p><div class="center-tabs" aria-label="Préréglage de contexte"><button type="button" data-context-preset="light">Léger</button><button type="button" data-context-preset="balanced">Équilibré</button><button type="button" data-context-preset="large">Grand projet</button></div><div class="settings-number-grid"><label>Fichiers indexés au maximum<input type="number" id="context-max-files" min="20" max="20000" required></label><label>Budget total (caractères)<input type="number" id="context-budget" min="20000" max="5000000" required></label><label>Extrait par fichier (caractères)<input type="number" id="context-file-chars" min="1000" max="200000" required></label><label>Contexte initial de l’agent (caractères)<input type="number" id="context-agent-chars" min="5000" max="200000" required></label></div><p id="context-estimate" class="settings-help"></p><button type="button" id="preferences-save" class="primary">Enregistrer ces réglages</button><button type="button" id="preferences-reset">Valeurs par défaut</button></section>
+                <section class="settings-card" aria-labelledby="settings-access-title">
+                    <h3 id="settings-access-title">Autorisations</h3>
+                    <div class="segmented-control" role="radiogroup" aria-label="Niveau d’accès de l’agent">
+                        <button type="button" role="radio" aria-checked="false" data-access-mode="ask">Demander</button>
+                        <button type="button" role="radio" aria-checked="false" data-access-mode="auto">Automatique</button>
+                        <button type="button" role="radio" aria-checked="false" data-access-mode="full" title="Full accès : actions sans confirmation, y compris hors du projet">Full accès</button>
+                    </div>
+                    <p id="access-mode-description" class="settings-help"></p>
+                    <div id="full-access-warning" class="settings-warning hidden" role="alert">
+                        <strong>⚠ Full accès : aucune confirmation</strong>
+                        <p>L’IA peut modifier ou supprimer des fichiers, lancer des commandes et envoyer des données sur Internet, y compris hors du projet. Une erreur peut entraîner une perte de données.</p>
+                        <p>Active ce mode uniquement si tu acceptes ces risques. Il utilise les droits de ton compte Windows, sans donner automatiquement les droits administrateur.</p>
+                    </div>
+                    <label class="setting-toggle"><span><b>Garder ce choix</b><small>Appliquer aussi aux prochains démarrages.</small></span><input type="checkbox" role="switch" id="set-remember-access"></label>
+                    <details class="settings-details"><summary>Autorisations personnalisées</summary>
+                        <fieldset id="detailed-permissions">
+                            <label class="setting-toggle"><span><b>Modifier les fichiers sans demander</b><small>Pour cette session.</small></span><input type="checkbox" role="switch" id="set-auto-writes"></label>
+                            <label class="setting-toggle"><span><b>Garder l’autorisation des fichiers</b><small>Aux prochains démarrages.</small></span><input type="checkbox" role="switch" id="set-auto-writes-always"></label>
+                            <label class="setting-toggle"><span><b>Lancer les commandes sans demander</b><small>Les commandes bloquées restent interdites hors Full accès.</small></span><input type="checkbox" role="switch" id="set-auto-commands"></label>
+                            <label class="setting-toggle"><span><b>Garder l’autorisation des commandes</b><small>Aux prochains démarrages.</small></span><input type="checkbox" role="switch" id="set-auto-commands-always"></label>
+                        </fieldset>
+                    </details>
+                </section>
+                <section class="settings-card" aria-labelledby="settings-web-title">
+                    <h3 id="settings-web-title">Internet</h3>
+                    <label class="setting-toggle"><span><b>Rechercher de lui-même</b><small>L’agent cherche la documentation et les informations récentes, puis cite ses sources.</small></span><input type="checkbox" role="switch" id="set-automatic-web"></label>
+                    <details class="settings-details"><summary>Recherche supplémentaire du modèle</summary>
+                        <label class="setting-toggle"><span><b>Activer la recherche du fournisseur</b><small>Si le modèle la propose, pour cette session. La recherche automatique ci-dessus fonctionne indépendamment.</small></span><input type="checkbox" role="switch" id="set-web-search"></label>
+                    </details>
+                </section>
+                <section class="settings-card" aria-labelledby="settings-tools-title">
+                    <h3 id="settings-tools-title">Outils et extensions</h3>
+                    <p class="settings-help">Choisis comment l’agent utilise les outils et les compétences installés.</p>
+                    <label class="setting-choice"><input type="radio" name="set-extensions-mode" id="set-extensions-auto" value="auto"><span><b>Automatiquement</b><small>L’agent choisit les outils utiles à ta demande.</small></span></label>
+                    <label class="setting-choice"><input type="radio" name="set-extensions-mode" id="set-extensions-manual" value="manual"><span><b>Seulement à ma demande</b><small>Nomme le skill ou le serveur MCP dans ton message.</small></span></label>
+                </section>
+                <section class="settings-card" aria-labelledby="settings-marketplace-title"><h3 id="settings-marketplace-title">Marketplace SkillsMP</h3><p class="settings-help">La recherche fonctionne sans clé, avec les limites du service. Une clé personnelle est facultative. Elle est chiffrée sur cet ordinateur et n’est jamais envoyée au chat. La variable SKILLSMP_API_KEY reste prioritaire si elle est définie.</p><label class="center-code-label">Clé API facultative<input type="password" id="settings-marketplace-key" autocomplete="new-password" spellcheck="false" placeholder="Coller une clé SkillsMP"></label><p id="marketplace-key-status" class="settings-help" role="status"></p><button type="button" id="marketplace-key-save">Enregistrer la clé</button><button type="button" id="marketplace-key-clear">Effacer la clé locale</button><button type="button" id="marketplace-docs">Ouvrir la documentation</button></section>
+                <section class="settings-card" aria-labelledby="settings-help-title">
+                    <h3 id="settings-help-title">Connexion et prise en main</h3>
+                    <p class="settings-help">Un guide en trois étapes pour se connecter, ouvrir un dossier et envoyer sa première demande.</p>
+                    <button type="button" id="settings-guide" class="primary">Ouvrir le guide</button>
+                    <button type="button" id="settings-logout" disabled>Se déconnecter</button>
+                    <p id="settings-account-status" class="settings-help" role="status">Non connecté.</p>
+                    <p class="settings-help">La déconnexion retire la session enregistrée sur cet ordinateur. Tes fichiers et tes conversations sont conservés. Elle ne déconnecte pas le site dans ton navigateur.</p>
+                </section>
+                <div id="settings-message" class="settings-feedback" role="status"></div>
             </div>
             <div class="sidebar-header explorer-only">
                 <span>Explorateur</span>
@@ -253,7 +319,7 @@
                         <div class="welcome-hero">
                             <img class="welcome-logo-img" src="assets/francestudent-logo.png" alt="FranceStudent" width="56" height="56">
                             <div>
-                                <h1>FranceStudent Code</h1>
+                                <h1>FranceStudent IDE</h1>
                                 <p id="welcome-sub">Ouvre un dossier, puis discute avec l'agent dans le panneau de droite.</p>
                             </div>
                         </div>
@@ -276,7 +342,7 @@
                             </button>
                             <button type="button" id="wa-terminal" class="welcome-action">
                                 <svg class="i" viewBox="0 0 24 24"><path d="m5 8 4 4-4 4"/><path d="M12 17h7"/></svg>
-                                <span class="wa-text"><b>Terminal</b><small>Shell interactif (zsh, bash…) dans le dossier du projet</small></span>
+                                <span class="wa-text"><b>Terminal</b><small>Exécuter des commandes dans le dossier du projet</small></span>
                                 <kbd title="Ctrl + touche ² (sous Échap)">Ctrl+² (sous Échap)</kbd>
                             </button>
                         </div>
@@ -358,9 +424,9 @@
                         <svg class="i chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
                     </button>
                     <select id="mode-select" title="Mode">
-                        <option value="auto">auto</option>
-                        <option value="agent">agent</option>
-                        <option value="chat">chat</option>
+                        <option value="auto">Auto</option>
+                        <option value="agent">Agent</option>
+                        <option value="chat">Discussion</option>
                     </select>
                     <button type="button" id="btn-history" title="Historique des conversations (/history)">
                         <svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2"/></svg>
@@ -373,12 +439,54 @@
                     </button>
                 </div>
             </div>
+            <div class="agent-navigation">
+                <div class="agent-tabs" role="tablist" aria-label="Espace agent">
+                    <button type="button" class="selected" data-agent-tab="conversation" role="tab" aria-selected="true" aria-controls="transcript">Conversation</button>
+                    <button type="button" data-agent-tab="activity" role="tab" aria-selected="false" aria-controls="agent-activity">Activité</button>
+                    <button type="button" data-agent-tab="usage" role="tab" aria-selected="false" aria-controls="agent-usage">Usage</button>
+                </div>
+                <button type="button" id="agent-focus" title="Agrandir l’espace agent" aria-label="Agrandir l’espace agent">⤢</button>
+            </div>
+            <div class="agent-context-bar"><span id="agent-project-name">Aucun projet</span><button type="button" id="agent-access" title="Ouvrir les paramètres de permissions">Sur approbation</button></div>
+            <section id="agent-live-plan" class="agent-live-plan hidden" aria-label="Plan de travail"></section>
+            <div id="agent-starter" class="agent-starter">
+                <h2>Commencer une tâche</h2>
+                <p>Choisis une action ou écris ta demande.</p>
+                <div class="starter-prompts">
+                    <button type="button" data-starter="Explore ce projet et explique son architecture, ses points d’entrée et comment lancer les tests."><span>⌕</span><b>Comprendre le projet</b><small>Architecture et fonctionnement</small></button>
+                    <button type="button" data-starter="Inspecte les modifications Git locales. Fais une revue des bugs et régressions avec les fichiers et lignes concernés, sans modifier les fichiers."><span>◇</span><b>Relire les changements</b><small>Bugs et régressions</small></button>
+                    <button type="button" data-starter="Détecte comment vérifier ce projet, lance les tests appropriés, analyse les échecs et propose une correction."><span>✓</span><b>Vérifier le projet</b><small>Tests et diagnostics</small></button>
+                </div>
+            </div>
             <div id="transcript" class="transcript"></div>
+            <section id="agent-activity" class="agent-activity" aria-label="Activité de l’agent">
+                <div class="workspace-section-head"><div><span class="starter-eyebrow">DANS CETTE SESSION</span><h3>Suivre le travail</h3></div><button type="button" id="activity-refresh" title="Actualiser">↻</button></div>
+                <div id="activity-overview" class="activity-overview"></div>
+                <div class="workspace-section"><h4>Sources consultées</h4><div id="activity-sources"></div></div>
+                <div class="workspace-section"><h4>Actions de l’agent</h4><div id="activity-timeline"></div></div>
+                <div class="workspace-section"><h4>Commandes en arrière-plan</h4><div id="activity-jobs"></div><pre id="activity-job-output" class="hidden"></pre></div>
+                <div class="workspace-section"><h4>Points de reprise</h4><p class="muted">Restaure les modifications suivies par les outils de fichiers. Les commandes shell ne sont pas annulées.</p><div id="activity-checkpoints"></div></div>
+            </section>
+            <section id="agent-usage" class="agent-usage" role="tabpanel" aria-label="Utilisation du quota">
+                <div class="usage-heading"><div><span class="starter-eyebrow">VOTRE COMPTE</span><h2>Consommation</h2></div><button type="button" id="usage-refresh" title="Actualiser le quota" aria-label="Actualiser le quota"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 2M18 18a8 8 0 0 1-13-2"/></svg></button></div>
+                <div id="usage-dashboard" aria-live="polite"></div>
+                <p class="usage-footnote">Le quota du compte vient de FranceStudent. Les compteurs de session suivent cette ouverture de l’application ; ils ne représentent pas une facture ni une répartition par modèle.</p>
+            </section>
             <div id="spinner" class="spinner hidden"><span class="dot"></span><span id="spinner-label"></span></div>
             <div id="prompt-zone" class="prompt-zone hidden"></div>
             <form id="composer" class="composer">
                 <div id="slash-menu" class="slash-menu hidden"></div>
+                <section id="pending-prompts" class="pending-prompts hidden" aria-label="Prompts en attente" aria-live="polite"></section>
+                <div id="agent-favorites" class="agent-favorites hidden"><div class="workspace-section-head"><b>Prompts favoris</b><button type="button" id="favorite-close" aria-label="Fermer les favoris">×</button></div><div id="favorite-list"></div></div>
                 <div class="composer-box">
+                    <div class="composer-topline"><div class="composer-utilities" role="group" aria-label="Outils de conversation">
+                        <div class="composer-shortcuts">
+                            <button type="button" id="favorite-open" class="composer-icon-button" title="Prompts favoris" aria-label="Prompts favoris"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/></svg></button>
+                            <button type="button" id="draft-save-favorite" class="composer-icon-button" title="Enregistrer ce prompt en favori" aria-label="Enregistrer ce prompt en favori"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 11v9l-7-4-7 4V4a1 1 0 0 1 1-1h8M19 2v6m-3-3h6"/></svg></button>
+                            <button type="button" id="conversation-export" class="composer-icon-button" title="Exporter la conversation en Markdown" aria-label="Exporter la conversation"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg></button>
+                        </div>
+                        <div id="composer-options" class="composer-options"></div>
+                    </div></div>
                     <div id="attachments" class="attachments hidden"></div>
                     <textarea id="input" rows="2" placeholder="Demande à l'agent… (/ pour les commandes)"></textarea>
                     <input type="file" id="attach-input" multiple hidden>
@@ -390,6 +498,7 @@
                         <button type="submit" id="btn-send" class="primary">Envoyer</button>
                     </div>
                 </div>
+                <div id="composer-feedback" class="composer-feedback" role="status"></div>
             </form>
         </aside>
 
@@ -412,9 +521,38 @@
     </div>
     <div id="context-menu" class="context-menu hidden"></div>
     <div id="model-menu" class="model-menu hidden"></div>
+    <div id="connection-guide" class="guide-backdrop hidden">
+        <section class="connection-guide" role="dialog" aria-modal="true" aria-labelledby="guide-title" tabindex="-1">
+            <header class="guide-header"><div class="guide-brand"><img src="assets/francestudent-logo.png" width="25" height="25" alt=""><span>FranceStudent IDE</span></div><button type="button" id="guide-close" class="icon-control" aria-label="Fermer le guide">×</button></header>
+            <nav class="guide-steps" aria-label="Étapes du guide"><span data-guide-step="1"><b>1</b> Connexion</span><span data-guide-step="2"><b>2</b> Ton dossier</span><span data-guide-step="3"><b>3</b> Première demande</span></nav>
+            <div class="guide-body">
+                <h1 id="guide-title">Bienvenue. On commence ?</h1>
+                <p id="guide-description" class="guide-description"></p>
+                <div data-guide-page="1">
+                    <form id="guide-login-form" class="guide-login-form">
+                        <label for="guide-email">Adresse e-mail du compte FranceStudent</label><input type="email" id="guide-email" autocomplete="username" placeholder="toi@exemple.fr" required>
+                        <label for="guide-password">Mot de passe</label><div class="guide-password-row"><input type="password" id="guide-password" autocomplete="current-password" required><button type="button" id="guide-show-password" aria-label="Afficher le mot de passe" aria-pressed="false">Afficher</button></div>
+                        <p class="guide-privacy">Ton mot de passe n’est ni enregistré par l’application ni envoyé dans la conversation. Seule ta session de connexion est conservée.</p>
+                        <button type="submit" id="guide-login-submit" class="primary">Se connecter</button>
+                    </form>
+                    <div id="guide-already-connected" class="hidden"><p class="guide-success">✓ Tu es déjà connecté.</p><button type="button" id="guide-to-project" class="primary">Continuer</button></div>
+                    <div class="guide-account-help"><span>Besoin d’un compte ou de retrouver ton accès ?</span><button type="button" id="guide-open-account">Site FranceStudent</button></div>
+                    <details class="guide-login-help"><summary>Où trouver mes identifiants ?</summary><ol><li>Utilise ton compte FranceStudent habituel.</li><li>Vérifie que tu peux te connecter sur le site avec cette adresse e-mail et ce mot de passe.</li><li>Reviens ici et clique sur « Se connecter ». Aucune clé API n’est nécessaire.</li></ol><button type="button" id="guide-open-site">Ouvrir le site FranceStudent</button></details>
+                </div>
+                <div data-guide-page="2" class="hidden"><div class="guide-explainer"><span class="guide-step-icon">▤</span><div><b>Un dossier = un projet</b><p>Choisis le dossier qui contient ton code, ton site ou tes fichiers. L’agent pourra les lire et travailler dessus.</p></div></div><button type="button" id="guide-pick-project" class="primary">Choisir mon dossier</button><p id="guide-project-name" class="settings-help"></p><div class="guide-footer"><button type="button" id="guide-skip-project">Je le ferai plus tard</button><button type="button" id="guide-project-next" class="primary">Continuer</button></div></div>
+                <div data-guide-page="3" class="hidden"><div class="guide-explainer"><span class="guide-step-icon">↵</span><div><b>Écris simplement ce que tu veux faire</b><p>Appuie sur Entrée pour envoyer. Pendant une tâche, tu peux continuer à écrire : tes demandes s’empilent juste au-dessus de la saisie.</p></div></div><div class="guide-explainer"><span class="guide-step-icon">✓</span><div><b>Garde le contrôle</b><p>Le mode « Demander » attend ton accord pour les actions sensibles. Le bouton Stop interrompt le travail. Full accès retire les confirmations : lis bien son avertissement avant de l’activer.</p></div></div><button type="button" id="guide-first-prompt" class="primary">Préparer ma première demande</button><button type="button" id="guide-finish">C’est compris</button></div>
+                <div id="guide-message" class="guide-message" role="status"></div>
+            </div>
+        </section>
+    </div>
     <script src="vendor/xterm.js"></script>
     <script src="vendor/addon-fit.js"></script>
     <script src="vendor/codemirror.js"></script>
-    <script src="app.js"></script>
+    <script src="vendor/studio.js"></script>
+    <script src="app.js" defer></script>
+    <dialog id="skill-editor" class="center-dialog" aria-labelledby="skill-editor-title">
+        <form id="skill-editor-form"><div class="center-dialog-head"><h2 id="skill-editor-title">Skill</h2><button type="button" id="skill-editor-close" aria-label="Fermer">×</button></div><p id="skill-editor-description" class="settings-help"></p><div id="skill-editor-identity" class="center-filters"><label>Nom du dossier<input id="skill-editor-name" pattern="[A-Za-z0-9_-]{1,80}" required placeholder="mon-skill"></label><label>Installation<select id="skill-editor-scope"><option value="utilisateur">Tous mes projets</option><option value="projet">Ce projet</option></select></label></div><label class="center-code-label">Instructions · SKILL.md<textarea id="skill-editor-content" spellcheck="false" required maxlength="90000"></textarea></label><p class="settings-help">Tu peux coller un SKILL.md personnel ici. Seules ces instructions sont importées ; les scripts et fichiers annexes ne sont pas copiés.</p><p id="skill-editor-message" role="status" class="settings-feedback"></p><div class="center-dialog-actions"><button type="button" id="skill-editor-cancel">Annuler</button><button type="submit" id="skill-editor-save" class="primary">Enregistrer</button></div></form>
+    </dialog>
+    <dialog id="mcp-editor" class="center-dialog" aria-labelledby="mcp-editor-title"><form id="mcp-editor-form"><div class="center-dialog-head"><h2 id="mcp-editor-title">Connecter un serveur MCP</h2><button type="button" id="mcp-editor-close" aria-label="Fermer">×</button></div><p class="settings-help">Le serveur sera exécuté sur ton ordinateur avec tes droits Windows. Choisis une commande provenant d’une source de confiance. Les variables saisies sont enregistrées localement dans mcp.json.</p><div class="settings-number-grid"><label>Nom<input id="mcp-name" required pattern="[A-Za-z0-9_.-]{1,64}" placeholder="mon-serveur"></label><label>Commande<input id="mcp-command" required placeholder="npx, node, python…"></label></div><label class="center-code-label">Arguments (tableau JSON)<textarea id="mcp-args" rows="2" spellcheck="false">[]</textarea></label><label class="center-code-label">Variables d’environnement (objet JSON, facultatif)<textarea id="mcp-env" rows="2" spellcheck="false">{}</textarea></label><label class="center-code-label">Dossier de travail (facultatif)<input id="mcp-cwd" placeholder="Chemin du dossier de travail"></label><p id="mcp-editor-message" class="settings-feedback" role="status"></p><div class="center-dialog-actions"><button type="button" id="mcp-editor-cancel">Annuler</button><button type="submit" id="mcp-editor-save" class="primary">Enregistrer et connecter</button></div></form></dialog>
 </body>
 </html>

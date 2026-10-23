@@ -27,15 +27,19 @@ const skip = !electronApi || typeof electronPath !== "string" ? "playwright-core
 
 async function launch() {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "fscli-e2e-state-"));
+    const env={...process.env,FS_STATE_DIR:stateDir,FS_DATA_DIR:stateDir,ELECTRON_DISABLE_SECURITY_WARNINGS:"1"};
+    delete env.ELECTRON_RUN_AS_NODE;
     const app = await electronApi.launch({
         executablePath: electronPath,
-        args: [path.join(ROOT, "desktop", "main.js")],
+        args: [path.join(ROOT, "desktop", "main.js"),"--user-data-dir="+path.join(stateDir,"electron")],
         cwd: ROOT,
-        env: { ...process.env, FS_STATE_DIR: stateDir, ELECTRON_DISABLE_SECURITY_WARNINGS: "1" },
+        env,
         timeout: 60000
     });
     const page = await app.firstWindow();
     await page.waitForLoadState("domcontentloaded");
+    await page.locator("#startup-loading").waitFor({state:"hidden",timeout:12000});
+    await page.locator("#guide-close").waitFor({ state: "visible", timeout: 2000 }).then(() => page.locator("#guide-close").click()).catch(() => {});
     return { app, page };
 }
 
@@ -45,7 +49,8 @@ test("e2e : la fenêtre s'ouvre avec la zone de saisie, le transcript et la barr
         const errors = [];
         page.on("pageerror", (err) => errors.push(err.message));
         await page.waitForSelector("#input", { timeout: 30000 });
-        assert.ok(await page.isVisible("#transcript"));
+        assert.equal(await page.locator("#transcript").count(), 1);
+        assert.ok(await page.isVisible("#agent-starter"));
         assert.ok(await page.isVisible("#statusbar"));
         assert.equal(await page.evaluate(() => typeof window.frst?.submit), "function");
         await page.waitForTimeout(500);

@@ -25,11 +25,11 @@ function prepareAuth() {
     state.pendingFiles = [];
 }
 
-function successfulResponse() {
+function successfulResponse(answer="ok") {
     const body = new ReadableStream({
         start(controller) {
             controller.enqueue(new TextEncoder().encode(
-                'event: response.output_text.delta\ndata: {"delta":"ok"}\n\n' +
+                'event: response.output_text.delta\ndata: '+JSON.stringify({chat_id:"file-chat",delta:answer})+'\n\n' +
                 "data: [DONE]\n\n"
             ));
             controller.close();
@@ -38,7 +38,7 @@ function successfulResponse() {
     return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
 }
 
-const PDF_BYTES = Buffer.from("%PDF-1.4\n\u0000\u0001binaire\n%%EOF", "latin1");
+const PDF_BYTES = Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF", "latin1");
 const PDF_DATA_URL = `data:application/pdf;base64,${PDF_BYTES.toString("base64")}`;
 
 test("uploadFile envoie un PDF sur /filesv2 avec son nom et son type MIME", { concurrency: false }, async () => {
@@ -106,35 +106,99 @@ test("uploadFile explique le 403 du feature flag Files v2", { concurrency: false
 test("resolvePendingFiles garde les ID déjà envoyés", { concurrency: false }, async () => {
     prepareAuth();
     let calls = 0;
-    global.fetch = async () => { calls++; return new Response(JSON.stringify({ id: "file-new" }), { status: 200 }); };
+    global.fetch = async () => { calls++; return new Response(JSON.stringify({ uuid: "11111111-2222-3333-4444-555555555555" }), { status: 200 }); };
     state.pendingFiles = ["file-old", { name: "a.pdf", dataUrl: PDF_DATA_URL }];
 
     await resolvePendingFiles();
 
-    assert.deepEqual(state.pendingFiles, ["file-old", "file-new"]);
+    assert.equal(state.pendingFiles[0], "file-old");
+    assert.deepEqual(state.pendingImages, ["11111111-2222-3333-4444-555555555555"]);
     assert.equal(calls, 1);
 });
 
-test("requestModel envoie les fichiers joints puis passe leurs ID dans files", { concurrency: false }, async () => {
+test("requestModel transmet le PDF via les images natives", { concurrency: false }, async () => {
     prepareAuth();
     const urls = [];
     let streamBody = null;
+    let visualBody=null;
     global.fetch = async (url, init) => {
         urls.push(String(url));
-        if (String(url).endsWith("/filesv2")) {
-            return new Response(JSON.stringify({ id: "file-xyz" }), { status: 200 });
+        if (String(url).endsWith("/files/upload")) {
+            return new Response(JSON.stringify({ uuid: "11111111-2222-3333-4444-555555555555" }), { status: 200 });
         }
         streamBody = JSON.parse(init.body);
+        if(streamBody.images.length){visualBody=streamBody;return successfulResponse(JSON.stringify({images:[{index:1,status:"seen",description:"A PDF page with its document text visible."}]}));}
         return successfulResponse();
     };
     state.pendingFiles = [{ name: "sujet.pdf", dataUrl: PDF_DATA_URL }];
 
     assert.equal(await requestModel("résume ce PDF"), "ok");
 
-    assert.equal(urls.length, 2);
-    assert.ok(urls[0].endsWith("/filesv2"));
+    assert.equal(urls.length, 3);
+    assert.ok(urls[0].endsWith("/files/upload"));
     assert.ok(urls[1].endsWith("/chats/stream"));
-    assert.deepEqual(streamBody.files, ["file-xyz"]);
+    assert.deepEqual(streamBody.files, []);
+    assert.deepEqual(visualBody.images, ["11111111-2222-3333-4444-555555555555"]);
     assert.deepEqual(streamBody.images, []);
     assert.deepEqual(state.pendingFiles, []);
+});
+
+const IMAGE_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==";
+const IMAGE_ID = "11111111-2222-3333-4444-555555555555";
+
+test("image uploaded as multipart then attached to agent request, reused on retry", async () => {
+    prepareAuth();
+    state.pendingImages = [IMAGE_DATA_URL];
+    let uploads = 0, streams = 0;
+    global.fetch = async (url, init) => {
+        if (String(url).endsWith("/files/upload")) {
+            uploads++;
+            const file = init.body.get("file");
+            assert.equal(file.type, "image/png");
+            assert.ok(file.size > 0);
+            assert.equal(init.headers["Content-Type"], undefined);
+            return Response.json({ uuid: IMAGE_ID });
+        }
+        streams++;
+        const body = JSON.parse(init.body);
+        if(streams<=2){assert.deepEqual(body.images,[IMAGE_ID]);assert.match(body.initialContent,/RÉCEPTION VISUELLE INITIALE/);}else assert.deepEqual(body.images,[]);
+        if (streams === 1) return new Response("temporary", { status: 500 });
+        return successfulResponse(streams===2?JSON.stringify({images:[{index:1,status:"seen",description:"A small PNG image with a white background."}]}):"ok");
+    };
+    assert.equal(await requestModel("Examine cette capture", { conversationMode: "agent" }), "ok");
+    assert.equal(uploads, 1);
+    assert.equal(streams, 3);
+    assert.deepEqual(state.pendingImages, []);
+});
+
+test("fresh background requests do not consume or upload pending images", async () => {
+    prepareAuth();
+    state.pendingImages = [IMAGE_DATA_URL];
+    global.fetch = async (url, init) => {
+        assert.ok(String(url).endsWith("/chats/stream"));
+        assert.deepEqual(JSON.parse(init.body).images, []);
+        return successfulResponse();
+    };
+    await requestModel("Summarize context", { fresh: true });
+    assert.deepEqual(state.pendingImages, [IMAGE_DATA_URL]);
+});
+
+test("invalid upload response fails visibly before requesting model", async () => {
+    prepareAuth();
+    state.pendingImages = [IMAGE_DATA_URL];
+    let requests = 0;
+    global.fetch = async url => {
+        requests++;
+        assert.ok(String(url).endsWith("/files/upload"));
+        return Response.json({ id: "not-an-image-uuid" });
+    };
+    await assert.rejects(requestModel("Look"), /UUID image valide/);
+    assert.equal(requests, 1);
+    assert.deepEqual(state.pendingImages, [IMAGE_DATA_URL]);
+});
+
+test("agent prompt permits attached vision without claiming unavailable pixels", () => {
+    const prompt = require("../src/agent/prompt").buildAgentPrompt({ task: "Examine image", history: [], observations: [], turn: 1, maxTurns: 0 });
+    assert.match(prompt, /ne désactive pas la vision/);
+    assert.doesNotMatch(prompt, /recherche, images, canvas/);
 });

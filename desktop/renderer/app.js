@@ -134,13 +134,19 @@ function createCodeEditor(host) {
     }
     const events = new EventTarget();
     const language = new CM.Compartment();
+    const options = new CM.Compartment();
+    let preferences = {fontSize:13,tabSize:4,wordWrap:false};
+    const optionExtensions = () => [
+        CM.indentUnit.of(" ".repeat(preferences.tabSize)), CM.EditorState.tabSize.of(preferences.tabSize),
+        CM.EditorView.theme({"&":{fontSize:`${preferences.fontSize}px`},".cm-scroller":{fontFamily:"var(--mono)"}}),
+        ...(preferences.wordWrap ? [CM.EditorView.lineWrapping] : [])
+    ];
     let silent = false;
     const emit = (name) => events.dispatchEvent(new Event(name));
     const extensions = (kind) => [
         CM.basicSetup,
         CM.keymap.of([CM.indentWithTab]),
-        CM.indentUnit.of("    "),
-        CM.EditorState.tabSize.of(4),
+        options.of(optionExtensions()),
         CM.oneDark,
         language.of(CM.languageFor(kind || "default")),
         inlineCompletionExtension(kind),
@@ -188,6 +194,7 @@ function createCodeEditor(host) {
         removeEventListener: (name, fn, opts) => events.removeEventListener(name, fn, opts),
         dispatchEvent: (ev) => events.dispatchEvent(ev),
         getState() { return view.state; },
+        configure(value) { preferences={...preferences,...value}; view.dispatch({effects:options.reconfigure(optionExtensions())}); },
         /* Charge un texte ; réutilise l'état sauvegardé (historique, sélection) s'il correspond encore. */
         load(text, kind, saved) {
             const doc = String(text ?? "");
@@ -195,6 +202,7 @@ function createCodeEditor(host) {
                 ? saved
                 : CM.EditorState.create({ doc, extensions: extensions(kind) });
             view.setState(state);
+            view.dispatch({effects:options.reconfigure(optionExtensions())});
         }
     };
 }
@@ -208,10 +216,11 @@ const expanded = new Set();
 /* ---------- Rendu du texte ---------- */
 
 const TOOL_LABELS = {
-    list_directory: "Lister", read_file: "Lire", search_files: "Chercher",
+    effectcraft: "EffectCraft",
+    list_directory: "Lister", read_file: "Lire", search_files: "Chercher",web_search_result:"Résultat web",view_image:"Examiner l’image",
     create_directory: "Créer le dossier", write_file: "Écrire", edit_file: "Éditer",
     move_path: "Déplacer", copy_path: "Copier", delete_path: "Supprimer",
-    remember: "Mémoriser", run_command: "Commande"
+    remember: "Mémoriser", run_command: "Commande", web_search: "Rechercher sur le web", web_fetch: "Lire une source", update_plan: "Actualiser le plan", semantic_search: "Explorer le code", diagnostics: "Diagnostics", browse: "Vérifier la page", job_output: "Lire la commande", job_stop: "Arrêter la commande"
 };
 
 function toolLabel(name) {
@@ -227,12 +236,26 @@ function escapeHtml(text) {
 }
 
 function inline(text) {
-    return escapeHtml(text)
-        .replace(/`([^`]+)`/g, "<code>$1</code>")
-        .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+    return String(text ?? "").split(/(`[^`]+`|\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)|\*\*[^*]+\*\*|https?:\/\/[^\s<>]+)/g).map(part => {
+        if (part.startsWith("`") && part.endsWith("`")) return `<code>${escapeHtml(part.slice(1, -1))}</code>`;
+        if (part.startsWith("**") && part.endsWith("**")) return `<b>${escapeHtml(part.slice(2, -2))}</b>`;
+        const match = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(part);
+        const url = match ? match[2] : /^https?:\/\//.test(part) ? part : null;
+        if (url) return `<a href="${escapeHtml(url)}" data-web-url="${escapeHtml(url)}">${escapeHtml(match ? match[1] : url)}</a>`;
+        return escapeHtml(part);
+    }).join("");
 }
 
 function renderMarkdown(src) {
+    if(typeof window!=="undefined"&&window.StudioVendor) {
+        const template=document.createElement("template");template.innerHTML=window.StudioVendor.markdown(src);
+        for(const anchor of template.content.querySelectorAll("a")) {
+            const href=anchor.getAttribute("href")||"";
+            if(/^https?:\/\//i.test(href))anchor.dataset.webUrl=href;
+            else anchor.removeAttribute("href");
+        }
+        return template.innerHTML;
+    }
     const lines = String(src ?? "").split("\n");
     let html = "";
     let block = null;
@@ -529,6 +552,7 @@ function scheduleHighlight() {
 /* ---------- Transcript ---------- */
 
 function scrollDown() {
+    if(ui.replayingConversation)return;
     transcript.scrollTop = transcript.scrollHeight;
 }
 
@@ -584,13 +608,25 @@ function appendOutput(text) {
 }
 
 function renderEntry(e) {
+    recordStudioEntry(e);
     switch (e.type) {
         case "welcome":
             return null;
         case "user":
-            return addEntry("user", escapeHtml(e.text));
-        case "assistant":
-            return addEntry("assistant", renderMarkdown(e.text));
+            $("agent-starter").classList.add("hidden");
+            return addEntry("user", `<div class="message-content">${escapeHtml(e.text)}</div>`);
+        case "assistant": {
+            $("agent-starter").classList.add("hidden");
+            const message = addEntry("assistant", `<div class="message-content">${renderMarkdown(e.text)}</div>`);
+            const actions = document.createElement("div");
+            actions.className = "message-actions";
+            const copy = document.createElement("button");
+            copy.type = "button"; copy.textContent = "Copier";
+            copy.onclick = () => api.copyText(e.text).then(() => { copy.textContent = "Copié ✓"; }).catch(error => studioFeedback(error.message));
+            actions.appendChild(copy); message.appendChild(actions);
+            attachServerControls(message, e.text);
+            return message;
+        }
         case "reason": {
             const el = addEntry("reason collapsed", `<span class="reason-mark">✻</span><span class="reason-text">${inline(e.text)}</span>`);
             el.title = "Cliquer pour déplier ou replier la réflexion";
@@ -601,8 +637,18 @@ function renderEntry(e) {
         }
         case "info":
         case "warn":
-        case "error":
+        case "error": {
+            if (e.type === "error") {
+                $("agent-starter").classList.add("hidden");
+                const budget = parseBudgetNotice(e.text);
+                if (budget) return renderBudgetEntry(budget, e.text);
+                const context=parseContextLimitNotice(e.text);
+                if(context)return renderContextLimitEntry(context,e.text);
+                const apiError=parseApiErrorNotice(e.text);
+                if(apiError)return renderApiErrorEntry(apiError,e.text);
+            }
             return addEntry(e.type, escapeHtml(e.text));
+        }
         case "print":
             return addEntry("print", `<pre>${escapeHtml((e.lines || []).join("\n"))}</pre>`);
         case "plan":
@@ -648,6 +694,7 @@ function liveAppend(text) {
 }
 
 function liveEnd() {
+    if (ui.live && ui.liveText) attachServerControls(ui.live, ui.liveText);
     ui.live = null;
     ui.liveText = "";
 }
@@ -751,14 +798,30 @@ function applyStatus(s) {
     if (!s || typeof s !== "object") return;
     const wasBusy = Boolean(ui.status.busy);
     ui.status = s;
+    const ecoButton = $("eco-mode-toggle");
+    if (ecoButton) {
+        ecoButton.disabled = Boolean(s.busy);
+        ecoButton.setAttribute("aria-pressed", String(Boolean(s.ecoMode)));
+        ecoButton.querySelector(".eco-mode-label").textContent = s.ecoMode ? "Éco activé" : "Mode Éco";
+        ecoButton.title = s.ecoMode ? "Désactiver le mode Éco" : "Réduire la consommation avec des capacités limitées";
+    }
     const busy = Boolean(s.busy);
+    $("settings-logout").disabled = !s.booted || busy;
+    $("settings-account-status").textContent = !s.booted ? "Non connecté." : busy ? "Connecté · arrête la tâche avant de te déconnecter." : "Connecté à FranceStudent.";
+    updateStudioStatus(s);
 
     $("statusbar").classList.toggle("busy", busy);
     $("btn-stop").classList.toggle("hidden", !busy);
-    $("btn-send").disabled = busy;
+    $("btn-send").disabled = false;
+    $("btn-send").textContent = busy ? "Ajouter" : "Envoyer";
+    $("btn-send").title = busy ? "Ajouter ce prompt à la file (Entrée)" : "Envoyer (Entrée)";
+    input.placeholder = busy ? "Ajouter une demande à la suite…" : "Demande à l’agent… (/ pour les commandes)";
+    document.querySelector(".composer-hint").textContent = busy ? "Entrée : ajouter à la suite" : "Entrée : envoyer · Maj+Entrée : ligne";
+    $("mode-select").disabled = busy;
+    renderInlinePending(queueSnapshot);
     $("st-busy").textContent = busy ? "⟳ en cours" : "";
     $("st-jobs").textContent = s.jobs ? `jobs : ${s.jobs}` : "";
-    $("st-auto").textContent = s.autoApprove ? "auto-approbation" : "";
+    $("st-auto").textContent = s.fullAccess ? "Full accès" : s.autoApprove ? "auto-approbation" : "";
     $("st-mode").textContent = s.mode ? `mode : ${s.mode}` : "";
     $("st-model").textContent = s.model || "";
     $("model-label").textContent = s.model || "modèle";
@@ -783,6 +846,7 @@ function applyStatus(s) {
     if ((s.workspace || null) !== ui.workspace) {
         ui.workspace = s.workspace || null;
         onWorkspaceChanged();
+        refreshTaskQueue();
     } else if (wasBusy && !busy) {
         scheduleRefresh();
     }
@@ -793,44 +857,29 @@ function applyStatus(s) {
 /* ---------- Quota du compte FranceStudent ---------- */
 
 function renderQuota() {
-    const el = $("st-usage");
-    const quota = ui.quota;
-
-    if (!quota || quota.percent == null) {
-        el.textContent = ui.sessionRequests || "";
-        el.title = "";
-        el.classList.remove("warn", "crit");
-        return;
-    }
-
-    const session = ui.sessionRequests ? ` · ${ui.sessionRequests}` : "";
-    const approx = quota.uncertain ? "~" : "";
-    el.textContent = `quota chat ${approx}${quota.percent} %${session}`;
-    el.classList.toggle("warn", quota.percent >= 75 && quota.percent < 90);
-    el.classList.toggle("crit", quota.percent >= 90);
-
-    const fmtReset = (iso) => (iso ? ` — réinit. ${new Date(iso).toLocaleString()}` : "");
-    const lines = [`Quota général de chat : ${approx}${quota.percent} %${fmtReset(quota.resetAt)}`];
-    if (quota.uncertain) lines.push("(décompte approximatif côté serveur)");
-    const isImage = (l) => /image/i.test(`${l.type || ""} ${l.bucket || ""}`);
-    for (const limit of quota.limits || []) {
-        const name = [limit.type, limit.bucket].filter(Boolean).join("/") || "limite";
-        const total = limit.limit ? `${limit.used}/${limit.limit}` : `${limit.used}`;
-        const prefix = isImage(limit) ? "Images" : "Limite";
-        lines.push(`${prefix} ${name} : ${Math.round(limit.usedPercent)} % (${total})${fmtReset(limit.resetAt)}`);
-    }
-    if (quota.powerUp) lines.push("Power-up de quota actif");
-    lines.push("Cliquer pour le détail (/usage)");
-    el.title = lines.join("\n");
+    renderUsageMeter();
+    renderUsageDashboard();
+    if(typeof updateQuotaRecoveryCards==="function")updateQuotaRecoveryCards();
 }
 
 async function refreshQuota() {
+    if (ui.quotaLoading) return;
+    if (!ui.status.booted) { ui.quota = null; renderQuota(); return; }
+    ui.quotaLoading = true;
+    ui.quotaError = "";
+    renderQuota();
     try {
-        ui.quota = await api.usage();
+        const quota = await api.usage();
+        applyStatus(await api.status());
+        ui.quota = ui.status.booted ? quota : null;
+        ui.quotaUpdatedAt = new Date().toISOString();
     } catch {
         ui.quota = null;
+        ui.quotaError = "Le quota est momentanément indisponible. Réessaie dans quelques instants.";
     }
+    ui.quotaLoading = false;
     renderQuota();
+    return ui.quota;
 }
 
 /* ---------- Choix du modèle (/model) ---------- */
@@ -842,14 +891,51 @@ function hideModelMenu() {
 
 function positionModelMenu(anchor) {
     const rect = anchor.getBoundingClientRect();
-    const width = Math.max(300, rect.width);
-    modelMenuEl.style.minWidth = `${width}px`;
+    const width = Math.min(modelMenuEl.dataset.kind === "history" ? 520 : Math.max(300, rect.width), window.innerWidth - 16);
+    modelMenuEl.style.minWidth = "0";
+    modelMenuEl.style.width = `${width}px`;
+    const below=Math.max(0,window.innerHeight-rect.bottom-14),above=Math.max(0,rect.top-14);
+    const placeBelow=below>=above;
+    modelMenuEl.style.maxHeight = `${Math.max(0,placeBelow?below:above)}px`;
     modelMenuEl.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
     modelMenuEl.style.top = `${rect.bottom + 6}px`;
     const menuRect = modelMenuEl.getBoundingClientRect();
-    if (menuRect.bottom > window.innerHeight - 8) {
-        modelMenuEl.style.top = `${Math.max(8, rect.top - menuRect.height - 6)}px`;
-    }
+    if (!placeBelow)modelMenuEl.style.top = `${Math.max(8,rect.top-menuRect.height-6)}px`;
+}
+
+window.addEventListener("resize", () => {
+    if (!modelMenuEl.classList.contains("hidden")) positionModelMenu($(modelMenuEl.dataset.kind === "history" ? "btn-history" : "btn-model"));
+});
+
+const HISTORY_DELETE_CONFIRM_KEY = "frst.history.confirm-delete";
+function historyDeletionConfirmationEnabled() {
+    try { return localStorage.getItem(HISTORY_DELETE_CONFIRM_KEY) !== "off"; } catch { return true; }
+}
+
+function confirmHistoryDeletion(item) {
+    if (!historyDeletionConfirmationEnabled()) return Promise.resolve(true);
+    return new Promise(resolve => {
+        const dialog = document.createElement("dialog");
+        dialog.id = "history-delete-dialog";
+        dialog.className = "history-delete-dialog";
+        dialog.innerHTML = '<h2>Supprimer cette conversation ?</h2><p class="history-delete-title"></p><p>Elle sera retirée de l’historique local. Les fichiers du projet sont conservés.</p><label><input type="checkbox"> Ne plus demander avant de supprimer une conversation</label><div class="studio-actions"><button type="button" data-action="cancel">Annuler</button><button type="button" data-action="delete" class="danger">Supprimer</button></div>';
+        dialog.querySelector(".history-delete-title").textContent = item.title;
+        let confirmed = false;
+        dialog.querySelector('[data-action="cancel"]').onclick = () => dialog.close();
+        dialog.querySelector('[data-action="delete"]').onclick = () => {
+            confirmed = true;
+            if (dialog.querySelector("input").checked) {
+                try { localStorage.setItem(HISTORY_DELETE_CONFIRM_KEY, "off"); } catch { /* Confirmation remains enabled when storage is unavailable. */ }
+            }
+            dialog.close();
+        };
+        dialog.addEventListener("close", () => { dialog.remove(); resolve(confirmed); }, { once: true });
+        studioSurfaceHeader(dialog,{title:"Supprimer cette conversation ?",subtitle:"Les fichiers de ton projet sont conservés.",icon:"auth"});
+        dialog.querySelector(".studio-actions").classList.add("fs-dialog-footer");
+        document.body.appendChild(dialog);
+        dialog.showModal();
+        dialog.querySelector('[data-action="cancel"]').focus();
+    });
 }
 
 /** Fournisseur d'un modèle d'après provider / nom / modèle : "claude", "gpt", "gemini" ou null. */
@@ -978,11 +1064,14 @@ async function selectModel(id) {
 /* ---------- Historique des conversations (/history, reprise par /chat-id) ---------- */
 
 function historyCurrentWorkspace() {
+    if(typeof isMotionOpen==="function" && isMotionOpen())return null;
     return ui.workspace || (ui.status && ui.status.workspace) || null;
 }
 
 function historyMatches(item) {
-    if (ui.historyOnlyProject && (item.workspace || null) !== historyCurrentWorkspace()) return false;
+    const motion=typeof isMotionOpen==="function" && isMotionOpen();
+    if(!!item.motionDesign!==motion)return false;
+    if (!motion && ui.historyOnlyProject && (item.workspace || null) !== historyCurrentWorkspace()) return false;
     const query = String(ui.historyQuery || "").trim().toLowerCase();
     if (!query) return true;
     return [item.title, item.model, item.mode, item.workspace, item.id]
@@ -999,7 +1088,9 @@ function renderHistoryMenu(items) {
     const head = document.createElement("div");
     head.className = "model-menu-head";
     head.textContent = "Conversations récentes";
+    const subtitle=document.createElement("p");subtitle.className="history-intro";subtitle.textContent="Retrouve tes échanges et reprends où tu en étais.";
     modelMenuEl.appendChild(head);
+    modelMenuEl.appendChild(subtitle);
 
     const tools = document.createElement("div");
     tools.className = "history-tools";
@@ -1043,6 +1134,16 @@ function renderHistoryMenu(items) {
 
     tools.append(search, label);
     modelMenuEl.appendChild(tools);
+    const confirmation = document.createElement("label");
+    confirmation.className = "history-confirm-setting";
+    const confirmationInput = document.createElement("input");
+    confirmationInput.type = "checkbox";
+    confirmationInput.checked = historyDeletionConfirmationEnabled();
+    confirmationInput.onchange = () => {
+        try { localStorage.setItem(HISTORY_DELETE_CONFIRM_KEY, confirmationInput.checked ? "on" : "off"); } catch { confirmationInput.checked = true; }
+    };
+    confirmation.append(confirmationInput, document.createTextNode(" Confirmer avant de supprimer"));
+    modelMenuEl.appendChild(confirmation);
 
     const list = document.createElement("div");
     list.className = "history-list";
@@ -1066,7 +1167,14 @@ function renderHistoryList() {
         list.appendChild(empty);
         return;
     }
-    for (const item of shown) list.appendChild(renderHistoryRow(item));
+    let previousGroup="";
+    for (const item of shown){
+        const date=new Date(item.updatedAt),today=new Date();today.setHours(0,0,0,0);
+        const yesterday=new Date(today);yesterday.setDate(yesterday.getDate()-1);
+        const group=date>=today?"Aujourd’hui":date>=yesterday?"Hier":"Plus anciennes";
+        if(group!==previousGroup){const heading=document.createElement("div");heading.className="history-group";heading.textContent=group;list.appendChild(heading);previousGroup=group;}
+        list.appendChild(renderHistoryRow(item));
+    }
 }
 
 function renderHistoryRow(item) {
@@ -1081,21 +1189,28 @@ function renderHistoryRow(item) {
     main.className = "model-item-main";
     const name = document.createElement("span");
     name.className = "model-item-name";
-    name.textContent = `${item.number}. ${item.title}`;
+    name.textContent = item.title;
     main.appendChild(name);
     const sub = document.createElement("span");
     sub.className = "model-item-sub";
-    const when = item.updatedAt ? new Date(item.updatedAt).toLocaleString() : "";
-    sub.textContent = [when, item.mode, item.model, `${item.messages} message(s)`].filter(Boolean).join(" · ");
+    const when = item.updatedAt ? new Date(item.updatedAt).toLocaleString("fr-FR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}) : "";
+    for(const text of [item.motionDesign?"Motion design":"Code",item.model]){if(!text)continue;const badge=document.createElement("span");badge.className="history-badge";badge.textContent=text;sub.appendChild(badge);}
+    const detail=document.createElement("span");detail.className="history-detail";detail.textContent=[when,`${item.messages || 0} échange${item.messages>1?"s":""}`].filter(Boolean).join(" · ");
+    sub.appendChild(detail);
+    if(item.workspace && !item.motionDesign){const folder=document.createElement("span");folder.className="history-folder";folder.textContent=item.workspace.replace(/[\\/]+$/,"").split(/[\\/]/).pop();main.appendChild(folder);}
     main.appendChild(sub);
     open.appendChild(main);
-    open.onclick = () => {
+    open.onclick = async () => {
         hideModelMenu();
         if (ui.status && ui.status.busy) {
             renderEntry({ type: "error", text: "Une demande est en cours : attends sa fin avant de changer de conversation." });
             return;
         }
-        send(`/chat-id ${item.id}`);
+        try{
+            if(item.motionDesign && !isMotionOpen())await openMotionDesign();
+            else if(!item.motionDesign && isMotionOpen())await closeMotionDesign();
+            await api.conversationsOpen(item.id);
+        }catch(error){renderEntry({type:"error",text:error.message});}
     };
 
     const actions = document.createElement("span");
@@ -1120,22 +1235,9 @@ function renderHistoryRow(item) {
     removeBtn.setAttribute("aria-label", "Supprimer la conversation de l'historique");
     removeBtn.onclick = async (e) => {
         e.stopPropagation();
-        if (removeBtn.dataset.confirm !== "1") {
-            // Deux clics pour supprimer : évite les suppressions accidentelles.
-            removeBtn.dataset.confirm = "1";
-            removeBtn.textContent = "Supprimer ?";
-            removeBtn.classList.add("danger");
-            setTimeout(() => {
-                if (removeBtn.isConnected && removeBtn.dataset.confirm === "1") {
-                    removeBtn.dataset.confirm = "";
-                    removeBtn.textContent = "✕";
-                    removeBtn.classList.remove("danger");
-                }
-            }, 3000);
-            return;
-        }
         removeBtn.disabled = true;
         try {
+            if (!await confirmHistoryDeletion(item)) { removeBtn.disabled = false; return; }
             await api.conversationsRemove(item.id);
             ui.historyItems = (ui.historyItems || []).filter((x) => x.id !== item.id);
             ui.historyItems.forEach((x, i) => {
@@ -1605,9 +1707,9 @@ async function renderTree() {
 const FILE_KINDS = {
     js: "js", mjs: "js", cjs: "js", jsx: "js", ts: "ts", tsx: "ts", json: "json", md: "md",
     css: "css", scss: "css", html: "html", htm: "html", py: "py",
-    png: "img", jpg: "img", jpeg: "img", gif: "img", svg: "img", ico: "img", webp: "img"
+    png: "img", jpg: "img", jpeg: "img", gif: "img", svg: "img", ico: "img", webp: "img", yaml:"yaml", yml:"yaml"
 };
-const FILE_TAGS = { js: "JS", ts: "TS", json: "{}", md: "M↓", css: "#", html: "<>", py: "PY", img: "▣", default: "•" };
+const FILE_TAGS = { js: "JS", ts: "TS", json: "{}", md: "M↓", css: "#", html: "<>", py: "PY", img: "▣", yaml:"YML", default: "•" };
 const FOLDER_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 const FOLDER_OPEN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1H7.5a2 2 0 0 0-1.9 1.4L3 19z"/><path d="M7.2 12h14.3l-2.6 6.6a2 2 0 0 1-1.9 1.4H4z"/></svg>';
 
@@ -1685,7 +1787,7 @@ async function renderDir(container, rel, depth) {
 }
 
 async function openProject() {
-    if (ui.tabs.some((t) => t.dirty) && !window.confirm("Des fichiers ne sont pas enregistrés. Changer de projet quand même ?")) return;
+    if (ui.tabs.some((t) => t.dirty) && !await confirmStudioAction("Des fichiers ne sont pas enregistrés. Changer de projet quand même ?")) return;
     try {
         const ws = await api.openProject();
         if (ws && ws !== ui.workspace) {
@@ -1698,6 +1800,7 @@ async function openProject() {
 }
 
 function onWorkspaceChanged() {
+    studioWorkspaceChanged();
     expanded.clear();
     ui.tabs = [];
     ui.active = null;
@@ -1723,19 +1826,25 @@ async function openFile(rel) {
     let tab = ui.tabs.find((t) => t.path === rel);
     if (!tab) {
         try {
+            if(/\.(png|jpe?g|gif|webp|bmp|ico|mp3|wav|ogg|m4a|mp4|webm|mov|pdf|docx?|xlsx?|pptx?|zip|gz|7z|rar)$/i.test(rel)) {
+                tab={path:rel,content:"",saved:"",dirty:false,kind:"asset",asset:await api.inspectFile(rel),eol:"\n",scroll:0};
+            }else{
             const file = await api.readFile(rel);
             const text = normalize(file.content);
-            tab = { path: rel, content: text, saved: text, eol: file.content.includes("\r\n") ? "\r\n" : "\n", dirty: false, scroll: 0 };
+            tab = { path: rel, content: text, saved: text, encoding:file.encoding||"utf8",bom:file.bom===true,eol: file.content.includes("\r\n") ? "\r\n" : "\n", dirty: false, scroll: 0 };
+            }
             ui.tabs.push(tab);
         } catch (err) {
-            renderEntry({ type: "error", text: `${rel} : ${err.message}` });
-            return;
+            try {tab={path:rel,content:"",saved:"",dirty:false,kind:"asset",asset:await api.inspectFile(rel),eol:"\n",scroll:0};ui.tabs.push(tab);}
+            catch {renderEntry({ type: "error", text: `${rel} : ${err.message}` });return;}
         }
     }
+    if(["project","settings","extensions"].includes(ui.sideView))showSideView("explorer");
     activate(rel);
 }
 
 function activate(rel) {
+    window.frstBrowserHide?.();
     const previous = currentTab();
     if (previous) {
         previous.scroll = code.scrollTop;
@@ -1753,6 +1862,7 @@ function activate(rel) {
             : "Ouvre un dossier, puis discute avec l'agent dans le panneau de droite.";
     }
     code.load(tab ? tab.content : "", tab ? extKind(tab.path) : "default", tab && tab.cmState);
+    showStudioAsset(tab);
     const scroll = tab ? tab.scroll : 0;
     code.scrollTop = scroll;
     /* CodeMirror mesure la mise en page de façon asynchrone : on réapplique le défilement à l'image suivante. */
@@ -1765,9 +1875,10 @@ function activate(rel) {
     syncHighlight();
     renderTabs();
     document.querySelectorAll(".node").forEach((n) => n.classList.toggle("selected", n.dataset.path === rel));
-    if (tab) code.focus();
+    if (tab&&tab.kind!=="asset") code.focus();
     syncEditorContext();
     lspOnActivate();
+    if(studioPreviewVisible)updateDocumentPreview();
 }
 
 /* Indique au processus principal quels fichiers sont ouverts (contexte de l'agent). */
@@ -1848,7 +1959,7 @@ function syncEditorContext() {
 function updateBreadcrumbs(tab) {
     const bc = $("breadcrumbs");
     const name = tab ? tab.path.split("/").pop() : "";
-    document.title = tab ? `${name} — FranceStudent Code` : "FranceStudent Code";
+    document.title = tab ? `${name} — FranceStudent IDE` : "FranceStudent IDE";
     const tbTitle = $("tb-title");
     if (tbTitle) tbTitle.textContent = document.title;
     if (!bc) return;
@@ -1891,12 +2002,13 @@ function renderTabs() {
         el.append(fileIcon(t.path, "file"), label, close);
         bar.appendChild(el);
     }
+    window.frstBrowserTab?.();
 }
 
-function closeTab(rel) {
+async function closeTab(rel) {
     const tab = ui.tabs.find((t) => t.path === rel);
     if (!tab) return;
-    if (tab.dirty && !window.confirm(`${rel} n'est pas enregistré. Fermer quand même ?`)) return;
+    if (tab.dirty && !await confirmStudioAction(`${rel} n'est pas enregistré. Fermer quand même ?`)) return;
     const index = ui.tabs.indexOf(tab);
     ui.tabs.splice(index, 1);
     lspOnClose(rel);
@@ -1911,15 +2023,18 @@ function closeTab(rel) {
 
 async function saveCurrent() {
     const tab = currentTab();
-    if (!tab) return;
-    const content = tab.eol === "\r\n" ? tab.content.split("\n").join("\r\n") : tab.content;
+    if (!tab||tab.kind==="asset") return;
+    if(studioEditorPreferences.formatOnSave&&currentTab()===tab)await formatEditorDocument();
+    const snapshot=tab.content;
+    const content = tab.eol === "\r\n" ? snapshot.split("\n").join("\r\n") : snapshot;
     try {
-        await api.writeFile(tab.path, content);
-        tab.saved = tab.content;
-        tab.dirty = false;
+        await api.writeFile(tab.path, content,{encoding:tab.encoding||"utf8",bom:tab.bom===true});
+        tab.saved = snapshot;
+        tab.dirty = tab.content!==snapshot;
         renderTabs();
         $("st-file").textContent = `${tab.path} (enregistré)`;
         scheduleGitRefresh();
+        if(studioPreviewVisible)updateDocumentPreview();
     } catch (err) {
         renderEntry({ type: "error", text: `Enregistrement impossible : ${err.message}` });
     }
@@ -1962,6 +2077,7 @@ code.addEventListener("scroll", () => {
 
 code.addEventListener("input", () => {
     const tab = currentTab();
+    if(tab?.kind==="asset")return;
     if (tab) {
         tab.content = code.value;
         const dirty = tab.content !== tab.saved;
@@ -1978,11 +2094,16 @@ code.addEventListener("input", () => {
 
 /* ---------- Pièces jointes (fichiers / images) ---------- */
 
-const MAX_ATTACHMENTS = 10;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const MAX_TEXT_BYTES = 1024 * 1024;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const ATTACHMENT_QUOTA_WARNING_COUNT = 5;
 let pendingAttachments = [];
+const attachmentQuotaWarning = document.createElement("p");
+attachmentQuotaWarning.id = "attachment-quota-warning";
+attachmentQuotaWarning.className = "attachment-quota-warning hidden";
+attachmentQuotaWarning.setAttribute("role", "status");
+attachmentQuotaWarning.setAttribute("aria-live", "polite");
+$("attachments").after(attachmentQuotaWarning);
 
 /* Extensions binaires connues -> type MIME (utilisé si le navigateur n'en fournit pas). */
 const BINARY_TYPES = {
@@ -2024,15 +2145,6 @@ function fileExtension(name) {
     return match ? match[1].toLowerCase() : "";
 }
 
-/** true pour les PDF, documents Office, archives, médias… (à ne pas lire comme du texte). */
-function isBinaryFile(file, name) {
-    if (Object.prototype.hasOwnProperty.call(BINARY_TYPES, fileExtension(name))) return true;
-    const type = String(file.type || "").toLowerCase();
-    if (!type || type.startsWith("text/")) return false;
-    if (/(json|xml|javascript|ecmascript|x-sh|x-python|yaml|toml|sql|csv)/.test(type)) return false;
-    return /^(application|audio|video|font|image)\//.test(type);
-}
-
 /** Fichier quelconque -> pièce jointe { kind: "file" } en data URL base64 avec un type MIME. */
 async function prepareFile(file, name) {
     if (file.size > MAX_FILE_BYTES) {
@@ -2068,6 +2180,11 @@ function readAsDataUrl(file) {
 
 function renderAttachments() {
     const box = $("attachments");
+    const manyFiles = pendingAttachments.length >= ATTACHMENT_QUOTA_WARNING_COUNT;
+    attachmentQuotaWarning.classList.toggle("hidden", !manyFiles);
+    attachmentQuotaWarning.textContent = manyFiles
+        ? `⚠ ${pendingAttachments.length} fichiers joints : leur analyse risque de consommer énormément de quota, notamment si les documents contiennent beaucoup de pages ou nécessitent plusieurs envois. Retire les fichiers inutiles avant d’envoyer.`
+        : "";
     box.replaceChildren();
     box.classList.toggle("hidden", pendingAttachments.length === 0);
     pendingAttachments.forEach((item, index) => {
@@ -2090,6 +2207,7 @@ function renderAttachments() {
         label.className = "attachment-name";
         label.textContent = item.name;
         chip.appendChild(label);
+        if(item.readabilityWarning){const warning=document.createElement("span");warning.className="attachment-readability-warning";warning.textContent="⚠ Lisibilité réduite";warning.title=item.readabilityWarning;chip.append(warning);chip.title+=" · "+item.readabilityWarning;}
         const remove = document.createElement("button");
         remove.type = "button";
         remove.className = "attachment-remove";
@@ -2119,9 +2237,8 @@ function formatBytes(n) {
  * format peu pris en charge sont décodées, redimensionnées (2048 px max) puis
  * réencodées (PNG si possible, sinon JPEG) au lieu d'être refusées.
  */
-async function prepareImage(file) {
+async function prepareImage(file,details={}) {
     const direct = DIRECT_IMAGE_TYPES.has(file.type);
-    if (direct && file.size <= MAX_IMAGE_BYTES) return readAsDataUrl(file);
 
     let bitmap;
     try {
@@ -2129,6 +2246,11 @@ async function prepareImage(file) {
     } catch {
         throw new Error(`format d'image illisible (${file.type || "inconnu"}) : utiliser PNG, JPEG, WebP ou GIF`);
     }
+    const projectedScale=Math.min(1,MAX_IMAGE_SIDE/Math.max(bitmap.width,bitmap.height));
+    details.originalWidth=bitmap.width;details.originalHeight=bitmap.height;
+    details.sentWidth=Math.max(1,Math.round(bitmap.width*projectedScale));details.sentHeight=Math.max(1,Math.round(bitmap.height*projectedScale));
+    if(projectedScale<.75||file.size>MAX_IMAGE_BYTES){details.readabilityWarning=`${bitmap.width} × ${bitmap.height} → ${details.sentWidth} × ${details.sentHeight} pixels. La réduction ou compression peut rendre les petits textes et détails difficiles à lire.`;}
+    if(direct&&file.size<=MAX_IMAGE_BYTES&&bitmap.width<=MAX_IMAGE_SIDE&&bitmap.height<=MAX_IMAGE_SIDE){bitmap.close?.();return readAsDataUrl(file);}
     const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
@@ -2161,18 +2283,18 @@ async function prepareImage(file) {
 
 async function addAttachments(fileList) {
     for (const file of Array.from(fileList || [])) {
-        if (pendingAttachments.length >= MAX_ATTACHMENTS) {
-            renderEntry({ type: "error", text: `Maximum ${MAX_ATTACHMENTS} pièces jointes par message.` });
-            break;
-        }
         const name = file.name || (file.type.startsWith("image/") ? "image-collée.png" : "fichier");
         // Même fichier ajouté deux fois (double glisser-déposer, re-sélection) : ignoré.
         if (pendingAttachments.some((a) => a.name === name && a.size === file.size)) continue;
         try {
             if (file.size === 0) throw new Error("fichier vide");
-            if (file.type.startsWith("image/")) {
+            // Keep SVG source as well as its raster preview. Decode document
+            // encodings in the backend instead of losing bytes with File.text().
+            if (file.type.startsWith("image/") && !["image/svg+xml", "image/gif", "image/tiff"].includes(file.type) && !["svg", "gif", "tif", "tiff"].includes(fileExtension(name))) {
                 try {
-                    pendingAttachments.push({ name, kind: "image", size: file.size, data: await prepareImage(file) });
+                    const details={};
+                    const data=await prepareImage(file,details);
+                    pendingAttachments.push({ name, kind: "image", size: file.size, data, ...details });
                     continue;
                 } catch (err) {
                     // Image non décodable (HEIC, PSD…) : envoyée telle quelle comme fichier.
@@ -2181,14 +2303,8 @@ async function addAttachments(fileList) {
                 pendingAttachments.push(await prepareFile(file, name));
                 continue;
             }
-            if (!isBinaryFile(file, name) && file.size <= MAX_TEXT_BYTES) {
-                const data = await file.text();
-                if (!data.includes("\u0000")) {
-                    pendingAttachments.push({ name, kind: "text", size: file.size, data });
-                    continue;
-                }
-            }
-            // PDF, Office, archives, autres binaires : envoyés tels quels (Files v2).
+            // Documents are converted locally when sending, via the same path
+            // for file selection, paste, drag and drop, and queued requests.
             pendingAttachments.push(await prepareFile(file, name));
         } catch (err) {
             renderEntry({ type: "error", text: `${name} : ${err.message || err}` });
@@ -2197,17 +2313,42 @@ async function addAttachments(fileList) {
     renderAttachments();
 }
 
+const imageReadabilityDialog=document.createElement("dialog");
+imageReadabilityDialog.id="image-readability-dialog";imageReadabilityDialog.className="center-dialog image-readability-dialog";
+imageReadabilityDialog.setAttribute("aria-labelledby","image-readability-title");
+imageReadabilityDialog.innerHTML=`<h2 id="image-readability-title">Cette image risque d’être difficile à lire</h2><p class="settings-help">Pour respecter les limites du modèle, les images ci-dessous seront réduites ou compressées. Les petits textes et détails peuvent devenir illisibles.</p><ul id="image-readability-list"></ul><p class="settings-help">Pour une meilleure lecture, recadre la zone utile ou envoie plusieurs captures plus courtes. L’original reste intact.</p><form method="dialog" class="center-dialog-actions"><button value="cancel" autofocus>Revenir aux images</button><button value="send" class="primary">Envoyer quand même</button></form>`;
+document.body.append(imageReadabilityDialog);
+let imageReadabilityPending=false;
+async function confirmImageReadability(attachments){
+    const risky=attachments.filter(item=>item.readabilityWarning);
+    if(!risky.length)return true;
+    if(imageReadabilityPending)return false;
+    imageReadabilityPending=true;
+    const list=$("image-readability-list");list.replaceChildren();
+    for(const item of risky){const row=document.createElement("li"),name=document.createElement("b"),detail=document.createElement("small");name.textContent=item.name;detail.textContent=item.readabilityWarning;row.append(name,detail);list.append(row);}
+    imageReadabilityDialog.returnValue="cancel";
+    return new Promise(resolve=>{
+        imageReadabilityDialog.addEventListener("close",()=>{imageReadabilityPending=false;resolve(imageReadabilityDialog.returnValue==="send");},{once:true});
+        imageReadabilityDialog.showModal();
+    });
+}
+
 async function send(text) {
+    if(ui.replayingConversation){studioFeedback("L’historique de la conversation est encore en cours de chargement.");return;}
+    if(typeof motionChatSwitch!=="undefined" && motionChatSwitch){studioFeedback("Le changement de chat est en cours.");return;}
     const value = text ?? input.value;
     const withFiles = text === undefined && pendingAttachments.length > 0;
     if (!value.trim() && !withFiles) return;
-    const attachments = withFiles ? pendingAttachments : [];
+    if (!ui.status.booted && !value.trim().startsWith("/")) { openConnectionGuide(1); return; }
+    const attachments = withFiles ? [...pendingAttachments] : [];
+    if(withFiles&&!await confirmImageReadability(attachments))return;
     if (text === undefined) {
         if (value.trim()) {
             ui.history.push(value);
             ui.historyIndex = ui.history.length;
         }
         input.value = "";
+        saveStudioDraft();
         if (withFiles) {
             pendingAttachments = [];
             renderAttachments();
@@ -2215,8 +2356,21 @@ async function send(text) {
     }
     hideSlash();
     try {
-        await api.submit(value, attachments);
+        if (inlineEditingId) {
+            await api.taskQueue("edit", { id: inlineEditingId, prompt: value.trim()||"Analyse les pièces jointes.", attachments });
+            inlineEditingId = null;
+            studioFeedback("Prompt en attente mis à jour.");
+            return;
+        }
+        const result = await api.submit(value, attachments);
+        if (result?.error) throw new Error(result.error);
+        if (result?.queued) studioFeedback("Prompt ajouté à la suite.");
     } catch (err) {
+        if (text === undefined && !input.value) {
+            input.value = value;
+            if (withFiles) { pendingAttachments = attachments; renderAttachments(); }
+            saveStudioDraft(); autosizeInput();
+        }
         renderEntry({ type: "error", text: err.message });
     }
 }
@@ -2294,6 +2448,7 @@ input.addEventListener("keydown", (ev) => {
     }
     if (ev.key === "Escape") {
         ev.preventDefault();
+        if (inlineEditingId) { inlineEditingId = null; input.value = ""; pendingAttachments=[];renderAttachments();saveStudioDraft(); studioFeedback("Modification annulée."); return; }
         if (menuOpen) hideSlash();
         else if (ui.status.busy) api.interrupt().catch(() => {});
         else input.value = "";
@@ -2324,23 +2479,63 @@ input.addEventListener("paste", (ev) => {
     ev.preventDefault();
     addAttachments(files);
 });
-$("composer").addEventListener("dragover", (ev) => {
-    if (!ev.dataTransfer || !Array.from(ev.dataTransfer.types || []).includes("Files")) return;
+const attachmentDropZone = $("agent");
+const attachmentDropHint = document.createElement("div");
+attachmentDropHint.className = "attachment-drop-hint hidden";
+attachmentDropHint.setAttribute("role", "status");
+attachmentDropHint.textContent = "Déposez vos fichiers pour les joindre";
+attachmentDropZone.appendChild(attachmentDropHint);
+
+function isFileDrag(ev) {
+    return Array.from(ev.dataTransfer?.types || []).includes("Files") || Boolean(ev.dataTransfer?.files?.length);
+}
+function showAttachmentDrop(active) {
+    attachmentDropZone.classList.toggle("drag-over", active);
+    $("composer").classList.toggle("drag-over", active);
+    attachmentDropHint.classList.toggle("hidden", !active);
+}
+attachmentDropZone.addEventListener("dragenter", (ev) => {
+    if (!isFileDrag(ev)) return;
     ev.preventDefault();
-    $("composer").classList.add("drag-over");
+    showAttachmentDrop(true);
 });
-$("composer").addEventListener("dragleave", (ev) => {
-    // Ignorer les passages d'un enfant à l'autre du composer (sinon la surbrillance clignote).
-    if (ev.relatedTarget && $("composer").contains(ev.relatedTarget)) return;
-    $("composer").classList.remove("drag-over");
-});
-$("composer").addEventListener("drop", (ev) => {
-    $("composer").classList.remove("drag-over");
-    const files = ev.dataTransfer?.files;
-    if (!files || !files.length) return;
+attachmentDropZone.addEventListener("dragover", (ev) => {
+    if (!isFileDrag(ev)) return;
     ev.preventDefault();
-    addAttachments(files);
+    ev.dataTransfer.dropEffect = "copy";
+    showAttachmentDrop(true);
 });
+attachmentDropZone.addEventListener("dragleave", (ev) => {
+    if (ev.relatedTarget && attachmentDropZone.contains(ev.relatedTarget)) return;
+    showAttachmentDrop(false);
+});
+attachmentDropZone.addEventListener("drop", async (ev) => {
+    showAttachmentDrop(false);
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    const files = Array.from(ev.dataTransfer.files || []);
+    if (!files.length) return;
+    await addAttachments(files);
+    input.focus();
+});
+// Prevent Chromium from navigating to a file dropped outside the conversation.
+document.addEventListener("dragover", (ev) => {
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    if (!attachmentDropZone.contains(ev.target)) {
+        ev.dataTransfer.dropEffect = "none";
+        showAttachmentDrop(false);
+    }
+});
+document.addEventListener("drop", (ev) => {
+    if (isFileDrag(ev)) ev.preventDefault();
+    showAttachmentDrop(false);
+});
+document.addEventListener("dragleave", (ev) => {
+    if (!ev.relatedTarget) showAttachmentDrop(false);
+});
+document.addEventListener("dragend", () => showAttachmentDrop(false));
+window.addEventListener("blur", () => showAttachmentDrop(false));
 
 /* ---------- Contexte choisi par l'utilisateur : @fichier épinglé ---------- */
 
@@ -2589,10 +2784,13 @@ $("btn-history").onclick = (ev) => {
     toggleHistoryMenu();
 };
 $("st-usage").onclick = () => {
-    if (ui.status && ui.status.busy) return;
-    api.submit("/usage", []).catch((err) => renderEntry({ type: "error", text: err.message }));
+    setAgentTab("usage");
 };
-if (!$("st-usage").title) $("st-usage").title = "Cliquer pour afficher la consommation (/usage)";
+$("st-usage").setAttribute("role", "button");
+$("st-usage").tabIndex = 0;
+$("st-usage").onkeydown = event => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setAgentTab("usage"); }
+};
 $("btn-open-project").onclick = openProject;
 $("btn-open-project-2").onclick = openProject;
 $("btn-refresh-tree").onclick = () => renderTree();
@@ -2607,12 +2805,12 @@ function toggleSidebar() {
 }
 
 document.querySelector('[data-view="explorer"]').onclick = toggleSidebar;
-document.querySelector('[data-view="agent"]').onclick = () => input.focus();
 
 const IS_MAC = /Mac/i.test(navigator.platform || navigator.userAgent || "");
 if (IS_MAC) document.documentElement.classList.add("mac");
 
 document.addEventListener("keydown", (ev) => {
+    if(document.querySelector("dialog[open]"))return;
     if (!(ev.ctrlKey || (IS_MAC && ev.metaKey))) {
         if (ev.key === "Escape" && ui.status.busy && document.activeElement !== input) {
             api.interrupt().catch(() => {});
@@ -2882,7 +3080,7 @@ async function renameNode(entry) {
 }
 
 async function deleteNode(entry) {
-    if (!window.confirm(`Mettre « ${entry.path} » à la corbeille ?`)) return;
+    if (!await confirmStudioAction(`Mettre « ${entry.path} » à la corbeille ?`,{title:"Supprimer cet élément",confirmLabel:"Mettre à la corbeille",danger:true})) return;
     try {
         await api.trashEntry(entry.path);
     } catch (err) {
@@ -2977,7 +3175,7 @@ $("btn-collapse-tree").onclick = () => {
 ui.sideView = "explorer";
 
 function setActivity(view) {
-    for (const b of document.querySelectorAll('[data-view="explorer"], [data-view="search"], [data-view="git"], [data-view="worktrees"], [data-view="extensions"], [data-view="settings"]')) {
+    for (const b of document.querySelectorAll('[data-view="explorer"], [data-view="search"], [data-view="git"], [data-view="worktrees"], [data-view="extensions"], [data-view="settings"], [data-view="project"]')) {
         b.classList.toggle("active", b.dataset.view === view);
     }
 }
@@ -2985,17 +3183,20 @@ function setActivity(view) {
 function showSideView(view) {
     const app = $("app");
     ui.sideView = view;
+    setAgentFocus(false);
     app.classList.remove("no-sidebar");
     app.classList.toggle("view-search", view === "search");
     app.classList.toggle("view-ext", view === "extensions");
     app.classList.toggle("view-settings", view === "settings");
     app.classList.toggle("view-git", view === "git");
     app.classList.toggle("view-worktrees", view === "worktrees");
+    app.classList.toggle("view-project", view === "project");
     setActivity(view);
     if (view === "git") refreshGit();
     if (view === "worktrees") refreshWorktrees();
     if (view === "extensions") refreshExtensions();
-    if (view === "settings") refreshSettings();
+    if (view === "settings") { refreshSettings(); loadPreferences(); }
+    if (view === "project") refreshProjectStudio();
     if (view === "search") {
         setTimeout(() => {
             $("search-input").focus();
@@ -3028,19 +3229,39 @@ document.querySelector('[data-view="extensions"]').onclick = () => toggleSideVie
 document.querySelector('[data-view="settings"]').onclick = () => toggleSideView("settings");
 
 /* ---------- Vue Paramètres : auto-approbation des écritures et des commandes ---------- */
+let settingsAccessMode = "ask";
 
 function applySettings(s) {
     if (!s || typeof s !== "object") return;
+    settingsAccessMode = s.fullAccess ? "full" : s.autoApprove && s.autoApproveCommands ? "auto" : !s.autoApprove && !s.autoApproveCommands ? "ask" : "custom";
+    for (const button of document.querySelectorAll("[data-access-mode]")) {
+        const selected = button.dataset.accessMode === settingsAccessMode;
+        button.setAttribute("aria-checked", String(selected));
+        button.classList.toggle("selected", selected);
+        button.tabIndex = selected || (settingsAccessMode === "custom" && button.dataset.accessMode === "ask") ? 0 : -1;
+    }
+    const descriptions = {
+        ask: "L’agent demande ton accord avant de modifier des fichiers ou de lancer des commandes sensibles.",
+        auto: "Les modifications et les commandes autorisées s’exécutent sans demander. Les commandes bloquées restent interdites.",
+        full: "Toutes les actions sont autorisées sans confirmation, y compris hors du projet. Lis l’avertissement ci-dessous.",
+        custom: "Tu utilises des autorisations personnalisées. Choisis un mode ci-dessus ou ajuste les options détaillées."
+    };
+    $("access-mode-description").textContent = descriptions[settingsAccessMode];
+    $("full-access-warning").classList.toggle("hidden", !s.fullAccess);
+    $("set-remember-access").checked = s.rememberAccess !== undefined ? Boolean(s.rememberAccess) : settingsAccessMode === "full" ? Boolean(s.fullAccessAlways) : Boolean(s.always && s.commandsAlways);
+    $("set-remember-access").disabled = settingsAccessMode === "custom";
+    $("detailed-permissions").disabled = Boolean(s.fullAccess);
     $("set-auto-writes").checked = Boolean(s.autoApprove);
     $("set-auto-writes-always").checked = Boolean(s.always);
     $("set-auto-commands").checked = Boolean(s.autoApproveCommands);
     $("set-auto-commands-always").checked = Boolean(s.commandsAlways);
     if (s.webSearch !== undefined) $("set-web-search").checked = Boolean(s.webSearch);
+    if (s.automaticWeb !== undefined) $("set-automatic-web").checked = Boolean(s.automaticWeb);
     if (s.extensionsMode !== undefined) {
         $("set-extensions-auto").checked = s.extensionsMode !== "manual";
         $("set-extensions-manual").checked = s.extensionsMode === "manual";
     }
-    $("st-auto").textContent = s.autoApprove ? "auto-approbation" : "";
+    $("st-auto").textContent = s.fullAccess ? "Full accès" : s.autoApprove ? "auto-approbation" : "";
 }
 
 async function refreshSettings() {
@@ -3063,13 +3284,25 @@ async function changeSetting(mode) {
     }
 }
 
+for (const button of document.querySelectorAll("[data-access-mode]")) button.onclick = () => changeSetting(`access-${button.dataset.accessMode}-${$("set-remember-access").checked ? "always" : "session"}`);
+for (const button of document.querySelectorAll("[data-access-mode]")) button.onkeydown = event => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const buttons = [...document.querySelectorAll("[data-access-mode]")];
+    const index = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (buttons.indexOf(button) + (event.key === "ArrowLeft" ? buttons.length - 1 : 1)) % buttons.length;
+    buttons[index].focus(); buttons[index].click();
+};
+$("set-remember-access").onchange = e => changeSetting(`access-${settingsAccessMode}-${e.target.checked ? "always" : "session"}`);
+
 $("set-auto-writes").onchange = (e) => changeSetting(e.target.checked ? "on" : "off");
 $("set-auto-writes-always").onchange = (e) => changeSetting(e.target.checked ? "always" : "never");
 $("set-auto-commands").onchange = (e) => changeSetting(e.target.checked ? "commands-on" : "commands-off");
 $("set-auto-commands-always").onchange = (e) => changeSetting(e.target.checked ? "commands-always" : "commands-never");
 $("set-web-search").onchange = (e) => changeSetting(e.target.checked ? "web-on" : "web-off");
+$("set-automatic-web").onchange = (e) => changeSetting(e.target.checked ? "auto-web-on" : "auto-web-off");
 $("set-extensions-auto").onchange = (e) => { if (e.target.checked) changeSetting("extensions-auto"); };
 $("set-extensions-manual").onchange = (e) => { if (e.target.checked) changeSetting("extensions-manual"); };
+$("settings-close").onclick = () => showSideView("explorer");
 
 /* ---------- Vue Extensions : serveurs MCP et skills (modules réels du CLI) ---------- */
 
@@ -3126,13 +3359,7 @@ async function refreshMcp(action = "") {
             const sub = server.status === "running"
                 ? `${server.tools.length} outil(s) : ${server.tools.join(", ")}`
                 : server.error || server.status;
-            list.appendChild(extItem(server.name, {
-                dot: server.status,
-                tag: server.status,
-                sub,
-                error: server.status === "failed",
-                title: data.configFile
-            }));
+            list.appendChild(renderMcpCard(server, sub));
         }
     } catch (error) {
         extMessage(list, `MCP : ${error.message}`);
@@ -3140,28 +3367,7 @@ async function refreshMcp(action = "") {
 }
 
 async function refreshSkills() {
-    const list = $("skills-list");
-    try {
-        const data = await api.skillsList();
-        list.innerHTML = "";
-        if (!data.skills.length) {
-            extMessage(
-                list,
-                `Aucun skill. Un sous-dossier avec SKILL.md dans ${data.userDir}` +
-                (data.projectDir ? ` ou ${data.projectDir}` : "") + "."
-            );
-            return;
-        }
-        for (const skill of data.skills) {
-            list.appendChild(extItem(skill.name, {
-                tag: skill.disabled ? `${skill.scope}, désactivé` : skill.scope,
-                sub: skill.description || "sans description",
-                title: skill.file
-            }));
-        }
-    } catch (error) {
-        extMessage(list, `Skills : ${error.message}`);
-    }
+    return loadExtensionCenter();
 }
 
 function refreshExtensions() {
@@ -3305,7 +3511,7 @@ async function replaceAllInProject() {
         return;
     }
     const limited = res.truncated ? "\n(Liste de résultats limitée : relance ensuite pour traiter le reste.)" : "";
-    if (!window.confirm(`Remplacer « ${query} » par « ${replacement} » dans ${files.length} fichier(s) ?${limited}`)) return;
+    if (!await confirmStudioAction(`Remplacer « ${query} » par « ${replacement} » dans ${files.length} fichier(s) ?${limited}`)) return;
 
     let changedFiles = 0;
     let total = 0;
@@ -3367,8 +3573,8 @@ $("st-busy").parentNode.insertBefore(cursorInfo, $("st-busy"));
 
 function updateCursor() {
     const tab = currentTab();
-    if (!tab) {
-        cursorInfo.textContent = "";
+    if (!tab||tab.kind==="asset") {
+        cursorInfo.textContent = tab?"Aperçu · lecture seule":"";
         return;
     }
     const before = code.value.slice(0, code.selectionStart);
@@ -3473,6 +3679,20 @@ function paletteCommands() {
         ["Formater le document", "Maj+Alt+F", () => lspFormatDocument()],
         ["Modifier la sélection avec l'IA…", "Ctrl+K", () => inlineEditStart()]
     ].map(([label, detail, run]) => ({ label, detail, run }));
+    cmds.push(...[
+        ["Cockpit du projet","Ctrl+Maj+D",()=>showSideView("project")],
+        ["Commandes et exécutions du projet","",()=>{showSideView("project");setStudioTab("tasks");}],
+        ["Vérifier l’environnement","",()=>{showSideView("project");setStudioTab("quality");diagnoseStudio();}],
+        ["Boîte à outils locale : JSON, Base64, SHA-256","",()=>{showSideView("project");setStudioTab("tools");}],
+        ["Enregistrer tous les fichiers","Ctrl+Maj+S",saveAllStudioFiles],
+        ["Aperçu Markdown ou HTML","Ctrl+Maj+V",openDocumentPreview],
+        ["Comparer le document côte à côte","",openStudioCompare],
+        ["Naviguer dans les symboles du document","Ctrl+Maj+O",openStudioSymbols],
+        ["Marquer la ligne actuelle","Ctrl+F2",toggleStudioBookmark],
+        ["Bibliothèque de skills","",()=>showSideView("extensions")],
+        ["Paramètres de l’éditeur","",()=>showSideView("settings")],
+        ["Raccourcis clavier","",()=>{showSideView("project");setStudioTab("shortcuts");}]
+    ].map(([label,detail,run])=>({label,detail,run})));
     for (const [cmd, desc] of SLASH_COMMANDS) {
         cmds.push({
             label: `Agent : ${desc}`,
@@ -3496,10 +3716,11 @@ function updatePalette() {
     let items = [];
     if (raw.startsWith(">")) {
         const q = raw.slice(1).trim();
-        items = paletteCommands()
+        const commands=paletteCommands();
+        items = q&&window.StudioVendor ? new window.StudioVendor.Fuse(commands,{keys:["label","detail"],threshold:.42,ignoreLocation:true}).search(q,{limit:100}).map(result=>result.item) : commands
             .map((c) => ({ ...c, score: fuzzyScore(`${c.label} ${c.detail}`, q) }))
             .filter((c) => c.score > 0);
-        if (q) items.sort((a, b) => b.score - a.score);
+        if (q&&!window.StudioVendor) items.sort((a, b) => b.score - a.score);
     } else if (raw.startsWith(":")) {
         const tab = currentTab();
         const n = parseInt(raw.slice(1), 10);
@@ -3516,10 +3737,12 @@ function updatePalette() {
         if (palette.files === null) {
             items = [{ label: "Chargement des fichiers…", detail: "", run: null }];
         } else {
-            items = palette.files
+            const files=q&&window.StudioVendor ? new window.StudioVendor.Fuse(palette.files,{threshold:.4,ignoreLocation:true}).search(q,{limit:200}).map(result=>result.item):palette.files;
+            const matches=q&&window.StudioVendor?files.map(p=>({p})):files
                 .map((p) => ({ p, score: fuzzyScore(p, q) }))
                 .filter((x) => x.score > 0)
-                .sort((a, b) => b.score - a.score)
+                .sort((a, b) => b.score - a.score);
+            items = matches
                 .slice(0, 200)
                 .map(({ p }) => ({ label: p.split("/").pop(), detail: p, run: () => openFile(p) }));
         }
@@ -3744,6 +3967,14 @@ function createXtermTerminal(focus) {
     terms.push(term);
     selectTerminal(term.key, false);
     xterm.open(el);
+    xterm.registerLinkProvider({provideLinks(line,callback){
+        const text=xterm.buffer.active.getLine(line-1)?.translateToString(true)||"";
+        const links=[];
+        for(const match of text.matchAll(/https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/[^\s<>"']*)?/gi)){
+            links.push({text:match[0],range:{start:{x:match.index+1,y:line},end:{x:match.index+match[0].length,y:line}},activate:()=>openLocalBrowser(match[0])});
+        }
+        callback(links);
+    }});
     // Laisse passer les raccourcis globaux de l'application (Ctrl+², Ctrl+J, Ctrl+P…).
     xterm.attachCustomKeyEventHandler((ev) => {
         if (ev.type !== "keydown" || !(ev.ctrlKey || ev.metaKey)) return true;
@@ -4210,6 +4441,81 @@ $("terminal").addEventListener("mouseup", (ev) => {
     if (!String(window.getSelection())) termInput.focus();
 });
 
+/* Pending prompts live directly above the composer. */
+let queueSnapshot = { tasks: [], enabled: false };
+let inlineEditingId = null;
+let pendingRenderSignature = null;
+async function editQueuedPrompt(task,attach=false){
+    try{
+        const result=await api.taskQueue("attachments",{id:task.id});
+        inlineEditingId=task.id;input.value=task.prompt;pendingAttachments=result.attachments||[];renderAttachments();autosizeInput();saveStudioDraft();input.focus();
+        studioFeedback("Modifie le prompt ou ses fichiers · Entrée pour enregistrer · Échap pour annuler");
+        if(attach)$("attach-input").click();
+    }catch(error){studioFeedback(error.message);}
+}
+function renderTaskQueue(snapshot) {
+    if (!snapshot) return;
+    queueSnapshot = snapshot;
+    renderInlinePending(snapshot);
+}
+async function queueAction(action, payload = {}) {
+    try {
+        renderTaskQueue(await api.taskQueue(action, payload));
+        return true;
+    } catch (error) {
+        studioFeedback(error.message);
+        return false;
+    }
+}
+function refreshTaskQueue() {
+    inlineEditingId = null;
+    return api.taskQueue("list").then(renderTaskQueue).catch(error => studioFeedback(error.message));
+}
+
+function renderInlinePending(snapshot) {
+    const host = $("pending-prompts");
+    if (!host) return;
+    const waiting = (snapshot?.tasks || []).filter(task => ["pending", "steering"].includes(task.status));
+    const signature = JSON.stringify([waiting, snapshot.enabled, Boolean(ui.status.canSteer)]);
+    if (signature === pendingRenderSignature) return;
+    pendingRenderSignature = signature;
+    const openMenus = new Set([...host.querySelectorAll(".pending-menu[open]")].map(menu => menu.dataset.taskId));
+    host.replaceChildren();
+    host.classList.toggle("hidden", !waiting.length);
+    if (waiting.length && !snapshot.enabled) {
+        const paused = document.createElement("div"); paused.className = "pending-paused";
+        const label = document.createElement("span"); label.textContent = `En pause · ${waiting.length} demande(s) en attente`;
+        const resume = document.createElement("button"); resume.type = "button"; resume.textContent = "Reprendre"; resume.onclick = () => queueAction("start");
+        paused.append(label, resume); host.appendChild(paused);
+    }
+    for (const task of waiting) {
+        const row = document.createElement("div"); row.className = "pending-prompt";
+        const icon = document.createElement("span"); icon.className = "pending-icon"; icon.textContent = "↳";
+        const text = document.createElement("span"); text.className = "pending-text"; text.textContent = task.prompt; text.title = task.prompt;
+        if(task.attachments?.length){const files=document.createElement("small");files.className="pending-attachments";files.textContent="📎 "+task.attachments.map(file=>file.name).join(", ");files.title=files.textContent;text.append(files);}
+        const steer = document.createElement("button"); steer.type = "button"; steer.className = "pending-steer"; steer.textContent = task.status === "steering" ? "Transmise…" : "Orienter";
+        steer.title = "Transmettre cette consigne à l’agent en cours dès sa prochaine étape";
+        steer.disabled = !ui.status.canSteer || task.status !== "pending" || task.mode === "plan";
+        if(task.attachments?.length)steer.title="Transmettre cette consigne et ses fichiers à la prochaine étape de l’agent.";
+        steer.onclick = () => queueAction("steer", { id: task.id });
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "pending-remove"; remove.title = "Supprimer ce prompt en attente"; remove.setAttribute("aria-label", `Supprimer : ${task.prompt.slice(0, 50)}`);
+        remove.innerHTML = '<svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M6 7l1 13h10l1-13M9 7V4h6v3M10 10v7M14 10v7"/></svg>';
+        remove.onclick = () => queueAction("remove", { id: task.id });
+        const menu = document.createElement("details"); menu.className = "pending-menu";
+        menu.dataset.taskId = task.id; menu.open = openMenus.has(String(task.id));
+        const summary = document.createElement("summary"); summary.textContent = "⋯"; summary.setAttribute("aria-label", "Actions sur le prompt");
+        const actions = document.createElement("div"); actions.className = "pending-menu-items";
+        const action = (label, callback) => { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.onclick = () => { menu.open = false; callback(); }; actions.appendChild(button); };
+        if (task.status === "pending") {
+            action("Modifier", () => editQueuedPrompt(task));
+            action("Joindre un fichier", () => editQueuedPrompt(task,true));
+            action("Monter", () => queueAction("move", { id: task.id, direction: "up" }));
+            action("Descendre", () => queueAction("move", { id: task.id, direction: "down" }));
+        }
+        menu.append(summary, actions); row.append(icon, text, steer, remove, menu); host.appendChild(row);
+    }
+}
+
 /* ---------- Raccourcis globaux ---------- */
 
 function isEditable(el) {
@@ -4217,6 +4523,7 @@ function isEditable(el) {
 }
 
 window.addEventListener("keydown", (ev) => {
+    if (document.querySelector("dialog[open]")) return;
     if (!ev.ctrlKey && !ev.altKey && !ev.metaKey) {
         if (ev.key === "Escape" && !contextMenu.classList.contains("hidden")) {
             ev.stopPropagation();
@@ -4402,10 +4709,14 @@ api.onEvent((channel, data) => {
             appendOutput(data);
             break;
         case "clear":
+            studioEntries.length = 0;
             transcript.innerHTML = "";
+            $("agent-starter").classList.remove("hidden");
             toolGroup = null;
             liveEnd();
             clearChanges();
+            ui.interrupted = false;
+            $("btn-resume").classList.add("hidden");
             break;
         case "terminalData":
             termData(data);
@@ -4421,6 +4732,12 @@ api.onEvent((channel, data) => {
             break;
         case "status":
             applyStatus(data);
+            break;
+        case "taskQueue":
+            renderTaskQueue(data);
+            break;
+        case "agentActivity":
+            renderAgentActivity(data);
             break;
         default:
             break;
@@ -4989,12 +5306,12 @@ async function wtToggleDiff(name) {
 }
 
 async function wtRemove(name) {
-    if (!window.confirm(`Supprimer le worktree ${name} ?\nLa branche frst/${name} est conservée.`)) return;
+    if (!await confirmStudioAction(`Supprimer le worktree ${name} ?\nLa branche frst/${name} est conservée.`)) return;
     try {
         await api.worktreeRemove(name, false);
     } catch (error) {
         const reason = gitErrorText(error);
-        if (!window.confirm(`Suppression refusée : ${reason}\n\nForcer la suppression ? Les modifications non validées du worktree seront perdues.`)) {
+        if (!await confirmStudioAction(`Suppression refusée : ${reason}\n\nForcer la suppression ? Les modifications non validées du worktree seront perdues.`)) {
             wtMessage(reason, "error");
             return;
         }
@@ -5037,6 +5354,7 @@ function lspEnabledFor(rel) {
 
 function lspActivePath() {
     const tab = currentTab();
+    if(tab?.kind==="asset")return "";
     return tab ? (tab.path || tab.rel || "") : "";
 }
 
@@ -5469,46 +5787,7 @@ async function lspShowCodeActions() {
     lspReportEdit(chosen.title, chosen.edit, await lspApplyWorkspaceEdit(chosen.edit, { rel: at.rel, text: at.text }));
 }
 
-async function lspFormatDocument() {
-    const at = lspCursor();
-    if (!at) {
-        lspNotice("Formatage : disponible pour les fichiers JS/TS.");
-        return;
-    }
-    const CM = window.CM;
-    const unit = CM && CM.indentUnit ? at.view.state.facet(CM.indentUnit) : "    ";
-    const tabSize = unit === "\t" ? 4 : unit.length || 4;
-    let result;
-    try {
-        result = await api.lspFormat(at.rel, at.text, tabSize);
-    } catch (err) {
-        lspNotice(`Formatage impossible : ${err.message}`);
-        return;
-    }
-    if (!result || !result.changed || result.text === at.text) {
-        lspStatus(`${at.rel} : déjà formaté`);
-        return;
-    }
-    const view = code.view;
-    if (lspActivePath() !== at.rel || !view || view.state.doc.toString() !== at.text) {
-        lspNotice("Formatage annulé : le fichier a changé pendant la requête.");
-        return;
-    }
-    const before = at.text;
-    const after = String(result.text);
-    let start = 0;
-    while (start < before.length && start < after.length && before[start] === after[start]) start++;
-    let endA = before.length;
-    let endB = after.length;
-    while (endA > start && endB > start && before[endA - 1] === after[endB - 1]) {
-        endA--;
-        endB--;
-    }
-    view.dispatch({ changes: { from: start, to: endA, insert: after.slice(start, endB) }, userEvent: "input.format" });
-    lspSyncTabFromEditor(currentTab());
-    renderTabs();
-    lspScheduleSync();
-}
+async function lspFormatDocument() { return formatEditorDocument(); }
 
 /* Aide à la signature : champ d'état + infobulle (créés à la demande, window.CM étant chargé avant). */
 function lspSignatureState() {
@@ -5791,6 +6070,2294 @@ async function inlineEditStart() {
     });
     code.focus();
 }
+/* ---------- Espace agent : activité, sources, favoris et brouillons ---------- */
+const studioEntries = [];
+let studioRun = null;
+let studioWorkspace = undefined;
+let studioTab = "conversation";
+let studioActivitySeq = 0;
+let favoritePrompts = readStudioStorage("frst.prompt-favorites", []);
+if (!Array.isArray(favoritePrompts)) favoritePrompts = [];
+const starterFavorites = [
+    { title: "Revue des changements", prompt: "Inspecte le diff Git local et recherche les bugs et régressions. Donne les fichiers et lignes concernés, le niveau de gravité et les vérifications utiles, sans modifier le code." },
+    { title: "Corriger un bug", prompt: "Reproduis le problème suivant, identifie sa cause, corrige-le puis vérifie la correction : " },
+    { title: "Écrire les tests utiles", prompt: "Inspecte le code et les tests existants. Identifie les comportements importants non couverts, ajoute les tests pertinents et lance-les." },
+    { title: "Améliorer les performances", prompt: "Cherche un problème de performance mesurable. Établis une mesure de référence, propose et implémente une amélioration puis compare les résultats." },
+    { title: "Documenter le projet", prompt: "Vérifie les commandes et le fonctionnement réel du projet, puis mets à jour sa documentation d’installation, d’utilisation et de test." }
+];
+
+function readStudioStorage(key, fallback) {
+    try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+}
+function writeStudioStorage(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch { studioFeedback("Le stockage local est indisponible."); }
+}
+function studioFeedback(message) { $("composer-feedback").textContent = message || ""; }
+function studioDraftKey(workspace,mode=typeof motionChatMode!=="undefined"?motionChatMode:"code") {return `frst.draft:${workspace || "global"}${mode==="motion"?":motion":""}`;}
+function saveStudioDraft() {
+    if (studioWorkspace !== undefined) writeStudioStorage(studioDraftKey(studioWorkspace), input.value);
+}
+function setAgentTab(tab) {
+    studioTab = ["conversation", "activity", "usage"].includes(tab) ? tab : "conversation";
+    $("agent").dataset.tab = studioTab;
+    for (const button of document.querySelectorAll("[data-agent-tab]")) {
+        const selected = button.dataset.agentTab === studioTab;
+        button.classList.toggle("selected", selected);
+        button.setAttribute("aria-selected", String(selected));
+        button.tabIndex = selected ? 0 : -1;
+    }
+    if (studioTab === "activity") refreshStudioActivity();
+    if (studioTab === "usage") { renderUsageDashboard(); refreshQuota(); }
+}
+function updateStudioStatus(status) {
+    const workspace = status.workspace || null;
+    updateAgentProjectLabel(workspace);
+    $("agent-access").textContent = status.fullAccess ? "Full accès" : status.autoApprove && status.autoApproveCommands ? "Automatique" : "Sur approbation";
+    $("agent-access").classList.toggle("full-access", Boolean(status.fullAccess));
+    if (studioWorkspace !== workspace) {
+        saveStudioDraft();
+        studioWorkspace = workspace;
+        input.value = readStudioStorage(studioDraftKey(workspace), "");
+        autosizeInput();
+        if (studioRun && studioRun.workspace !== workspace) { studioRun = null; renderAgentActivity(null); }
+    }
+}
+function updateAgentProjectLabel(workspace=ui.workspace){
+    const motion=typeof isMotionOpen==="function" && isMotionOpen();
+    $("agent-project-name").textContent=motion?"Projet EffectCraft":workspace?workspace.replace(/[\\/]+$/, "").split(/[\\/]/).pop():"Aucun projet";
+    $("agent-project-name").title=motion?"Projet motion indépendant du dossier ouvert dans l’espace code":workspace || "Ouvre un dossier pour travailler sur un projet";
+}
+function recordStudioEntry(entry) {
+    if (entry.type === "user" && /^\/new\b/.test(entry.text || "")) studioEntries.length = 0;
+    if (["user", "assistant", "tool", "result", "error", "warn", "plan"].includes(entry.type)) {
+        studioEntries.push({ ...entry, at: new Date().toISOString() });
+        if (studioEntries.length > 3000) studioEntries.shift();
+    }
+}
+function exportStudioMarkdown() {
+    const header = `# Conversation FranceStudent ${isMotionOpen()?"Motion design":"Code"}\n\nProjet : ${isMotionOpen()?"EffectCraft":studioWorkspace || "Aucun"}\nExport : ${new Date().toISOString()}\n\n`;
+    return header + studioEntries.map(entry => {
+        if (entry.type === "user" || entry.type === "assistant") return `## ${entry.type === "user" ? "Vous" : "Agent"}\n\n${entry.text}\n`;
+        if (entry.type === "tool") return `**${toolLabel(entry.name)}**\n\n\`\`\`text\n${entry.arg || ""}\n\`\`\`\n`;
+        if (entry.type === "plan") return `### Plan\n${(entry.items || []).map(item => `- ${item}`).join("\n")}\n`;
+        return `> ${String(entry.text || "").replace(/\n/g, "\n> ")}\n`;
+    }).join("\n");
+}
+function humanDuration(start, end) {
+    const seconds = Math.max(0, Math.floor(((end || Date.now()) - start) / 1000));
+    return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${String(seconds % 60).padStart(2, "0")} s`;
+}
+function emptyStudioText(parent, text) {
+    const note = document.createElement("p"); note.className = "muted"; note.textContent = text; parent.appendChild(note);
+}
+function renderAgentActivity(run) {
+    const motion=typeof isMotionOpen==="function" && isMotionOpen();
+    if(run && (!!run.motionDesign!==motion || !motion && run.workspace!==ui.workspace))run=null;
+    studioRun = run;
+    const livePlan = $("agent-live-plan");
+    livePlan.replaceChildren();
+    const steps = run?.steps || [];
+    livePlan.classList.toggle("hidden", !steps.length);
+    if (steps.length) {
+        const done = steps.filter(step => step.status === "completed").length;
+        const detail = document.createElement("details"); detail.open = run.status === "running";
+        const summary = document.createElement("summary"); summary.textContent = `Plan de travail · ${done}/${steps.length}`;
+        const progress = document.createElement("progress"); progress.max = steps.length; progress.value = done;
+        progress.setAttribute("aria-label", "Étapes du plan terminées");
+        const list = document.createElement("ol");
+        for (const step of steps) {
+            const li = document.createElement("li"); li.dataset.status = step.status;
+            li.textContent = `${step.status === "completed" ? "✓" : step.status === "in_progress" ? "◉" : "○"} ${step.step}`; list.appendChild(li);
+        }
+        detail.append(summary, progress, list); livePlan.appendChild(detail);
+    }
+    const overview = $("activity-overview"); overview.replaceChildren();
+    const timeline = $("activity-timeline"); timeline.replaceChildren();
+    const sources = $("activity-sources"); sources.replaceChildren();
+    if (!run) {
+        emptyStudioText(overview, "Les actions, les commandes et les sources apparaîtront ici dès la prochaine demande.");
+        return;
+    }
+    const status = { running: "En cours", done: "Terminée", failed: "À vérifier", interrupted: "Interrompue" }[run.status] || run.status;
+    const title = document.createElement("div"); title.className = "run-title"; title.textContent = run.prompt;
+    const line = document.createElement("p"); line.className = `run-status run-status-${run.status}`; line.textContent = `${status} · ${humanDuration(run.startedAt, run.endedAt)}`;
+    const stats = document.createElement("div"); stats.className = "activity-stats";
+    for (const [value, label] of [[run.commands, "commandes"], [run.reads, "explorations"], [run.writes, "écritures"]]) {
+        const stat = document.createElement("div"); const number = document.createElement("strong"); number.textContent = value || 0;
+        const name = document.createElement("small"); name.textContent = label; stat.append(number, name); stats.appendChild(stat);
+    }
+    overview.append(title, line, stats);
+    for (const action of (run.actions || []).slice().reverse()) {
+        const row = document.createElement("details"); row.className = `activity-action activity-action-${action.status}`;
+        const summary = document.createElement("summary"); summary.textContent = `${action.status === "done" ? "✓" : action.status === "running" ? "◉" : "!"} ${toolLabel(action.name)} · ${humanDuration(action.startedAt, action.endedAt)}`;
+        const body = document.createElement("pre"); body.textContent = [action.argument, action.result].filter(Boolean).join("\n\n");
+        row.append(summary, body); timeline.appendChild(row);
+    }
+    if (!run.actions?.length) emptyStudioText(timeline, "L’agent prépare sa prochaine action.");
+    for (const source of run.sources || []) {
+        const row = document.createElement("button"); row.type = "button"; row.className = "source-card";
+        const title = document.createElement("strong"); title.textContent = source.title;
+        const meta = document.createElement("small");
+        try { meta.textContent = `${new URL(source.url).hostname} · ${source.consulted ? "Source consultée" : "Résultat de recherche"}`; } catch { continue; }
+        row.append(title, meta); row.onclick = () => api.openExternal(source.url).catch(error => studioFeedback(error.message)); sources.appendChild(row);
+    }
+    if (!run.sources?.length) emptyStudioText(sources, "Les liens sont distingués selon qu’ils ont été trouvés ou effectivement consultés.");
+}
+async function refreshStudioActivity() {
+    const seq = ++studioActivitySeq;
+    try {
+        const motion=isMotionOpen();
+        const [run, jobs, checkpoints] = await Promise.all([api.agentActivity(), motion?[]:api.backgroundJobs("list"), motion?[]:api.checkpoints("list")]);
+        if (seq !== studioActivitySeq) return;
+        renderAgentActivity(run);
+        const jobsHost = $("activity-jobs"); jobsHost.replaceChildren();
+        if (!jobs.length) emptyStudioText(jobsHost, "Aucune commande en arrière-plan.");
+        for (const job of jobs) {
+            const row = document.createElement("div"); row.className = "workspace-item";
+            const label = document.createElement("div"); label.textContent = `${job.id} · ${job.command}`;
+            const meta = document.createElement("small"); meta.textContent = `${job.status} · ${Math.floor(job.duration_ms / 1000)} s${job.exit_code !== null ? ` · code ${job.exit_code}` : ""}`;
+            const output = document.createElement("button"); output.type = "button"; output.textContent = "Sortie";
+            output.onclick = async () => { try { const result = await api.backgroundJobs("output", job.id); $("activity-job-output").textContent = result.output || "Aucune sortie."; $("activity-job-output").classList.remove("hidden"); } catch (error) { studioFeedback(error.message); } };
+            row.append(label, meta, output);
+            if (job.status === "running") {
+                const stop = document.createElement("button"); stop.type = "button"; stop.textContent = "Arrêter";
+                stop.onclick = () => api.backgroundJobs("stop", job.id).then(refreshStudioActivity).catch(error => studioFeedback(error.message)); row.appendChild(stop);
+            }
+            jobsHost.appendChild(row);
+        }
+        const pointsHost = $("activity-checkpoints"); pointsHost.replaceChildren();
+        if (!checkpoints.length) emptyStudioText(pointsHost, "Un point de reprise est créé avant chaque demande sur le projet.");
+        for (const point of checkpoints) {
+            const row = document.createElement("div"); row.className = "workspace-item";
+            const label = document.createElement("div"); label.textContent = point.task;
+            const time = document.createElement("small"); time.textContent = new Date(point.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+            const restore = document.createElement("button"); restore.type = "button"; restore.textContent = "Restaurer"; restore.disabled = Boolean(ui.status.busy);
+            restore.onclick = async () => {
+                if (!await confirmStudioAction(`Restaurer les modifications suivies avant « ${point.task} » ? Les commandes shell ne sont pas annulées.`)) return;
+                try { const result = await api.checkpoints("restore", point.id); studioFeedback(`${result.reverted || 0} modification(s) restaurée(s).`); scheduleRefresh(); refreshStudioActivity(); }
+                catch (error) { studioFeedback(error.message); }
+            };
+            row.append(label, time, restore); pointsHost.appendChild(row);
+        }
+    } catch (error) { studioFeedback(error.message); }
+}
+function renderFavoritePrompts() {
+    const list = $("favorite-list"); list.replaceChildren();
+    for (const [index, favorite] of [...favoritePrompts, ...starterFavorites].entries()) {
+        const row = document.createElement("div"); row.className = "favorite-row";
+        const use = document.createElement("button"); use.type = "button"; use.textContent = favorite.title; use.title = favorite.prompt;
+        use.onclick = () => { input.value = favorite.prompt; saveStudioDraft(); autosizeInput(); setAgentTab("conversation"); $("agent-favorites").classList.add("hidden"); input.focus(); };
+        row.appendChild(use);
+        if (index < favoritePrompts.length) {
+            const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "×"; remove.setAttribute("aria-label", `Retirer ${favorite.title}`);
+            remove.onclick = () => { favoritePrompts.splice(index, 1); writeStudioStorage("frst.prompt-favorites", favoritePrompts); renderFavoritePrompts(); }; row.appendChild(remove);
+        }
+        list.appendChild(row);
+    }
+}
+
+for (const button of document.querySelectorAll("[data-agent-tab]")) {
+    button.onclick = () => setAgentTab(button.dataset.agentTab);
+    button.onkeydown = event => {
+        if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+        event.preventDefault();
+        const tabs = [...document.querySelectorAll("[data-agent-tab]")];
+        const next = tabs[(tabs.indexOf(button) + (event.key === "ArrowLeft" ? tabs.length - 1 : 1)) % tabs.length];
+        setAgentTab(next.dataset.agentTab); next.focus();
+    };
+}
+for (const button of document.querySelectorAll("[data-starter]")) button.onclick = () => { input.value = button.dataset.starter; autosizeInput(); saveStudioDraft(); input.focus(); };
+$("agent-access").onclick = () => showSideView("settings");
+function setAgentFocus(active){
+    $("app").classList.toggle("focus-agent",active);
+    const button=$("agent-focus"),label=active?"Quitter le plein écran du chat":"Agrandir le chat";
+    button.setAttribute("aria-pressed",String(active));button.setAttribute("aria-label",label);button.title=label;
+    button.textContent=active?"⤡":"⤢";
+}
+$("agent-focus").onclick = () => setAgentFocus(!$("app").classList.contains("focus-agent"));
+setAgentFocus(false);
+$("activity-refresh").onclick = refreshStudioActivity;
+$("favorite-open").onclick = () => { renderFavoritePrompts(); $("agent-favorites").classList.toggle("hidden"); };
+$("favorite-close").onclick = () => $("agent-favorites").classList.add("hidden");
+$("draft-save-favorite").onclick = () => {
+    const prompt = input.value.trim();
+    if (!prompt) { studioFeedback("Écris un prompt avant de l’enregistrer."); return; }
+    if (favoritePrompts.length >= 30) { studioFeedback("Tu as déjà 30 favoris. Retire un favori pour en ajouter un."); return; }
+    favoritePrompts.unshift({ title: prompt.replace(/\s+/g, " ").slice(0, 55), prompt: prompt.slice(0, 30000) });
+    writeStudioStorage("frst.prompt-favorites", favoritePrompts); studioFeedback("Prompt enregistré en favori.");
+};
+$("conversation-export").onclick = () => api.exportConversation(exportStudioMarkdown()).then(result => studioFeedback(result.canceled ? "Export annulé." : "Conversation exportée.")).catch(error => studioFeedback(error.message));
+input.addEventListener("input", saveStudioDraft);
+window.addEventListener("beforeunload", saveStudioDraft);
+transcript.addEventListener("click", event => {
+    const link = event.target.closest("a[data-web-url]");
+    if (link) { event.preventDefault(); api.openExternal(link.dataset.webUrl).catch(error => studioFeedback(error.message)); }
+});
+setInterval(() => { if (studioTab === "activity" && !document.hidden) refreshStudioActivity(); }, 3000);
+setAgentTab("conversation");
+/* Connexion explicite et guide accessible, sans identifiants dans le chat. */
+let guideStep = 1;
+let guideBusy = false;
+let guideReturnFocus = null;
+let connectionOrigin = "https://ia.francestudent.org";
+
+function openConnectionGuide(step) {
+    guideReturnFocus = document.activeElement;
+    $("connection-guide").classList.remove("hidden");
+    setGuideStep(step || (ui.status.booted ? (ui.workspace ? 3 : 2) : 1));
+    setTimeout(() => {
+        const first = $("connection-guide").querySelector('input:not(:disabled), button:not(:disabled)');
+        if (guideStep === 1 && !ui.status.booted) $("guide-email").focus();
+        else if (first) first.focus();
+    }, 0);
+}
+function closeConnectionGuide() {
+    if (guideBusy) return;
+    $("guide-password").value = "";
+    $("connection-guide").classList.add("hidden");
+    if (guideReturnFocus?.isConnected) guideReturnFocus.focus();
+    else input.focus();
+}
+function setGuideStep(step) {
+    guideStep = [1, 2, 3].includes(step) ? step : 1;
+    for (const page of document.querySelectorAll("[data-guide-page]")) page.classList.toggle("hidden", Number(page.dataset.guidePage) !== guideStep);
+    for (const marker of document.querySelectorAll("[data-guide-step]")) {
+        marker.classList.toggle("current", Number(marker.dataset.guideStep) === guideStep);
+        if (Number(marker.dataset.guideStep) === guideStep) marker.setAttribute("aria-current", "step");
+        else marker.removeAttribute("aria-current");
+    }
+    $("guide-title").textContent = ["", "Bienvenue. On commence ?", "Ouvre le bon dossier", "Ta première demande"][guideStep];
+    $("guide-description").textContent = ["", "Connecte-toi avec les mêmes identifiants que sur le site FranceStudent.", "Pas besoin de configuration technique : choisis simplement le dossier de ton projet.", "L’agent comprend tes demandes en français. Tu peux préciser ou corriger ce que tu veux au fil du travail."][guideStep];
+    $("guide-login-form").classList.toggle("hidden", Boolean(ui.status.booted));
+    $("guide-already-connected").classList.toggle("hidden", !ui.status.booted);
+    $("guide-project-name").textContent = ui.workspace ? `Dossier choisi : ${ui.workspace.replace(/[\\/]+$/, "").split(/[\\/]/).pop()}` : "Tu pourras aussi ouvrir un dossier plus tard avec le bouton Ouvrir un dossier.";
+    $("guide-project-next").disabled = !ui.workspace;
+    $("guide-message").textContent = "";
+    $("guide-message").classList.remove("is-error");
+}
+function guideError(error) {
+    const message = String(error?.message || error || "Connexion impossible.");
+    const special = /captcha|double authentification|two.factor|cloudflare/i.test(message);
+    $("guide-message").textContent = special
+        ? "Ton compte demande une vérification supplémentaire que cette connexion ne prend pas encore en charge. Ouvre le site FranceStudent pour vérifier ton accès."
+        : /password|mot de passe|identifiant|invalid|incorrect|401|403/i.test(message)
+            ? "Connexion refusée. Vérifie l’adresse e-mail et le mot de passe de ton compte FranceStudent."
+            : "La connexion n’a pas abouti. Vérifie tes identifiants et ta connexion Internet, puis réessaie.";
+    $("guide-message").classList.add("is-error");
+}
+
+$("guide-login-form").onsubmit = async event => {
+    event.preventDefault();
+    if (guideBusy || !$("guide-login-form").reportValidity()) return;
+    guideBusy = true;
+    $("guide-message").textContent = "Connexion à FranceStudent…";
+    $("guide-message").classList.remove("is-error");
+    $("guide-login-submit").textContent = "Connexion…";
+    $("guide-login-form").setAttribute("aria-busy", "true");
+    for (const control of $("connection-guide").querySelectorAll("input, button")) control.disabled = true;
+    try {
+        const result = await api.loginAccount({ email: $("guide-email").value.trim(), password: $("guide-password").value });
+        if (!result?.ok) throw new Error(result?.reason || "Connexion impossible.");
+        applyStatus(await api.status());
+        setGuideStep(2);
+    } catch (error) { guideError(error); }
+    finally {
+        $("guide-password").value = "";
+        guideBusy = false;
+        for (const control of $("connection-guide").querySelectorAll("input, button")) control.disabled = false;
+        $("guide-project-next").disabled = !ui.workspace;
+        $("guide-login-submit").textContent = "Se connecter";
+        $("guide-login-form").removeAttribute("aria-busy");
+    }
+};
+$("guide-close").onclick = closeConnectionGuide;
+$("guide-finish").onclick = closeConnectionGuide;
+$("settings-guide").onclick = () => openConnectionGuide();
+$("settings-logout").onclick = async () => {
+    $("settings-logout").disabled = true;
+    $("settings-message").textContent = "Déconnexion…";
+    try { await api.logoutAccount(); }
+    catch (error) {
+        $("settings-message").textContent = `Déconnexion non terminée : ${error.message}`;
+        applyStatus(await api.status());
+    }
+};
+api.onEvent(async channel => {
+    if (channel !== "signedOut") return;
+    applyStatus(await api.status());
+    ui.quota = null;
+    renderQuota();
+    $("guide-email").value = "";
+    $("guide-password").value = "";
+    $("guide-password").type = "password";
+    $("guide-show-password").textContent = "Afficher";
+    $("guide-show-password").setAttribute("aria-pressed", "false");
+    $("guide-show-password").setAttribute("aria-label", "Afficher le mot de passe");
+    showSideView("explorer");
+    openConnectionGuide(1);
+    $("guide-message").textContent = "Tu es déconnecté de cet ordinateur. Tu peux te reconnecter ou utiliser un autre compte.";
+});
+$("btn-help").onclick = () => openConnectionGuide();
+$("btn-help").title = "Connexion et guide de démarrage";
+$("guide-to-project").onclick = () => setGuideStep(2);
+$("guide-show-password").onclick = () => {
+    const reveal = $("guide-password").type === "password";
+    $("guide-password").type = reveal ? "text" : "password";
+    $("guide-show-password").textContent = reveal ? "Masquer" : "Afficher";
+    $("guide-show-password").setAttribute("aria-pressed", String(reveal));
+    $("guide-show-password").setAttribute("aria-label", reveal ? "Masquer le mot de passe" : "Afficher le mot de passe");
+};
+$("guide-open-site").onclick = () => api.openExternal(connectionOrigin).catch(guideError);
+$("guide-open-account").onclick = () => api.openExternal(connectionOrigin).catch(guideError);
+$("guide-pick-project").onclick = async () => {
+    try { await api.openProject(); applyStatus(await api.status()); setGuideStep(2); }
+    catch (error) { $("guide-message").textContent = error.message; }
+};
+$("guide-skip-project").onclick = () => setGuideStep(3);
+$("guide-project-next").onclick = () => setGuideStep(3);
+$("guide-first-prompt").onclick = () => {
+    closeConnectionGuide();
+    setAgentTab("conversation");
+    input.value = ui.workspace ? "Explore ce projet et explique-moi comment le lancer et le vérifier." : "Explique-moi comment tu peux m’aider et comment démarrer mon premier projet.";
+    saveStudioDraft(); autosizeInput(); input.focus();
+};
+$("connection-guide").addEventListener("keydown", event => {
+    if (event.key === "Escape") { event.preventDefault(); closeConnectionGuide(); return; }
+    if (event.key !== "Tab") return;
+    const controls = [...$("connection-guide").querySelectorAll("button:not(:disabled), input:not(:disabled), summary")].filter(element => element.offsetParent !== null);
+    const first = controls[0], last = controls.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+});
+/* ---------- Bibliothèque, skills installés et profils ---------- */
+let centerData = null;
+let skillEditorState = null;
+let centerLoading = 0;
+let installedVisibleCount = 60;
+function centerNode(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+}
+function centerButton(text, handler, primary = false) {
+    const button = centerNode("button", primary ? "primary" : "", text);
+    button.type = "button";
+    button.onclick = async () => {
+        button.disabled = true;
+        try { await handler(); }
+        catch (error) { $("center-message").textContent = error.message; }
+        finally { button.disabled = false; }
+    };
+    return button;
+}
+function uninstallSkillButton(skill){
+    const button=centerButton("Désinstaller",()=>uninstallCenterSkill(skill));
+    button.classList.add("skill-uninstall");return button;
+}
+function setCenterTab(tab) {
+    for (const panel of document.querySelectorAll("[data-center-panel]")) panel.classList.toggle("hidden", panel.dataset.centerPanel !== tab);
+    for (const button of document.querySelectorAll("[data-center-tab]")) {
+        const selected = button.dataset.centerTab === tab;
+        button.setAttribute("aria-selected", String(selected));
+        button.tabIndex = selected ? 0 : -1;
+    }
+}
+for (const button of document.querySelectorAll("[data-center-tab]")) {
+    button.onclick = () => setCenterTab(button.dataset.centerTab);
+    button.onkeydown = event => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const buttons = [...document.querySelectorAll("[data-center-tab]")];
+        const index = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (buttons.indexOf(button) + (event.key === "ArrowRight" ? 1 : buttons.length - 1)) % buttons.length;
+        buttons[index].click(); buttons[index].focus();
+    };
+}
+$("ext-close").onclick = () => showSideView("explorer");
+async function loadExtensionCenter() {
+    const seq = ++centerLoading;
+    try {
+        const data = await api.extensionAction("list");
+        if (seq !== centerLoading) return;
+        centerData = data;
+        renderExtensionCenter();
+    } catch (error) { $("center-message").textContent = `Extensions : ${error.message}`; }
+}
+async function changeExtension(action, payload, message = "Modification enregistrée.") {
+    centerData = await api.extensionAction(action, payload);
+    renderExtensionCenter();
+    $("center-message").textContent = message;
+}
+function renderExtensionCenter() {
+    if (!centerData) return;
+    const active = centerData.skills.filter(skill => !skill.disabled).length;
+    $("center-count").textContent = `${centerData.skills.length} installé(s) · ${active} activé(s)`;
+    const selectedProfile = $("skill-profile").value;
+    $("skill-profile").replaceChildren(centerNode("option", "", "Choisir un profil"));
+    $("skill-profile").firstChild.value = "";
+    for (const name of Object.keys(centerData.profiles).sort()) {
+        const option = centerNode("option", "", name); option.value = name; $("skill-profile").appendChild(option);
+    }
+    $("skill-profile").value = selectedProfile;
+    for (const select of [$("library-scope"), $("skill-editor-scope")]) select.querySelector('[value="projet"]').disabled = !centerData.workspace;
+    renderLibrary(); renderInstalledSkills(); renderMotionMarketplace();
+    for(const card of document.querySelectorAll("#marketplace-results .center-card"))if(card.marketplaceItem)renderMarketplaceSkillActions(card);
+}
+function renderLibrary() {
+    if (!centerData) return;
+    const query = $("library-search").value.toLocaleLowerCase("fr").trim();
+    const category = $("library-category").value;
+    const scope = $("library-scope").value;
+    const list = $("library-list"); list.replaceChildren();
+    for (const item of centerData.library.filter(item => (!category || category === item.category) && `${item.title} ${item.description} ${item.category} ${item.id}`.toLocaleLowerCase("fr").includes(query))) {
+        const card = centerNode("article", "center-card");
+        card.dataset.libraryId = item.id;
+        card.append(centerNode("span", "ext-tag", item.category), centerNode("h3", "", item.title), centerNode("p", "", item.description), centerNode("p", "", `${item.author} · v${item.version}`));
+        const actions = centerNode("div", "center-card-actions");
+        actions.append(centerButton("Voir les instructions", () => openSkillEditor({ kind: "library", item })));
+        const installedKey=libraryInstallKey(item,scope);
+        const installed = centerData.skills.find(skill => skill.key === installedKey);
+        actions.append(installed?uninstallSkillButton(installed):centerButton("Installer", () => changeExtension("install", {id:item.id, scope}, `${item.title} installé. Tu peux le désactiver dans Mes skills.`), true));
+        card.append(actions); list.append(card);
+    }
+    if (!list.children.length) list.append(centerNode("p", "ext-empty", "Aucun skill ne correspond. Essaie un autre mot ou une autre catégorie."));
+}
+function renderInstalledSkills() {
+    if (!centerData) return;
+    const query = $("skills-search").value.toLocaleLowerCase("fr").trim();
+    const filter = $("skills-filter").value;
+    const list = $("skills-list"); list.replaceChildren();
+    const filtered = centerData.skills.filter(skill => `${skill.name} ${skill.description}`.toLocaleLowerCase("fr").includes(query) && (filter === "all" || filter === "active" && !skill.disabled || filter === "disabled" && skill.disabled || filter === "favorites" && skill.favorite || filter === skill.scope));
+    for (const skill of filtered.slice(0, installedVisibleCount)) {
+        const card = centerNode("article", "center-card"); card.dataset.skillKey = skill.key;
+        card.append(centerNode("span", "ext-tag", skill.scope === "motion" ? "Projet EffectCraft" : skill.scope === "projet" ? "Ce projet code" : "Tous mes projets"), centerNode("h3", "", skill.name), centerNode("p", "", skill.description));
+        const actions = centerNode("div", "center-card-actions");
+        const favorite = centerButton(skill.favorite ? "★" : "☆", () => changeExtension("favorite", {key:skill.key}));
+        favorite.setAttribute("aria-label", `${skill.favorite ? "Retirer des" : "Ajouter aux"} favoris : ${skill.name}`);
+        favorite.setAttribute("aria-pressed", String(skill.favorite));
+        actions.append(favorite, centerButton("Ouvrir", async () => openSkillEditor({kind:"edit", item:await api.extensionAction("read", {key:skill.key}), key:skill.key})), uninstallSkillButton(skill));
+        const label = centerNode("label", "skill-enabled");
+        const toggle = document.createElement("input"); toggle.type = "checkbox"; toggle.checked = !skill.disabled; toggle.setAttribute("role", "switch"); toggle.setAttribute("aria-label", `Activer ${skill.name}`);
+        toggle.onchange = async () => {
+            toggle.disabled = true;
+            try { await changeExtension("toggle", {key:skill.key, disabled:!toggle.checked}); }
+            catch (error) { toggle.checked = !toggle.checked; $("center-message").textContent = error.message; }
+            finally { toggle.disabled = false; }
+        };
+        label.append(toggle, document.createTextNode(skill.disabled ? "Désactivé" : "Activé")); actions.append(label); card.append(actions); list.append(card);
+    }
+    if (!list.children.length) list.append(centerNode("p", "ext-empty", centerData.skills.length ? "Aucun résultat pour ces filtres." : "Aucun skill installé. Explore la bibliothèque ou crée tes propres instructions avec Nouveau."));
+    if (filtered.length > installedVisibleCount) list.append(centerButton(`Afficher la suite (${filtered.length - installedVisibleCount})`, () => { installedVisibleCount += 60; renderInstalledSkills(); }));
+}
+$("library-search").oninput = renderLibrary;
+$("library-category").onchange = renderLibrary;
+$("library-scope").onchange = renderLibrary;
+$("skills-search").oninput = () => { installedVisibleCount = 60; renderInstalledSkills(); };
+$("skills-filter").onchange = () => { installedVisibleCount = 60; renderInstalledSkills(); };
+$("profile-save").onclick = async () => {
+    const name = await inputDialog("Nom du profil de skills", "Mon profil");
+    if (!name) return;
+    try { await changeExtension("profile-save", {name}, `Profil « ${name} » enregistré.`); $("skill-profile").value = name.trim(); }
+    catch (error) { $("center-message").textContent = error.message; }
+};
+for (const action of ["apply", "delete"]) $("profile-" + action).onclick = async () => {
+    const name = $("skill-profile").value;
+    if (!name) { $("center-message").textContent = "Choisis d’abord un profil."; return; }
+    try { await changeExtension("profile-" + action, {name}, action === "apply" ? `Profil « ${name} » appliqué. Les autres skills sont désactivés.` : "Profil supprimé. Les skills restent installés."); }
+    catch (error) { $("center-message").textContent = error.message; }
+};
+function openSkillEditor(state) {
+    skillEditorState = state;
+    const item = state.item || {};
+    const remote = state.kind === "remote";
+    const library = state.kind === "library";
+    $("skill-editor-title").textContent = library ? item.title : remote ? item.name : state.kind === "edit" ? `Modifier ${item.name}` : "Créer ou importer un skill";
+    $("skill-editor-description").textContent = remote ? item.resourceCount ? `Remotion pour le chat code · ${item.resourceCount} ressources annexes incluses. Après installation, active le skill dans Mes skills pour l’utiliser.` : "Skill communautaire : vérifie les instructions et la licence du dépôt. Après installation, active-le dans Mes skills pour l’utiliser. Seul le SKILL.md est copié." : library ? `${item.description} · ${item.category}` : "Écris ou colle les instructions que l’agent doit suivre quand il utilise ce skill.";
+    $("skill-editor-name").value = item.id || item.name || "mon-skill";
+    $("skill-editor-name").disabled = !["new", "remote"].includes(state.kind);
+    if (remote) $("skill-editor-name").value = item.name.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "community-skill";
+    $("skill-editor-identity").classList.toggle("hidden", state.kind === "edit");
+    $("skill-editor-scope").value = library ? $("library-scope").value : item.scope || "utilisateur";
+    $("skill-editor-content").value = item.content || "---\nname: mon-skill\ndescription: Quand utiliser ce skill.\n---\n\n# Ma méthode\n\nDécris les étapes et les vérifications à suivre.\n";
+    $("skill-editor-content").readOnly = library || remote;
+    $("skill-editor-save").textContent = remote ? "Installer" : library ? "Installer ce skill" : "Enregistrer";
+    $("skill-editor-save").disabled = false;
+    $("skill-editor-message").textContent = "";
+    $("skill-editor").showModal();
+}
+$("btn-skill-new").onclick = () => openSkillEditor({kind:"new"});
+for (const id of ["skill-editor-close", "skill-editor-cancel"]) $(id).onclick = () => $("skill-editor").close();
+$("skill-editor-form").onsubmit = async event => {
+    event.preventDefault();
+    const state = skillEditorState;
+    $("skill-editor-save").disabled = true;
+    try {
+        const scope = $("skill-editor-scope").value;
+        if (state.kind === "library") await changeExtension("install", {id:state.item.id, scope}, "Skill installé.");
+        else if (state.kind === "remote") {
+            centerData = await api.marketplace("install", {name:$("skill-editor-name").value, scope, url:state.item.url});
+            const installed=centerData.skills.find(skill=>skill.key===`${scope}:${$("skill-editor-name").value.trim().toLowerCase()}`);
+            if(installed){const links=readStudioStorage("frst.marketplace-installed",{});links[state.item.githubUrl || state.item.url]=installed.key;writeStudioStorage("frst.marketplace-installed",links);}
+            renderExtensionCenter(); $("center-message").textContent = "Skill installé. Active-le dans Mes skills pour l’utiliser.";
+        }
+        else if (state.kind === "edit") await changeExtension("save", {key:state.key, content:$("skill-editor-content").value});
+        else await changeExtension("import", {name:$("skill-editor-name").value, content:$("skill-editor-content").value, scope}, "Skill créé et activé.");
+        $("skill-editor").close();
+    } catch (error) { $("skill-editor-message").textContent = error.message; }
+    finally { $("skill-editor-save").disabled = false; }
+};
+
+/* ---------- Serveurs MCP ---------- */
+function renderMcpCard(server, sub) {
+    const labels = {running:"Connecté", failed:"Erreur", disabled:"Désactivé", starting:"Connexion…"};
+    const card = extItem(server.name, {dot:server.status, tag:labels[server.status] || server.status, sub:server.status === "running" ? `${server.tools.length} outil(s) disponible(s)` : sub, error:server.status === "failed"});
+    const details = centerNode("details", "mcp-details");
+    details.append(centerNode("summary", "", "Voir les outils"));
+    const list = document.createElement("ul");
+    for (const tool of server.tools) list.append(centerNode("li", "", tool));
+    if (!server.tools.length) list.append(centerNode("li", "", "Aucun outil disponible dans cet état."));
+    details.append(list); card.append(details);
+    const actions = centerNode("div", "center-card-actions");
+    actions.append(centerButton(server.status === "disabled" ? "Activer" : "Désactiver", async () => {
+        await api.mcpManage("toggle", {name:server.name, disabled:server.status !== "disabled"}); await refreshMcp();
+    }), centerButton("Retirer la connexion", async () => {
+        if (!await confirmStudioAction(`Retirer le serveur « ${server.name} » de mcp.json ? La configuration précédente reste dans mcp.json.backup.`,{title:"Retirer ce serveur MCP",confirmLabel:"Retirer",danger:true})) return;
+        await api.mcpManage("remove", {name:server.name}); await refreshMcp();
+    }));
+    card.append(actions); return card;
+}
+$("btn-mcp-add").onclick = () => {
+    $("mcp-editor-form").reset(); $("mcp-editor-message").textContent = ""; $("mcp-editor").showModal();
+};
+for (const id of ["mcp-editor-close", "mcp-editor-cancel"]) $(id).onclick = () => $("mcp-editor").close();
+$("mcp-editor-form").onsubmit = async event => {
+    event.preventDefault(); $("mcp-editor-save").disabled = true;
+    try {
+        let args, env;
+        try { args = JSON.parse($("mcp-args").value); env = JSON.parse($("mcp-env").value); }
+        catch { throw new Error('Arguments et variables : utilise du JSON valide, par exemple ["mon-script.js"] et {"MA_CLE":"valeur"}.'); }
+        await api.mcpManage("add", {name:$("mcp-name").value, command:$("mcp-command").value, args, env, cwd:$("mcp-cwd").value});
+        $("mcp-env").value = "{}"; $("mcp-editor").close(); await refreshMcp();
+        $("center-message").textContent = "Serveur enregistré. Son état de connexion apparaît dans la liste.";
+    } catch (error) { $("mcp-editor-message").textContent = error.message; }
+    finally { $("mcp-editor-save").disabled = false; }
+};
+
+/* ---------- Paramètres recherchables et contexte ---------- */
+const preferenceFields = { contextMaxFiles:"context-max-files", contextBudgetChars:"context-budget", contextFileChars:"context-file-chars", agentContextChars:"context-agent-chars" };
+function showPreferences(data) {
+    for (const [key, id] of Object.entries(preferenceFields)) $(id).value = data[key];
+    $("settings-default-model").value = data.defaultModel == null ? "" : String(data.defaultModel);
+    renderContextEstimate();
+}
+function renderContextEstimate() {
+    const budget = Number($("context-budget").value);
+    $("context-estimate").textContent = `Budget d’indexation : ${budget.toLocaleString("fr-FR")} caractères. Le contexte réellement envoyé dépend aussi des limites du modèle et du prompt.`;
+}
+async function loadPreferences() {
+    try {
+        await refreshMarketplaceKey();
+        const data = await api.preferences();
+        const models = await api.models();
+        const select = $("settings-default-model"); select.replaceChildren();
+        const defaultOption = centerNode("option", "", "Modèle par défaut de l’application"); defaultOption.value = ""; select.append(defaultOption);
+        for (const model of models.agents || []) { const option = centerNode("option", "", model.name); option.value = String(model.id); select.append(option); }
+        if (data.defaultModel !== null && ![...select.options].some(option => option.value === String(data.defaultModel))) {
+            const option = centerNode("option", "", `Modèle enregistré (${data.defaultModel})`); option.value = String(data.defaultModel); select.append(option);
+        }
+        showPreferences(data);
+    } catch (error) { $("settings-message").textContent = error.message; }
+}
+for (const id of Object.values(preferenceFields)) $(id).oninput = renderContextEstimate;
+const contextPresets = {
+    light:{contextMaxFiles:100, contextBudgetChars:100000, contextFileChars:10000, agentContextChars:15000},
+    balanced:{contextMaxFiles:500, contextBudgetChars:400000, contextFileChars:30000, agentContextChars:30000},
+    large:{contextMaxFiles:3000, contextBudgetChars:1500000, contextFileChars:60000, agentContextChars:60000}
+};
+for (const button of document.querySelectorAll("[data-context-preset]")) button.onclick = () => {
+    for (const [key, id] of Object.entries(preferenceFields)) $(id).value = contextPresets[button.dataset.contextPreset][key];
+    renderContextEstimate(); $("settings-message").textContent = "Préréglage préparé. Clique sur Enregistrer ces réglages pour l’appliquer.";
+};
+$("preferences-reset").onclick = () => document.querySelector('[data-context-preset="balanced"]').click();
+$("preferences-save").onclick = async () => {
+    if (!Object.values(preferenceFields).every(id => $(id).reportValidity())) return;
+    const values = {defaultModel:$("settings-default-model").value};
+    for (const [key, id] of Object.entries(preferenceFields)) values[key] = Number($(id).value);
+    try { showPreferences(await api.preferences("save", values)); $("settings-message").textContent = "Réglages enregistrés. Le contexte sera utilisé à la prochaine indexation et le modèle au prochain démarrage."; }
+    catch (error) { $("settings-message").textContent = error.message; }
+};
+const defaultModelStatus = document.createElement("p");
+defaultModelStatus.id = "settings-default-model-status";
+defaultModelStatus.className = "settings-help";
+defaultModelStatus.setAttribute("role", "status");
+$("settings-default-model").after(defaultModelStatus);
+$("settings-default-model").onchange = async () => {
+    const select = $("settings-default-model");
+    select.disabled = true;
+    defaultModelStatus.textContent = "Enregistrement du modèle…";
+    try {
+        await api.preferences("save", { defaultModel: select.value });
+        defaultModelStatus.textContent = "Modèle enregistré automatiquement pour les prochains démarrages.";
+    } catch (error) {
+        defaultModelStatus.textContent = `Modèle non enregistré : ${error.message}`;
+        try { const saved = await api.preferences(); select.value = saved.defaultModel == null ? "" : String(saved.defaultModel); } catch { /* keep visible error */ }
+    } finally { select.disabled = false; }
+};
+$("settings-search").oninput = () => {
+    const query = $("settings-search").value.toLocaleLowerCase("fr").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    let visible = 0;
+    for (const card of $("settings-view").querySelectorAll(".settings-card")) {
+        const text = card.textContent.toLocaleLowerCase("fr").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const hidden = !text.includes(query); card.classList.toggle("hidden", hidden); if (!hidden) visible++;
+    }
+    $("settings-search-empty").classList.toggle("hidden", visible > 0);
+};
+
+/* ---------- Marketplace en ligne : recherche explicite, aperçu avant installation ---------- */
+let marketplacePage = 1;
+let marketplaceSearch = null;
+let marketplaceSequence = 0;
+async function searchMarketplace(page = 1) {
+    const query = page === 1 ? $("marketplace-query").value.trim() : marketplaceSearch?.query;
+    const sort = page === 1 ? $("marketplace-sort").value : marketplaceSearch?.sort;
+    if (!query) return;
+    const seq = ++marketplaceSequence;
+    marketplaceSearch = {query, sort};
+    $("marketplace-search-button").disabled = true;
+    $("marketplace-previous").disabled = true; $("marketplace-next").disabled = true;
+    $("marketplace-status").textContent = "Recherche sur SkillsMP…";
+    try {
+        const data = await api.marketplace("search", {query, sort, page});
+        if (seq !== marketplaceSequence) return;
+        marketplacePage = data.page;
+        const list = $("marketplace-results"); list.replaceChildren();
+        for (const item of data.items) {
+            const card = centerNode("article", "center-card");
+            card.append(centerNode("span", "ext-tag", `★ ${item.stars.toLocaleString("fr-FR")}`), centerNode("h3", "", item.name), centerNode("p", "", `par ${item.author}`), centerNode("p", "", item.description));
+            card.marketplaceItem=item;renderMarketplaceSkillActions(card);list.append(card);
+        }
+        $("marketplace-status").textContent = data.items.length ? `${data.items.length} résultat(s) affiché(s)${data.remaining !== null ? ` · ${data.remaining} recherche(s) restante(s) aujourd’hui` : ""}.` : "Aucun résultat. Essaie un autre mot-clé.";
+        $("marketplace-page").textContent = `Page ${data.page}`;
+        $("marketplace-previous").disabled = data.page <= 1;
+        $("marketplace-next").disabled = !data.hasNext;
+    } catch (error) { if (seq === marketplaceSequence) $("marketplace-status").textContent = error.message; }
+    finally { if (seq === marketplaceSequence) $("marketplace-search-button").disabled = false; }
+}
+$("marketplace-search-form").onsubmit = event => {event.preventDefault(); searchMarketplace(1);};
+$("marketplace-previous").onclick = () => searchMarketplace(marketplacePage - 1);
+$("marketplace-next").onclick = () => searchMarketplace(marketplacePage + 1);
+async function refreshMarketplaceKey() {
+    const data = await api.marketplaceKey();
+    $("marketplace-key-status").textContent = data.fromEnvironment ? "Clé fournie par SKILLSMP_API_KEY. Effacer la clé locale ne changera pas cette variable." : data.configured ? "Une clé chiffrée est enregistrée sur cet ordinateur." : "Aucune clé : recherche publique disponible.";
+}
+for (const action of ["save", "clear"]) $("marketplace-key-" + action).onclick = async () => {
+    try {
+        await api.marketplaceKey(action, action === "save" ? $("settings-marketplace-key").value : "");
+        $("settings-marketplace-key").value = "";
+        await refreshMarketplaceKey();
+        $("settings-message").textContent = action === "save" ? "Clé enregistrée et chiffrée." : "Clé locale effacée.";
+    } catch (error) { $("settings-message").textContent = error.message; }
+};
+$("marketplace-docs").onclick = () => api.openExternal("https://skillsmp.com/docs/api").catch(error => { $("settings-message").textContent = error.message; });
+/* ---------- Cockpit du projet : commandes, qualité et outils locaux ---------- */
+let projectStudioData = null;
+let studioSelectedRun = null;
+let studioRuns = [];
+let projectStudioTab = "overview";
+let studioSeq = 0;
+function studioIcon(name) { return window.StudioVendor?.icon(name); }
+function studioAction(label, icon, handler, primary=false) {
+    const button=centerButton(label,handler,primary); const svg=studioIcon(icon);
+    if(svg)button.prepend(svg); return button;
+}
+const projectNav=document.createElement("button");
+projectNav.type="button";projectNav.className="activity";projectNav.dataset.view="project";projectNav.title="Cockpit du projet (Ctrl+Maj+D)";projectNav.setAttribute("aria-label","Cockpit du projet");
+projectNav.append(studioIcon("LayoutDashboard"));
+$("activity-bar").insertBefore(projectNav,$("activity-bar").firstElementChild);
+projectNav.onclick=()=>showSideView("project");
+$("sidebar").insertAdjacentHTML("afterbegin",`
+<div id="project-studio" class="studio-page">
+ <header class="studio-header"><div><span class="studio-eyebrow">FRANCESTUDENT CODE</span><h1>Ton espace de travail.</h1></div><div class="studio-actions"><button type="button" id="studio-refresh" aria-label="Actualiser le projet">Actualiser</button><button type="button" id="studio-close">Retour au code</button></div></header>
+ <div class="studio-project-heading"><div><h2 id="studio-project-name">Aucun projet</h2><p id="studio-project-description"></p><p id="studio-project-path"></p></div><div id="studio-stack" class="studio-stack"></div></div>
+ <nav class="studio-tabs" aria-label="Cockpit du projet" role="tablist"><button type="button" data-studio-tab="overview" role="tab" aria-selected="true">Vue d’ensemble</button><button type="button" data-studio-tab="tasks" role="tab" aria-selected="false">Exécutions</button><button type="button" data-studio-tab="quality" role="tab" aria-selected="false">Qualité</button><button type="button" data-studio-tab="tools" role="tab" aria-selected="false">Boîte à outils</button><button type="button" data-studio-tab="shortcuts" role="tab" aria-selected="false">Raccourcis</button></nav>
+ <p id="studio-message" class="studio-message" role="status"></p>
+ <section data-studio-page="overview"><div id="studio-stats" class="studio-stats"></div><div class="studio-section-heading"><h2>Une action, un résultat.</h2><span>Les outils du projet, à portée de main.</span></div><div id="studio-quick-actions" class="studio-quick-grid"></div><div class="studio-two-columns"><article class="studio-card"><h3>Documentation du projet</h3><div id="studio-docs" class="studio-link-list"></div></article><article class="studio-card"><h3>Repères dans le code</h3><p class="studio-muted">Marque une ligne dans l’éditeur avec Ctrl+F2 pour la retrouver ici.</p><div id="studio-bookmarks" class="studio-link-list"></div></article></div><div class="studio-section-heading"><h2>Dernières exécutions</h2><button type="button" id="studio-see-runs">Tout voir</button></div><div id="studio-recent-runs" class="studio-run-list"></div></section>
+ <section data-studio-page="tasks" class="hidden"><div class="studio-section-heading"><div><h2>Les commandes de ton projet.</h2><p class="studio-muted">Détectées dans package.json, Cargo.toml et go.mod. Rien ne s’exécute sans un clic.</p></div><button type="button" id="studio-add-task" class="primary">+ Commande personnelle</button></div><div class="center-filters"><input type="search" id="studio-task-filter" placeholder="Filtrer : dev, test, build…" aria-label="Filtrer les commandes"><select id="studio-task-kind" aria-label="Type de commande"><option value="">Tous les types</option><option value="dev">Développement</option><option value="test">Tests</option><option value="build">Construction</option><option value="quality">Qualité</option><option value="custom">Personnelles</option></select></div><div id="studio-task-list" class="studio-task-grid"></div><div class="studio-section-heading"><h2>Exécutions de cette session</h2><button type="button" id="studio-clear-runs">Effacer les exécutions terminées</button></div><div id="studio-runs" class="studio-run-list"></div><article class="studio-card studio-log-card"><div class="studio-section-heading"><div><h3 id="studio-log-title">Sortie de la commande</h3><p id="studio-log-meta" class="studio-muted">Sélectionne une exécution pour lire sa sortie.</p></div><div class="studio-actions"><button type="button" id="studio-copy-log">Copier la sortie</button><label class="studio-muted"><input type="checkbox" id="studio-log-follow" checked> Suivre</label></div></div><pre id="studio-log" class="studio-log" tabindex="0"></pre></article></section>
+ <section data-studio-page="quality" class="hidden"><div class="studio-section-heading"><h2>Un environnement prêt à travailler.</h2><button type="button" id="studio-diagnose">Vérifier l’environnement</button></div><div id="studio-environment" class="studio-stats"></div><div class="studio-section-heading"><h2>Problèmes signalés par l’éditeur</h2><span>Diagnostics JS/TS des fichiers ouverts</span></div><div id="studio-problems" class="studio-link-list"></div><div class="studio-section-heading"><h2>Améliorer le projet avec l’agent</h2></div><div id="studio-quality-actions" class="studio-quick-grid"></div></section>
+ <section data-studio-page="tools" class="hidden"><div class="studio-section-heading"><h2>Petits outils, sans quitter ton projet.</h2><span>Traitement local · aucun envoi au modèle</span></div><article class="studio-card"><div class="center-filters"><select id="studio-transform" aria-label="Opération"><option value="json">Valider et formater JSON</option><option value="base64-encode">Texte → Base64</option><option value="base64-decode">Base64 → texte</option><option value="url-encode">Encoder une URL</option><option value="url-decode">Décoder une URL</option><option value="sha256">Empreinte SHA-256</option><option value="uuid">Générer un UUID</option><option value="sort">Trier les lignes</option><option value="unique">Supprimer les lignes identiques</option></select><button type="button" id="studio-transform-run" class="primary">Exécuter</button><button type="button" id="studio-transform-copy">Copier le résultat</button></div><div class="studio-two-columns"><label class="center-code-label">Entrée<textarea id="studio-tool-input" rows="12" maxlength="500000" spellcheck="false" placeholder="Colle ton texte ici…"></textarea></label><label class="center-code-label">Résultat<textarea id="studio-tool-output" rows="12" spellcheck="false" readonly></textarea></label></div><p id="studio-tool-status" class="studio-muted" role="status"></p></article><article class="studio-card"><h3>Raccourcis de création</h3><div id="studio-new-file-actions" class="studio-actions"></div></article></section>
+ <section data-studio-page="shortcuts" class="hidden"><div class="studio-section-heading"><h2>Moins de clics, plus de fluidité.</h2></div><div id="studio-shortcuts" class="studio-shortcuts"></div><article class="studio-card"><h3>Construit avec l’open source</h3><p class="studio-muted">CodeMirror, Prettier, Marked, DOMPurify, Fuse.js, Lucide, xterm.js et node-pty participent aux outils de cette interface.</p><button type="button" id="studio-licenses">Lire les licences des composants intégrés</button></article></section>
+</div>`);
+document.body.insertAdjacentHTML("beforeend",`<dialog id="studio-task-dialog" class="center-dialog" aria-labelledby="studio-task-dialog-title"><form id="studio-task-form"><div class="center-dialog-head"><h2 id="studio-task-dialog-title">Ajouter une commande personnelle</h2><button type="button" id="studio-task-close" aria-label="Fermer">×</button></div><p class="studio-muted">La commande sera enregistrée dans ce projet, puis lancée uniquement quand tu cliqueras sur Exécuter. Sous Windows, elle s’exécute dans PowerShell avec les droits de ton compte.</p><label class="center-code-label">Nom<input id="studio-task-name" required maxlength="100" placeholder="Mes tests Python"></label><label class="center-code-label">Commande<textarea id="studio-task-command" required maxlength="8000" rows="4" placeholder="python -m pytest"></textarea></label><p id="studio-task-error" role="status" class="studio-message"></p><div class="center-dialog-actions"><button type="button" id="studio-task-cancel">Annuler</button><button type="submit" class="primary">Enregistrer</button></div></form></dialog><dialog id="studio-licenses-dialog" class="center-dialog" aria-labelledby="studio-licenses-title"><div class="center-dialog-head"><h2 id="studio-licenses-title">Licences open source</h2><button type="button" id="studio-licenses-close">Fermer</button></div><pre id="studio-licenses-content" class="studio-license-text"></pre></dialog>`);
+function setStudioTab(tab) {
+    projectStudioTab=tab;
+    for(const panel of document.querySelectorAll("[data-studio-page]"))panel.classList.toggle("hidden",panel.dataset.studioPage!==tab);
+    for(const button of document.querySelectorAll("[data-studio-tab]")){const selected=button.dataset.studioTab===tab;button.setAttribute("aria-selected",String(selected));button.tabIndex=selected?0:-1;}
+    if(tab==="quality")renderStudioProblems();
+    if(tab==="overview")renderProjectStudio();
+}
+for(const button of document.querySelectorAll("[data-studio-tab]")) {
+    button.onclick=()=>setStudioTab(button.dataset.studioTab);
+    button.onkeydown=event=>{
+        if(!["ArrowLeft","ArrowRight","Home","End"].includes(event.key))return;
+        event.preventDefault();const buttons=[...document.querySelectorAll("[data-studio-tab]")];
+        const index=event.key==="Home"?0:event.key==="End"?buttons.length-1:(buttons.indexOf(button)+(event.key==="ArrowRight"?1:buttons.length-1))%buttons.length;
+        buttons[index].click();buttons[index].focus();
+    };
+}
+async function refreshProjectStudio() {
+    const sequence=++studioSeq;
+    $("studio-message").textContent="";
+    try {
+        const data=await api.projectStudio("overview");if(sequence!==studioSeq)return;
+        projectStudioData=data;studioRuns=data.runs;renderProjectStudio();
+    }catch(error){$("studio-message").textContent=error.message;}
+}
+function draftStudioPrompt(prompt) {input.value=prompt;input.dispatchEvent(new Event("input"));showSideView("explorer");input.focus();}
+function studioStat(value,label,detail="") {const card=centerNode("article","studio-stat");card.append(centerNode("strong","",String(value)),centerNode("span","",label));if(detail)card.append(centerNode("small","",detail));return card;}
+function studioQuick(title,description,icon,handler) {const button=studioAction("",icon,handler);button.classList.add("studio-quick");const text=centerNode("span","");text.append(centerNode("b","",title),centerNode("small","",description));button.append(text);return button;}
+function renderProjectStudio() {
+    const data=projectStudioData;if(!data)return;
+    $("studio-project-name").textContent=data.name;
+    $("studio-project-description").textContent=data.description||"Ton code, tes commandes et tes outils dans un seul espace.";
+    $("studio-project-path").textContent=data.workspace||"Ouvre un dossier pour retrouver ses commandes et sa documentation.";
+    $("studio-stack").replaceChildren(...data.stack.map(label=>centerNode("span","studio-pill",label)));
+    $("studio-stats").replaceChildren(studioStat(data.tasks.length,"commandes disponibles",data.packageManager?`Gestionnaire : ${data.packageManager}`:"Scripts détectés dans le projet"),studioStat(studioRuns.filter(run=>run.status==="running").length,"en cours","Exécutions locales"),studioStat(studioRuns.filter(run=>run.status==="passed").length,"réussies","Pendant cette session"),studioStat(data.docs.length,"documents repérés","Guides à la racine du projet"));
+    $("studio-quick-actions").replaceChildren(
+        studioQuick("Lancer le projet","Choisir un script de développement","Play",()=>setStudioTab("tasks")),
+        studioQuick("Comprendre le code","Préparer une exploration avec l’agent","Sparkles",()=>draftStudioPrompt("Explore ce projet et explique les points d’entrée, son architecture et les commandes utiles. Ne modifie aucun fichier.")),
+        studioQuick("Terminal","Ouvrir un terminal dans ce dossier","Terminal",()=>{showSideView("explorer");selectPanel("terminal",true);}),
+        studioQuick("Aperçu local","Voir un fichier HTML ou le Markdown actif","Eye",()=>{showSideView("explorer");openDocumentPreview();}),
+        studioQuick("Vérifier l’environnement","Node.js, npm et Git","Activity",()=>{setStudioTab("quality");diagnoseStudio();}),
+        studioQuick("Ouvrir un dossier","Changer de projet","FolderOpen",openProject));
+    const docs=$("studio-docs");docs.replaceChildren();
+    for(const file of data.docs)docs.append(studioAction(file,"BookOpen",async()=>{showSideView("explorer");await openFile(file);openDocumentPreview();}));
+    if(!data.docs.length)docs.append(centerNode("p","studio-muted","Aucun README ou guide repéré à la racine du projet."));
+    renderStudioBookmarks();renderStudioTasks();renderStudioRuns();
+}
+function renderStudioTasks() {
+    if(!projectStudioData)return;
+    const query=$("studio-task-filter").value.toLowerCase().trim(),kind=$("studio-task-kind").value;
+    const list=$("studio-task-list");list.replaceChildren();
+    for(const task of projectStudioData.tasks.filter(task=>(!kind||task.kind===kind)&&`${task.name} ${task.description}`.toLowerCase().includes(query))) {
+        const card=centerNode("article","studio-card studio-task");card.dataset.taskId=task.id;
+        card.append(centerNode("span","studio-pill",task.source),centerNode("h3","",task.name),centerNode("p","studio-muted",task.description),centerNode("code","studio-command",task.command));
+        const running=studioRuns.find(run=>run.taskId===task.id&&run.status==="running");
+        const button=studioAction(running?"Arrêter":"Exécuter",running?"Square":"Play",async()=>{
+            if(running)await api.projectStudio("stop",{id:running.id});
+            else {const run=await api.projectStudio("start",{id:task.id});studioSelectedRun=run.id;}
+            studioRuns=await api.projectStudio("runs");renderStudioRuns();renderStudioTasks();
+        },!running);
+        card.append(button);list.append(card);
+        if(task.id.startsWith("custom:"))card.append(centerButton("Retirer cette commande",async()=>{await api.projectStudio("remove",{id:task.id});await refreshProjectStudio();setStudioTab("tasks");}));
+    }
+    if(!list.children.length)list.append(centerNode("p","studio-empty",projectStudioData.tasks.length?"Aucune commande ne correspond à ces filtres.":"Aucun script détecté. Ajoute une commande personnelle pour lancer ton outil de test ou ton serveur."));
+}
+const studioRunLabels={running:"En cours",passed:"Réussie",failed:"Échec",stopped:"Arrêtée"};
+function studioRunRow(run) {
+    const row=centerNode("div","studio-run");row.dataset.status=run.status;
+    const button=centerButton(run.name,()=>{studioSelectedRun=run.id;setStudioTab("tasks");renderStudioLog();});button.className="studio-run-name";
+    row.append(centerNode("span","studio-status-dot"),button,centerNode("span","studio-run-status",studioRunLabels[run.status]),centerNode("span","studio-muted",`${Math.max(0,Math.floor(((run.endedAt||Date.now())-run.startedAt)/1000))} s`));
+    if(run.status==="running")row.append(studioAction("Arrêter","Square",()=>api.projectStudio("stop",{id:run.id})));
+    else row.append(studioAction("Relancer","Play",async()=>{const next=await api.projectStudio("start",{id:run.taskId});studioSelectedRun=next.id;studioRuns=await api.projectStudio("runs");renderStudioRuns();renderStudioTasks();}));
+    return row;
+}
+function renderStudioRuns() {
+    for(const [id,limit]of[["studio-runs",30],["studio-recent-runs",4]]) {
+        const list=$(id);list.replaceChildren(...studioRuns.slice().reverse().slice(0,limit).map(studioRunRow));
+        if(!list.children.length)list.append(centerNode("p","studio-empty","Aucune exécution pour l’instant."));
+    }
+    renderStudioLog();
+    $("studio-task-badge").textContent=studioRuns.some(run=>run.status==="running")?`${studioRuns.filter(run=>run.status==="running").length} commande(s)` : "";
+}
+function renderStudioLog() {
+    if(!studioSelectedRun&&studioRuns.length)studioSelectedRun=studioRuns.at(-1).id;
+    const run=studioRuns.find(run=>run.id===studioSelectedRun);if(!run){$("studio-log").textContent="";return;}
+    $("studio-log-title").textContent=run.name;
+    $("studio-log-meta").textContent=`${run.command} · ${studioRunLabels[run.status]}${run.exitCode!=null?` · code ${run.exitCode}`:""}`;
+    $("studio-log").textContent=(run.truncated?"[… début de la sortie tronqué …]\n":"")+run.output;
+    if($("studio-log-follow").checked)$("studio-log").scrollTop=$("studio-log").scrollHeight;
+}
+async function diagnoseStudio() {
+    $("studio-environment").replaceChildren(centerNode("p","studio-muted","Vérification des outils disponibles…"));
+    try {const data=await api.environmentDiagnostics();$("studio-environment").replaceChildren(...data.map(item=>studioStat(item.available?"✓":"—",item.name,item.version)));}
+    catch(error){$("studio-message").textContent=error.message;}
+}
+function renderStudioProblems() {
+    const list=$("studio-problems");list.replaceChildren();let count=0;
+    for(const [file,diagnostics]of lspDiagnosticsByPath)for(const diagnostic of diagnostics) {
+        const line=(diagnostic.from?.line||0)+1;
+        const button=centerButton(`${diagnostic.severity === "error"?"Erreur":"Diagnostic"} · ${file}:${line} — ${diagnostic.message}`,async()=>{showSideView("explorer");await openFile(file);goToLine(line);});
+        list.append(button);count++;
+    }
+    if(!count)list.append(centerNode("p","studio-empty","Aucun problème signalé pour les fichiers JS/TS ouverts. Lance les tests ou le lint du projet pour une vérification plus large."));
+}
+function studioBookmarkKey(){return `frst-bookmarks:${ui.workspace||""}`;}
+function readStudioBookmarks(){try{return JSON.parse(localStorage.getItem(studioBookmarkKey())||"[]").slice(0,200);}catch{return [];}}
+function toggleStudioBookmark() {
+    const tab=currentTab();if(!tab)return;
+    const line=code.view.state.doc.lineAt(code.selectionStart).number;
+    let items=readStudioBookmarks();const exists=items.some(item=>item.file===tab.path&&item.line===line);
+    items=exists?items.filter(item=>item.file!==tab.path||item.line!==line):[...items,{file:tab.path,line,text:code.view.state.doc.line(line).text.trim().slice(0,100)}];
+    try{localStorage.setItem(studioBookmarkKey(),JSON.stringify(items));}catch{/* stockage indisponible */}
+    lspStatus(exists?"Repère retiré":"Ligne marquée dans le cockpit du projet");renderStudioBookmarks();
+}
+function renderStudioBookmarks() {
+    const list=$("studio-bookmarks");if(!list)return;list.replaceChildren();
+    for(const item of readStudioBookmarks())list.append(centerButton(`${item.file}:${item.line} ${item.text}`,async()=>{showSideView("explorer");await openFile(item.file);goToLine(item.line);}));
+    if(!list.children.length)list.append(centerNode("p","studio-empty","Aucune ligne marquée."));
+}
+$("studio-refresh").onclick=refreshProjectStudio;$("studio-close").onclick=()=>showSideView("explorer");
+$("studio-see-runs").onclick=()=>setStudioTab("tasks");$("studio-diagnose").onclick=diagnoseStudio;
+$("studio-task-filter").oninput=renderStudioTasks;$("studio-task-kind").onchange=renderStudioTasks;
+$("studio-copy-log").onclick=()=>api.copyText($("studio-log").textContent).catch(error=>{$("studio-message").textContent=error.message;});
+$("studio-clear-runs").onclick=async()=>{await api.projectStudio("clear");studioRuns=await api.projectStudio("runs");studioSelectedRun=null;renderStudioRuns();};
+$("studio-add-task").onclick=()=>{$("studio-task-form").reset();$("studio-task-error").textContent="";$("studio-task-dialog").showModal();};
+for(const id of ["studio-task-close","studio-task-cancel"])$(id).onclick=()=>$("studio-task-dialog").close();
+$("studio-task-form").onsubmit=async event=>{
+    event.preventDefault();
+    try{await api.projectStudio("add",{name:$("studio-task-name").value,command:$("studio-task-command").value});$("studio-task-dialog").close();await refreshProjectStudio();setStudioTab("tasks");}
+    catch(error){$("studio-task-error").textContent=error.message;}
+};
+$("studio-licenses").onclick=async()=>{try{$("studio-licenses-content").textContent=await api.openSourceLicenses();$("studio-licenses-dialog").showModal();}catch(error){$("studio-message").textContent=error.message;}};
+$("studio-licenses-close").onclick=()=>$("studio-licenses-dialog").close();
+$("studio-quality-actions").append(studioQuick("Revue des changements","Préparer une demande de revue sans modification","GitCompare",()=>draftStudioPrompt("Relis les changements Git actuels. Cherche les régressions et les erreurs concrètes, avec les fichiers et les cas déclencheurs. Ne modifie rien.")),studioQuick("Renforcer les tests","Préparer une demande de tests utiles","Check",()=>draftStudioPrompt("Inspecte les tests de ce projet, identifie les comportements critiques mal couverts et ajoute des tests pertinents. Exécute les tests concernés.")),studioQuick("Examiner la sécurité","Préparer une revue ciblée des entrées et accès","Activity",()=>draftStudioPrompt("Examine les entrées, contrôles d’accès et manipulations de fichiers de ce projet. Identifie les problèmes vérifiables et propose des corrections ciblées. Commence en lecture seule.")));
+$("studio-new-file-actions").append(studioAction("Nouveau fichier","FileCode",()=>newEntry("file",".")),studioAction("Nouveau dossier","FolderOpen",()=>newEntry("directory",".")),studioAction("Créer un skill","Sparkles",()=>{showSideView("extensions");setCenterTab("installed");openSkillEditor({kind:"new"});}));
+const studioShortcuts=[["Ctrl+P","Rechercher un fichier"],["Ctrl+Maj+P","Palette des commandes"],["Ctrl+Maj+D","Cockpit du projet"],["Ctrl+S","Enregistrer"],["Ctrl+Maj+S","Enregistrer tous les onglets"],["Maj+Alt+F","Formater avec Prettier"],["Ctrl+F2","Ajouter ou retirer un repère"],["Ctrl+Maj+V","Aperçu du document"],["F12","Aller à la définition JS/TS"],["Maj+F12","Rechercher les références"],["F2","Renommer un symbole"],["Ctrl+K","Modifier une sélection avec l’IA"],["Ctrl+L","Écrire à l’agent"],["Ctrl+J","Afficher ou masquer le panneau"],["Ctrl+Maj+F","Rechercher dans le projet"],["Ctrl+O","Ouvrir un dossier"]];
+for(const [keys,label]of studioShortcuts){const row=centerNode("div","studio-shortcut");row.append(centerNode("span","",label),centerNode("kbd","",keys));$("studio-shortcuts").append(row);}
+const taskBadge=centerNode("button","studio-status-button","");taskBadge.id="studio-task-badge";taskBadge.type="button";taskBadge.onclick=()=>{showSideView("project");setStudioTab("tasks");};$("statusbar").append(taskBadge);
+let studioEventFrame=0;
+api.onEvent((channel,data)=>{
+    if(channel==="projectTask"&&data?.workspace===ui.workspace){const index=studioRuns.findIndex(run=>run.id===data.id);if(index<0)studioRuns.push(data);else studioRuns[index]=data;if(!studioEventFrame)studioEventFrame=requestAnimationFrame(()=>{studioEventFrame=0;renderStudioRuns();renderStudioTasks();});}
+    if(channel==="lspDiagnostics"&&projectStudioTab==="quality")renderStudioProblems();
+});
+$("studio-transform-run").onclick=async()=>{
+    const text=$("studio-tool-input").value;let result="";
+    try {
+        switch($("studio-transform").value){
+            case "json":result=JSON.stringify(JSON.parse(text),null,2);break;
+            case "base64-encode": {const bytes=new TextEncoder().encode(text);let binary="";for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.slice(i,i+8192));result=btoa(binary);break;}
+            case "base64-decode":result=new TextDecoder("utf-8",{fatal:true}).decode(Uint8Array.from(atob(text.trim()),character=>character.charCodeAt(0)));break;
+            case "url-encode":result=encodeURIComponent(text);break;
+            case "url-decode":result=decodeURIComponent(text);break;
+            case "uuid":result=crypto.randomUUID();break;
+            case "sha256": {const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));result=[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,"0")).join("");break;}
+            case "sort":result=text.split(/\r?\n/).sort((a,b)=>a.localeCompare(b,"fr")).join("\n");break;
+            case "unique":result=[...new Set(text.split(/\r?\n/))].join("\n");break;
+        }
+        $("studio-tool-output").value=result;$("studio-tool-status").textContent=`${result.length.toLocaleString("fr-FR")} caractères · traitement local terminé.`;
+    }catch(error){$("studio-tool-status").textContent=`Conversion impossible : ${error.message}`;}
+};
+$("studio-transform-copy").onclick=()=>api.copyText($("studio-tool-output").value).catch(error=>{$("studio-tool-status").textContent=error.message;});
+/* ---------- Préférences de l’éditeur, aperçu isolé et comparaison ---------- */
+let studioEditorPreferences={fontSize:13,tabSize:4,wordWrap:false,autoSave:false,formatOnSave:false,reducedMotion:false,theme:"original"};
+let studioAutoSaveTimer=null;
+let studioFormatting=false;
+let studioPreviewVisible=false;
+let studioPreviewMode="document";
+let studioPreviewUrl="";
+let studioPreviewSequence=0;
+let studioPreviewTimer=null;
+let studioMergeView=null;
+const editorToolbar=centerNode("div","studio-editor-toolbar");editorToolbar.id="studio-editor-toolbar";
+editorToolbar.append(studioAction("Projet","LayoutDashboard",()=>showSideView("project")),studioAction("Formater","FileCode",()=>formatEditorDocument()),studioAction("Comparer","GitCompare",()=>openStudioCompare()),studioAction("Aperçu","Eye",()=>openDocumentPreview()),studioAction("Marquer la ligne","BookOpen",toggleStudioBookmark));
+$("center").insertBefore(editorToolbar,$("breadcrumbs"));
+$("editor-area").insertAdjacentHTML("beforeend",`<section id="studio-preview" class="studio-preview hidden" aria-label="Aperçu du document"><div class="studio-preview-header"><b id="studio-preview-title">Aperçu</b><div><button type="button" id="studio-preview-refresh" aria-label="Actualiser l’aperçu">↻</button><button type="button" id="studio-preview-expand" aria-label="Agrandir ou réduire l’aperçu">⛶</button><button type="button" id="studio-preview-close" aria-label="Fermer l’aperçu">×</button></div></div><div class="studio-preview-address"><input id="studio-preview-url" type="url" aria-label="Adresse du serveur local" placeholder="http://localhost:5173"><button type="button" id="studio-preview-go">Ouvrir</button></div><p id="studio-preview-message" class="studio-muted" role="status"></p><article id="studio-markdown-preview" class="studio-markdown"></article><iframe id="studio-web-preview" title="Aperçu local isolé" sandbox="allow-scripts allow-forms" referrerpolicy="no-referrer" class="hidden"></iframe></section>`);
+document.body.insertAdjacentHTML("beforeend",`<dialog id="studio-compare-dialog" class="studio-compare-dialog" aria-labelledby="studio-compare-title"><div class="center-dialog-head"><div><h2 id="studio-compare-title">Comparer le document</h2><p id="studio-compare-file" class="studio-muted"></p></div><div class="studio-actions"><select id="studio-compare-base" aria-label="Version de référence"><option value="saved">Version enregistrée</option><option value="git">Dernier commit Git (HEAD)</option></select><button type="button" id="studio-compare-close">Fermer</button></div></div><div class="studio-compare-labels"><span>Version de référence</span><span>Document actuel · lecture seule</span></div><div id="studio-merge-host"></div></dialog>`);
+const editorSettings=document.createElement("section");editorSettings.className="settings-card";
+editorSettings.setAttribute("aria-labelledby","studio-editor-settings-title");
+editorSettings.innerHTML=`<h3 id="studio-editor-settings-title">Éditeur et apparence</h3><p class="settings-help">Ces réglages sont appliqués immédiatement après enregistrement, sans redémarrage.</p><div class="settings-number-grid"><label>Taille du texte<input type="number" id="studio-font-size" min="10" max="24" value="13" required></label><label>Indentation<select id="studio-tab-size"><option value="2">2 espaces</option><option value="4" selected>4 espaces</option><option value="8">8 espaces</option></select></label></div><label class="center-code-label">Thème<select id="studio-theme"><option value="original">Sombre original</option><option value="midnight">Minuit</option></select></label><label class="setting-toggle"><span><b>Retour à la ligne visuel</b><small>Affiche les longues lignes sans défilement horizontal.</small></span><input type="checkbox" role="switch" id="studio-word-wrap"></label><label class="setting-toggle"><span><b>Enregistrement automatique</b><small>Enregistre le fichier actif deux secondes après la dernière modification.</small></span><input type="checkbox" role="switch" id="studio-auto-save"></label><label class="setting-toggle"><span><b>Formater à l’enregistrement</b><small>Prettier pour JS, TS, JSON, CSS, HTML, Vue, Markdown et YAML. Une erreur de syntaxe n’empêche pas de sauvegarder le texte.</small></span><input type="checkbox" role="switch" id="studio-format-save"></label><label class="setting-toggle"><span><b>Réduire les animations</b><small>Limite les transitions et mouvements dans l’interface.</small></span><input type="checkbox" role="switch" id="studio-reduced-motion"></label><button type="button" id="studio-editor-settings-save" class="primary">Enregistrer l’éditeur et l’apparence</button><p id="studio-editor-settings-message" class="settings-help" role="status"></p>`;
+$("settings-view").insertBefore(editorSettings,$("settings-message"));
+function applyStudioEditorPreferences(value) {
+    studioEditorPreferences={...studioEditorPreferences,...value};
+    code.configure(studioEditorPreferences);
+    document.documentElement.dataset.studioTheme=studioEditorPreferences.theme;
+    document.documentElement.classList.toggle("studio-reduced-motion",studioEditorPreferences.reducedMotion);
+    $("studio-font-size").value=studioEditorPreferences.fontSize;
+    $("studio-tab-size").value=String(studioEditorPreferences.tabSize);
+    $("studio-theme").value=studioEditorPreferences.theme;
+    for(const [id,key]of[["studio-word-wrap","wordWrap"],["studio-auto-save","autoSave"],["studio-format-save","formatOnSave"],["studio-reduced-motion","reducedMotion"]])$(id).checked=studioEditorPreferences[key];
+}
+api.editorPreferences().then(applyStudioEditorPreferences).catch(()=>{});
+$("studio-editor-settings-save").onclick=async()=>{
+    if(!$("studio-font-size").reportValidity())return;
+    const value={fontSize:Number($("studio-font-size").value),tabSize:Number($("studio-tab-size").value),theme:$("studio-theme").value,wordWrap:$("studio-word-wrap").checked,autoSave:$("studio-auto-save").checked,formatOnSave:$("studio-format-save").checked,reducedMotion:$("studio-reduced-motion").checked};
+    try{applyStudioEditorPreferences(await api.editorPreferences("save",value));$("studio-editor-settings-message").textContent="Éditeur et apparence enregistrés.";}
+    catch(error){$("studio-editor-settings-message").textContent=error.message;}
+};
+async function formatEditorDocument() {
+    const tab=currentTab();if(!tab||tab.kind==="asset"||studioFormatting)return false;
+    const before=code.value;studioFormatting=true;
+    try {
+        const result=await api.formatDocument({file:tab.path,text:before,tabSize:studioEditorPreferences.tabSize});
+        if(currentTab()!==tab||code.value!==before){lspStatus("Formatage annulé : le document a changé pendant la requête.");return false;}
+        if(!result.changed){lspStatus("Document déjà formaté.");return true;}
+        const selected=code.selectionStart;
+        code.view.dispatch({changes:{from:0,to:code.view.state.doc.length,insert:result.text},selection:{anchor:Math.min(selected,result.text.length)},userEvent:"input.format"});
+        lspSyncTabFromEditor(tab);renderTabs();lspScheduleSync();lspStatus("Document formaté avec Prettier · Ctrl+Z pour annuler.");return true;
+    }catch(error){lspStatus(`Formatage : ${error.message}`);return false;}
+    finally{studioFormatting=false;}
+}
+async function saveAllStudioFiles() {
+    let count=0;
+    for(const tab of ui.tabs.filter(tab=>tab.dirty&&tab.kind!=="asset")) {
+        const snapshot=tab.content;
+        try{await api.writeFile(tab.path,tab.eol==="\r\n"?snapshot.replace(/\n/g,"\r\n"):snapshot,{encoding:tab.encoding||"utf8",bom:tab.bom===true});tab.saved=snapshot;tab.dirty=tab.content!==snapshot;count++;}
+        catch(error){lspStatus(`Enregistrement de ${tab.path} : ${error.message}`);}
+    }
+    renderTabs();scheduleGitRefresh();lspStatus(`${count} fichier(s) enregistré(s).`);
+}
+function closeDocumentPreview() {
+    studioPreviewVisible=false;studioPreviewSequence++;
+    $("studio-preview").classList.add("hidden");$("editor-area").classList.remove("studio-preview-open","studio-preview-wide");
+    $("studio-web-preview").removeAttribute("src");
+    api.localPreview("stop").catch(()=>{});
+}
+async function openDocumentPreview() {
+    studioPreviewMode="document";
+    studioPreviewVisible=true;$("studio-preview").classList.remove("hidden");$("editor-area").classList.add("studio-preview-open");
+    await updateDocumentPreview();
+}
+async function updateDocumentPreview() {
+    if(!studioPreviewVisible||studioPreviewMode!=="document")return;
+    const sequence=++studioPreviewSequence;
+    const tab=currentTab();
+    $("studio-preview-message").textContent="";
+    $("studio-preview-title").textContent=tab?.path.split("/").pop()||"Aperçu local";
+    $("studio-markdown-preview").classList.add("hidden");$("studio-web-preview").classList.add("hidden");
+    if(!tab){$("studio-preview-message").textContent="Ouvre un fichier Markdown ou HTML. Pour une application web, saisis l’adresse du serveur local ci-dessus.";return;}
+    if(/\.(md|markdown)$/i.test(tab.path)) {
+        $("studio-web-preview").removeAttribute("src");
+        $("studio-markdown-preview").innerHTML=window.StudioVendor.markdown(tab.content);
+        $("studio-markdown-preview").classList.remove("hidden");return;
+    }
+    if(/\.html?$/i.test(tab.path)) {
+        if(tab.dirty){$("studio-preview-message").textContent="Enregistre le fichier HTML pour actualiser l’aperçu. Les chemins relatifs sont servis depuis ton projet.";return;}
+        try{const result=await api.localPreview("start",{file:tab.path});if(sequence!==studioPreviewSequence)return;studioPreviewUrl=result.url;$("studio-preview-url").value=result.url;$("studio-web-preview").src=result.url;$("studio-web-preview").classList.remove("hidden");}
+        catch(error){if(sequence===studioPreviewSequence)$("studio-preview-message").textContent=error.message;}
+        return;
+    }
+    $("studio-preview-message").textContent="L’aperçu documentaire prend en charge Markdown et HTML. Pour Vite, React ou un autre serveur, lance le script de développement et saisis son adresse locale.";
+}
+$("studio-preview-close").onclick=closeDocumentPreview;
+$("studio-preview-expand").onclick=()=>$("editor-area").classList.toggle("studio-preview-wide");
+$("studio-preview-refresh").onclick=()=>{if(studioPreviewMode==="document")updateDocumentPreview();else if(studioPreviewUrl)$("studio-web-preview").src=studioPreviewUrl;};
+$("studio-preview-go").onclick=()=>openLocalBrowser($("studio-preview-url").value);
+$("studio-preview-url").onkeydown=event=>{if(event.key==="Enter"){event.preventDefault();$("studio-preview-go").click();}};
+$("studio-markdown-preview").onclick=async event=>{
+    const link=event.target.closest("a");if(!link)return;event.preventDefault();
+    const href=link.getAttribute("href")||"";
+    if(/^https?:\/\//i.test(href)){await api.openExternal(href);return;}
+    if(href.startsWith("#")){const heading=[...$("studio-markdown-preview").querySelectorAll("h1,h2,h3,h4")].find(node=>node.textContent.toLowerCase().replace(/\s+/g,"-")===href.slice(1));heading?.scrollIntoView({block:"nearest"});return;}
+    const tab=currentTab();if(!tab)return;
+    const segments=tab.path.split("/");segments.pop();
+    for(const part of href.split("#")[0].split("/")){if(part==="..")segments.pop();else if(part&&part!==".")segments.push(part);}
+    if(segments.length)await openFile(segments.join("/"));
+};
+async function openStudioCompare() {
+    if(!currentTab())return;
+    if(currentTab().kind==="asset"){lspStatus("La comparaison est disponible pour les documents texte.");return;}
+    $("studio-compare-dialog").showModal();await renderStudioCompare();
+}
+async function renderStudioCompare() {
+    const tab=currentTab();if(!tab)return;
+    const before=$("studio-compare-base").value==="git"?String(await api.gitShowHead(tab.path)):tab.saved;
+    if(studioMergeView)studioMergeView.destroy();$("studio-merge-host").replaceChildren();
+    $("studio-compare-file").textContent=tab.path;
+    const CM=window.CM;
+    const extensions=[CM.basicSetup,CM.EditorView.editable.of(false),CM.EditorState.readOnly.of(true),CM.oneDark,CM.languageFor(extKind(tab.path))];
+    studioMergeView=new CM.MergeView({a:{doc:before,extensions},b:{doc:tab.content,extensions},parent:$("studio-merge-host"),highlightChanges:true,gutter:true,collapseUnchanged:{margin:4,minSize:12}});
+}
+$("studio-compare-base").onchange=()=>renderStudioCompare().catch(error=>lspStatus(error.message));
+$("studio-compare-close").onclick=()=>$("studio-compare-dialog").close();
+$("studio-compare-dialog").addEventListener("close",()=>{studioMergeView?.destroy();studioMergeView=null;});
+function studioWorkspaceChanged() {
+    closeDocumentPreview();studioRuns=[];studioSelectedRun=null;
+    if(ui.sideView==="project")refreshProjectStudio();
+}
+code.addEventListener("input",()=>{
+    if(studioPreviewVisible&&studioPreviewMode==="document"){clearTimeout(studioPreviewTimer);studioPreviewTimer=setTimeout(updateDocumentPreview,220);}
+    clearTimeout(studioAutoSaveTimer);
+    if(studioEditorPreferences.autoSave){const tab=currentTab();studioAutoSaveTimer=setTimeout(()=>{if(tab&&currentTab()===tab&&tab.dirty)saveCurrent();},2000);}
+});
+window.addEventListener("keydown",event=>{
+    if(document.querySelector("dialog[open]")||(!event.ctrlKey&&!event.metaKey))return;
+    const key=event.key.toLowerCase();let action=null;
+    if(event.shiftKey&&key==="d")action=()=>showSideView("project");
+    else if(event.shiftKey&&key==="s")action=saveAllStudioFiles;
+    else if(event.shiftKey&&key==="v")action=()=>studioPreviewVisible?closeDocumentPreview():openDocumentPreview();
+    else if(key==="f2")action=toggleStudioBookmark;
+    if(action){event.preventDefault();event.stopImmediatePropagation();Promise.resolve(action()).catch(error=>lspStatus(error.message));}
+},true);
+const welcomeCockpit=studioQuick("Cockpit du projet","Commandes, qualité, documentation et outils locaux","LayoutDashboard",()=>showSideView("project"));
+$("editor-welcome").querySelector(".welcome-grid")?.prepend(welcomeCockpit);
+/* Navigation dans le document : symboles LSP et titres Markdown. */
+let studioSymbolItems=[];
+let studioSymbolPath=null;
+let studioSymbolSequence=0;
+document.body.insertAdjacentHTML("beforeend",`<dialog id="studio-symbol-dialog" class="center-dialog" aria-labelledby="studio-symbol-title"><div class="center-dialog-head"><h2 id="studio-symbol-title">Naviguer dans le document</h2><button type="button" id="studio-symbol-close">Fermer</button></div><p id="studio-symbol-file" class="studio-muted"></p><input type="search" id="studio-symbol-search" class="studio-symbol-search" placeholder="Rechercher un symbole ou un titre…" aria-label="Filtrer les symboles"><p id="studio-symbol-status" class="studio-muted" role="status"></p><div id="studio-symbol-list" class="studio-symbol-list"></div></dialog>`);
+editorToolbar.append(studioAction("Symboles","FileCode",openStudioSymbols));
+function renderStudioSymbols() {
+    const query=$("studio-symbol-search").value.toLocaleLowerCase("fr").trim();
+    const items=studioSymbolItems.filter(item=>`${item.name} ${item.kind}`.toLocaleLowerCase("fr").includes(query));
+    const list=$("studio-symbol-list");list.replaceChildren();
+    for(const item of items) {
+        const button=centerButton("",async()=>{$("studio-symbol-dialog").close();if(currentTab()?.path!==studioSymbolPath)await openFile(studioSymbolPath);goToLine(item.line+1);});
+        button.className="studio-symbol-item";button.style.paddingLeft=`${12+Math.min(6,item.depth)*12}px`;
+        const text=centerNode("span","");text.append(centerNode("b","",item.name),centerNode("small","",item.kind+(item.detail?` · ${item.detail}`:"")));
+        button.append(text,centerNode("span","studio-muted",`L${item.line+1}`));list.append(button);
+    }
+    if(!items.length)list.append(centerNode("p","studio-muted","Aucun symbole ne correspond."));
+}
+async function openStudioSymbols() {
+    const tab=currentTab();if(!tab){lspStatus("Ouvre un document pour afficher ses symboles.");return;}
+    const sequence=++studioSymbolSequence;studioSymbolPath=tab.path;studioSymbolItems=[];
+    $("studio-symbol-search").value="";$("studio-symbol-file").textContent=tab.path;$("studio-symbol-status").textContent="Lecture de la structure du document…";$("studio-symbol-list").replaceChildren();
+    $("studio-symbol-dialog").showModal();$("studio-symbol-search").focus();
+    try {
+        let items=[];
+        if(/\.(md|markdown)$/i.test(tab.path))tab.content.split("\n").forEach((line,index)=>{const match=/^(#{1,6})\s+(.+)/.exec(line);if(match)items.push({name:match[2],line:index,depth:match[1].length-1,kind:"titre",detail:""});});
+        else if(lspEnabledFor(tab.path))items=await api.documentSymbols(tab.path,tab.content);
+        else {$("studio-symbol-status").textContent="La navigation structurée est disponible pour JS, TS et Markdown.";return;}
+        if(sequence!==studioSymbolSequence||!$("studio-symbol-dialog").open)return;
+        studioSymbolItems=items.slice(0,800);$("studio-symbol-status").textContent=`${studioSymbolItems.length} symbole(s) repéré(s).`;renderStudioSymbols();
+    }catch(error){if(sequence===studioSymbolSequence)$("studio-symbol-status").textContent=`Symboles indisponibles : ${error.message}`;}
+}
+$("studio-symbol-search").oninput=renderStudioSymbols;
+$("studio-symbol-search").onkeydown=event=>{if(event.key==="ArrowDown"){event.preventDefault();$("studio-symbol-list").querySelector("button")?.focus();}if(event.key==="Enter"){$("studio-symbol-list").querySelector("button")?.click();}};
+$("studio-symbol-list").onkeydown=event=>{if(!["ArrowDown","ArrowUp"].includes(event.key))return;const buttons=[...$("studio-symbol-list").querySelectorAll("button")];const index=buttons.indexOf(document.activeElement);if(index<0)return;event.preventDefault();buttons[(index+(event.key==="ArrowDown"?1:buttons.length-1))%buttons.length]?.focus();};
+$("studio-symbol-close").onclick=()=>$("studio-symbol-dialog").close();
+$("studio-symbol-dialog").addEventListener("close",()=>{studioSymbolSequence++;});
+window.addEventListener("keydown",event=>{if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.key.toLowerCase()==="o"&&!document.querySelector("dialog[open]")){event.preventDefault();event.stopImmediatePropagation();openStudioSymbols();}},true);
+/* Fichiers non textuels : aperçu sans écriture et application associée. */
+const studioAssetView=centerNode("section","studio-asset-view hidden");studioAssetView.id="studio-asset-view";$("editor-area").append(studioAssetView);
+function showStudioAsset(tab) {
+    const asset=tab?.kind==="asset"?tab.asset:null;
+    studioAssetView.classList.toggle("hidden",!asset);studioAssetView.replaceChildren();
+    if(!asset)return;
+    $("editor").classList.add("hidden");$("editor-welcome").classList.add("hidden");
+    const header=centerNode("div","studio-asset-header");header.append(centerNode("span","studio-pill","Aperçu · lecture seule"),centerNode("h2","",asset.name),centerNode("p","studio-muted",`${formatBytes(asset.size)} · ${asset.mime} · ${new Date(asset.modifiedAt).toLocaleString("fr-FR")}`));
+    header.append(studioAction("Ouvrir dans l’application associée","ExternalLink",async()=>{const error=await api.openFileInApp(tab.path);if(error)lspStatus(error);}));studioAssetView.append(header);
+    if(asset.dataUrl&&["image","audio","video"].includes(asset.kind)) {
+        const media=document.createElement(asset.kind==="image"?"img":asset.kind);media.src=asset.dataUrl;if(asset.kind==="image")media.alt=asset.name;else media.controls=true;
+        media.className="studio-asset-media";studioAssetView.append(media);
+    }else {
+        studioAssetView.append(centerNode("p","studio-muted",asset.kind==="text-preview"?"Extrait du fichier volumineux, non modifiable ici. Ouvre-le dans l’application associée pour accéder à son contenu complet.":"Ce format n’est pas édité comme du texte pour préserver ses données. Voici un aperçu des octets ; utilise son application associée pour le modifier."));
+        studioAssetView.append(centerNode("pre","studio-asset-bytes",asset.preview));
+        if(asset.truncated)studioAssetView.append(centerNode("p","studio-muted","Aperçu limité aux 16 premiers Ko."));
+    }
+}
+
+/* Recherches et captures restent en arrière-plan, indépendamment de la saisie. */
+const researchTab=centerNode("button","","Internet");researchTab.type="button";researchTab.dataset.studioTab="research";researchTab.setAttribute("role","tab");researchTab.setAttribute("aria-selected","false");researchTab.tabIndex=-1;$("project-studio").querySelector(".studio-tabs").append(researchTab);researchTab.onclick=()=>{setStudioTab("research");refreshStudioResearch();};
+researchTab.onkeydown=event=>{if(!["ArrowLeft","ArrowRight"].includes(event.key))return;event.preventDefault();const buttons=[...document.querySelectorAll("[data-studio-tab]")];buttons[(buttons.indexOf(researchTab)+(event.key==="ArrowRight"?1:buttons.length-1))%buttons.length].click();};
+const researchPage=centerNode("section","hidden");researchPage.dataset.studioPage="research";
+researchPage.innerHTML=`<div class="studio-section-heading"><div><h2>Rechercher sans interrompre le travail.</h2><p class="studio-muted">Les résultats restent disponibles pendant que tu écris à l’agent ou modifies tes fichiers. Les extraits ne remplacent pas la consultation des sources.</p></div></div><form id="studio-research-form" class="center-filters"><input type="search" id="studio-research-query" required maxlength="1000" placeholder="Chercher une documentation ou une réponse sur le web…" aria-label="Recherche Internet"><button type="submit" class="primary">Rechercher en arrière-plan</button></form><div id="studio-research-jobs" class="studio-research-jobs"></div><article class="studio-card"><h3>Capturer une page web</h3><p class="studio-muted">Ouvre Chrome ou Edge sans fenêtre visible, relève le texte et les erreurs de console et enregistre un PNG dans .frst/screenshots. Une capture est distincte de son analyse par le modèle.</p><div class="center-filters"><input type="url" id="studio-capture-url" placeholder="http://localhost:5173" aria-label="Page à capturer"><button type="button" id="studio-capture-button">Prendre une capture</button></div><p id="studio-capture-status" class="studio-muted" role="status"></p><div id="studio-capture-results" class="studio-link-list"></div></article>`;
+$("project-studio").append(researchPage);
+async function refreshStudioResearch(){renderStudioResearch(await api.webResearch("list"));}
+function renderStudioResearch(jobs) {
+    const list=$("studio-research-jobs");list.replaceChildren();
+    for(const job of jobs.slice().reverse()) {
+        const card=centerNode("article","studio-card");card.append(centerNode("span","studio-pill",({running:"En cours",done:"Terminée",failed:"Échec",stopped:"Arrêtée",denied:"Désactivée"})[job.status]||job.status),centerNode("h3","",job.query));
+        if(job.status==="running")card.append(centerButton("Arrêter la recherche",async()=>{await api.webResearch("cancel",{id:job.id});await refreshStudioResearch();}));
+        if(job.error)card.append(centerNode("p","studio-muted",job.error));
+        for(const source of job.result?.results||[]) {
+            const row=centerNode("div","studio-research-source");row.append(centerButton(source.title||source.url,()=>api.openExternal(source.url)),centerNode("p","studio-muted",source.snippet));card.append(row);
+        }
+        if(job.status==="done"&&!job.result?.results?.length)card.append(centerNode("p","studio-muted",job.result?.message||"Aucun résultat exploitable."));
+        list.append(card);
+    }
+    if(!jobs.length)list.append(centerNode("p","studio-empty","Aucune recherche pour l’instant."));
+}
+$("studio-research-form").onsubmit=async event=>{event.preventDefault();try{const result=await api.webResearch("start",{query:$("studio-research-query").value});if(result.denied)$("studio-message").textContent=result.message;await refreshStudioResearch();}catch(error){$("studio-message").textContent=error.message;}};
+$("studio-capture-button").onclick=async()=>{
+    $("studio-capture-button").disabled=true;$("studio-capture-status").textContent="Capture en cours. Si un accord est nécessaire, la demande apparaît dans le panneau Agent.";
+    try {
+        const result=await api.captureWebPage({url:$("studio-capture-url").value,full_page:false});
+        $("studio-capture-status").textContent=result.message;
+        if(result.screenshot)$("studio-capture-results").prepend(centerButton(`${result.title||"Capture"} · ${result.screenshot}`,async()=>{showSideView("explorer");await openFile(result.screenshot);}));
+    }catch(error){$("studio-capture-status").textContent=error.message;}
+    finally{$("studio-capture-button").disabled=false;}
+};
+api.onEvent(channel=>{if(channel==="webResearch")refreshStudioResearch().catch(()=>{});});
+
+/* Paramètres de capture et mises à jour de la version installée. */
+const captureSettings=document.createElement("section");captureSettings.className="settings-card";
+captureSettings.innerHTML=`<h3>Captures et navigateur de l’agent</h3><p class="settings-help">Autorise l’outil browse à ouvrir une page en arrière-plan et à sauvegarder son rendu. L’outil view_image peut ensuite proposer de transmettre une image au modèle pour l’examiner. La prise en charge de la vision dépend du modèle et du fournisseur.</p><label class="center-code-label">Captures de pages<select id="studio-browser-permission"><option value="ask">Demander l’accord</option><option value="allow">Autoriser les captures de pages</option><option value="deny">Désactiver les captures</option></select></label><p id="studio-browser-permission-status" class="settings-help" role="status"></p>`;
+$("settings-view").insertBefore(captureSettings,$("settings-message"));
+api.browserPermission().then(value=>{$("studio-browser-permission").value=value;}).catch(()=>{});
+$("studio-browser-permission").onchange=async()=>{try{await api.browserPermission("save",$("studio-browser-permission").value);$("studio-browser-permission-status").textContent="Permission de capture enregistrée.";}catch(error){$("studio-browser-permission-status").textContent=error.message;}};
+const updateSettings=document.createElement("section");updateSettings.className="settings-card";
+updateSettings.innerHTML=`<h3>Application et mises à jour</h3><p id="studio-app-version" class="settings-help"></p><label class="setting-toggle"><span><b>Mises à jour automatiques</b><small>Vérifier et télécharger les versions publiées. Sur Windows installé, une mise à jour téléchargée est appliquée à la fermeture. Sur Mac, la vérification est automatique et l’installation reste manuelle. Les projets et réglages restent dans leurs dossiers.</small></span><input type="checkbox" role="switch" id="studio-automatic-updates"></label><p id="studio-update-message" class="settings-help" role="status"></p><progress id="studio-update-progress" max="100" value="0" class="hidden"></progress><div class="studio-actions"><button type="button" id="studio-update-check">Vérifier maintenant</button><button type="button" id="studio-update-download" class="hidden">Télécharger la mise à jour</button><button type="button" id="studio-update-install" class="primary hidden">Enregistrer et redémarrer</button></div><p class="settings-help">Source prévue : versions GitHub de extraopaa/francestudents-ide. Les nouvelles versions doivent être publiées avec leur installateur et leurs métadonnées de mise à jour. Aucune version n’est publiée automatiquement par cette interface.</p>`;
+$("settings-view").insertBefore(updateSettings,$("settings-message"));
+function renderStudioUpdates(data){$("studio-app-version").textContent=`Version de l’application : ${data.version}`;$("studio-automatic-updates").checked=data.automatic;$("studio-update-message").textContent=data.message;$("studio-update-progress").value=data.progress;$("studio-update-progress").classList.toggle("hidden",data.status!=="downloading");$("studio-update-check").disabled=["unavailable","checking","downloading"].includes(data.status);$("studio-update-download").classList.toggle("hidden",(data.status!=="available"||(data.canInstall===false&&!data.downloadUrl)));$("studio-update-install").classList.toggle("hidden",data.status!=="downloaded");}
+api.updates().then(renderStudioUpdates).catch(()=>{});
+$("studio-automatic-updates").onchange=()=>api.updates("automatic",{enabled:$("studio-automatic-updates").checked}).then(renderStudioUpdates).catch(error=>{$("studio-update-message").textContent=error.message;});
+for(const action of ["check","download","install"])$("studio-update-"+action).onclick=async()=>{try{if(action==="install"){await saveAllStudioFiles();if(ui.tabs.some(tab=>tab.dirty))throw new Error("Certains fichiers n’ont pas pu être enregistrés. Enregistre-les avant de redémarrer.");}renderStudioUpdates(await api.updates(action));}catch(error){$("studio-update-message").textContent=error.message;}};
+api.onEvent((channel,data)=>{if(channel==="appUpdate")renderStudioUpdates(data);});
+
+/* Actions explicites pour gérer le contexte de l’agent. */
+const contextActions=centerNode("section","starter-context");
+contextActions.setAttribute("aria-label","Gérer la conversation");
+contextActions.append(centerNode("h3","","Conversation"));
+const contextButtons=centerNode("div","starter-context-actions");
+for(const [label,description,icon,command] of [
+    ["Voir le contexte","Consulter le résumé du projet","BookOpen","/resume"],
+    ["Compacter","Alléger la conversation","Command","/compact"]
+]){
+    const button=studioAction("",icon,()=>{input.value=command;autosizeInput();input.focus();});
+    button.setAttribute("aria-label",label);
+    button.title=description;
+    const text=centerNode("span","starter-context-text");
+    text.append(centerNode("b","",label),centerNode("small","",description));
+    button.append(text);contextButtons.append(button);
+}
+contextActions.append(contextButtons);
+$("agent-starter")?.append(contextActions);
+for(const [index,button] of [...document.querySelectorAll(".starter-prompts button")].entries()){
+    const slot=button.querySelector("span"),icon=studioIcon(["Search","GitCompareArrows","Check"][index]);
+    if(slot&&icon)slot.replaceChildren(icon);
+}
+
+/* A bounded startup check; downloads continue without blocking the editor. */
+async function runStartupUpdateCheck() {
+    const overlay=$("startup-loading"),message=$("startup-message"),appRoot=$("app");
+    const primary=$("startup-update-now"),progress=$("startup-update-progress"),later=$("startup-continue"),openButton=$("startup-update-open");
+    let finished=false,deadline=null,finishTimer=null,current=null,off=null;
+    appRoot.inert=true;
+    const close=()=>{if(finished)return;finished=true;clearTimeout(deadline);clearTimeout(finishTimer);overlay.hidden=true;appRoot.inert=false;if(overlay.contains(document.activeElement))input.focus();};
+    const offer=data=>{
+        current=data;
+        const available=["available","downloading","downloaded"].includes(data.status);
+        openButton.classList.toggle("hidden",!available);
+        if(finished)return;
+        overlay.querySelector(".startup-track").classList.toggle("hidden",data.status!=="checking");
+        if(available){
+            clearTimeout(deadline);clearTimeout(finishTimer);
+            $("startup-heading").textContent=data.status==="downloaded"?"La mise à jour est prête.":`Nouvelle version ${data.availableVersion||"disponible"}`;
+            later.textContent="Plus tard";
+            primary.classList.remove("hidden");
+            primary.textContent=data.canInstall===false?"Télécharger l’installateur":data.status==="downloaded"?"Redémarrer et installer":data.status==="downloading"?"Téléchargement en cours…":"Mettre à jour maintenant";
+            primary.disabled=data.status==="downloading";
+            progress.classList.toggle("hidden",data.status!=="downloading");progress.value=data.progress||0;
+            message.textContent=data.status==="downloading"?`Téléchargement : ${Math.round(data.progress||0)} %`:
+                data.status==="downloaded"?"Enregistre ton travail pour redémarrer et installer la nouvelle version.":data.canInstall===false?data.manualPlatform==="darwin"?data.message:"Cette version portable ne s’installe pas automatiquement. Télécharge l’installateur Windows pour passer à la nouvelle version.":"La nouvelle version est disponible. Tu peux l’installer maintenant ou continuer dans l’IDE.";
+        }else if(data.status==="error"){
+            message.textContent=data.message;progress.classList.add("hidden");primary.classList.remove("hidden");primary.disabled=false;primary.textContent="Réessayer";later.textContent="Ouvrir l’IDE";
+        }else if(["current","unavailable"].includes(data.status)){
+            message.textContent=data.message;primary.classList.add("hidden");progress.classList.add("hidden");
+            clearTimeout(finishTimer);finishTimer=setTimeout(close,650);
+        }
+    };
+    later.onclick=close;later.focus();
+    openButton.onclick=()=>{finished=false;overlay.hidden=false;appRoot.inert=true;offer(current);primary.focus();};
+    off=api.onEvent((channel,data)=>{if(channel==="appUpdate")offer(data);});
+    window.addEventListener("unload",()=>off?.(),{once:true});
+    primary.onclick=async()=>{
+        primary.disabled=true;
+        try{
+            if(current?.canInstall===false){if(current.downloadUrl)await api.updates("download");else await api.openExternal("https://github.com/extraopaa/francestudents-ide/releases/latest");close();return;}
+            if(current?.status==="downloaded"){
+                await saveAllStudioFiles();
+                if(ui.tabs.some(tab=>tab.dirty))throw new Error("Enregistre tes fichiers avant de redémarrer.");
+                await api.updates("install");return;
+            }
+            if(current?.status==="error"){offer(await api.updates("check",{startup:true}));return;}
+            offer(await api.updates("download"));
+        }catch(error){message.textContent=error.message;}
+        finally{primary.disabled=current?.status==="downloading";}
+    };
+    const start=Date.now();
+    try {
+        const result=await Promise.race([
+            api.updates("check",{startup:true}),
+            new Promise(resolve=>{deadline=setTimeout(()=>resolve({status:"timeout",message:"La vérification continue en arrière-plan. Ouverture de l’IDE…"}),8000);})
+        ]);
+        if(finished)return;
+        if(["available","downloading","downloaded"].includes(current?.status))return;
+        if(["available","downloading","downloaded"].includes(result.status)){offer(result);return;}
+        current=result;
+        message.textContent=result.status==="unavailable"?"Mode développement : ouverture de l’IDE…":result.message;
+    } catch {
+        if(!finished)message.textContent="Vérification indisponible. Ouverture de l’IDE…";
+    } finally {
+        clearTimeout(deadline);
+        if(!finished&&!["available","downloading","downloaded"].includes(current?.status))finishTimer=setTimeout(close,Math.max(650,1100-(Date.now()-start)));
+    }
+}
+runStartupUpdateCheck().catch(()=>{$("startup-loading").hidden=true;$("app").inert=false;});
+/* Real local browser, presented as an editor tab. */
+let localBrowserState=null,localBrowserActive=false,localBrowserBoundsFrame=0;
+const localBrowserPanel=document.createElement("section");
+localBrowserPanel.id="local-browser-panel";localBrowserPanel.className="local-browser-panel hidden";
+localBrowserPanel.innerHTML=`<div class="local-browser-toolbar"><button id="local-browser-back" title="Page précédente" aria-label="Page précédente">←</button><button id="local-browser-forward" title="Page suivante" aria-label="Page suivante">→</button><button id="local-browser-reload" title="Actualiser" aria-label="Actualiser">↻</button><form id="local-browser-form"><input id="local-browser-address" aria-label="Adresse du navigateur local" placeholder="http://localhost:5173" spellcheck="false"><button type="submit">Ouvrir</button></form><button id="local-browser-external" title="Ouvrir dans le navigateur système" aria-label="Ouvrir dans le navigateur système">↗</button><button id="local-browser-devtools" title="Outils de développement" aria-label="Outils de développement">⋯</button></div><div id="local-browser-status" role="status"></div><div id="local-browser-host"><div id="local-browser-error" class="hidden"><h2>Le site n’est pas accessible</h2><p></p><button id="local-browser-retry">Réessayer</button></div></div>`;
+$("editor-area").append(localBrowserPanel);
+function syncLocalBrowserBounds(){
+    cancelAnimationFrame(localBrowserBoundsFrame);
+    localBrowserBoundsFrame=requestAnimationFrame(()=>{
+        const host=$("local-browser-host"),rect=host.getBoundingClientRect();
+        const modal=Boolean(document.querySelector("dialog[open]"))||["connection-guide","palette","context-menu","model-menu"].some(id=>{const el=$(id);return el&&!el.classList.contains("hidden")&&el.checkVisibility();});
+        const visible=localBrowserActive&&!localBrowserPanel.classList.contains("hidden")&&host.checkVisibility()&&!modal&&!$("app").inert&&!document.querySelector('#startup-loading:not([hidden])');
+        api.localBrowser("bounds",{x:rect.x,y:rect.y,width:rect.width,height:rect.height,visible}).catch(()=>{});
+    });
+}
+function renderLocalBrowserState(data){
+    const changedUrl=localBrowserState?.url!==data.url;
+    localBrowserState=data;
+    if(changedUrl||document.activeElement!==$("local-browser-address"))$("local-browser-address").value=data.url;
+    $("local-browser-back").disabled=!data.canGoBack;$("local-browser-forward").disabled=!data.canGoForward;
+    $("local-browser-status").textContent=data.error?"Connexion impossible":data.loading?"Chargement du site…":"";
+    $("local-browser-error").classList.toggle("hidden",!data.error);$("local-browser-error").querySelector("p").textContent=data.error||"";
+    renderLocalBrowserTab();syncLocalBrowserBounds();
+}
+function renderLocalBrowserTab(){
+    $("local-browser-tab")?.remove();if(!localBrowserState)return;
+    const tab=document.createElement("div");tab.id="local-browser-tab";tab.className="tab"+(localBrowserActive?" active":"");tab.title=localBrowserState.url;tab.setAttribute("role","tab");tab.setAttribute("aria-selected",String(localBrowserActive));
+    const title=document.createElement("span");title.textContent="◎ "+(localBrowserState.title||"Navigateur local");
+    const close=document.createElement("button");close.className="close";close.textContent="×";close.title="Fermer le navigateur local";
+    close.onclick=event=>{event.stopPropagation();closeLocalBrowser();};tab.onclick=showLocalBrowser;
+    tab.append(title,close);$("tabs").append(tab);
+    if(localBrowserActive)for(const fileTab of $("tabs").querySelectorAll(".tab:not(#local-browser-tab)"))fileTab.classList.remove("active");
+}
+function showLocalBrowser(){
+    if(["project","settings","extensions"].includes(ui.sideView))showSideView("explorer");
+    closeDocumentPreview();localBrowserActive=true;$("app").classList.add("local-browser-active");localBrowserPanel.classList.remove("hidden");api.localBrowser("show").catch(()=>{});renderLocalBrowserTab();syncLocalBrowserBounds();
+}
+function hideLocalBrowser(){localBrowserActive=false;$("app").classList.remove("local-browser-active");localBrowserPanel.classList.add("hidden");api.localBrowser("hide").catch(()=>{});renderLocalBrowserTab();}
+function closeLocalBrowser(){hideLocalBrowser();localBrowserState=null;$("local-browser-tab")?.remove();api.localBrowser("close").catch(()=>{});renderTabs();}
+async function openLocalBrowser(url){
+    try{const checked=await api.localPreview("url",{url});showLocalBrowser();renderLocalBrowserState(await api.localBrowser("open",{url:checked.url}));}
+    catch(error){studioFeedback(error.message);}
+}
+window.frstBrowserTab=renderLocalBrowserTab;window.frstBrowserHide=hideLocalBrowser;
+$("local-browser-form").onsubmit=event=>{event.preventDefault();openLocalBrowser($("local-browser-address").value);};
+for(const action of ["back","forward","reload","devtools"])$("local-browser-"+action).onclick=()=>api.localBrowser(action).catch(error=>studioFeedback(error.message));
+$("local-browser-retry").onclick=()=>api.localBrowser("reload").catch(()=>{});
+$("local-browser-external").onclick=()=>api.openExternal(localBrowserState?.url,true).catch(error=>studioFeedback(error.message));
+api.onEvent((channel,data)=>{
+    if(channel==="localBrowser"){
+        if(data.command==="focus-address"){$("local-browser-address").focus();$("local-browser-address").select();return;}
+        if(data.command==="close"){closeLocalBrowser();return;}
+        if(localBrowserActive||localBrowserState)renderLocalBrowserState(data);
+    }
+    if(channel==="localBrowserOpen")openLocalBrowser(data.url);
+});
+new ResizeObserver(syncLocalBrowserBounds).observe($("editor-area"));
+new MutationObserver(syncLocalBrowserBounds).observe($("app"),{attributes:true,attributeFilter:["class","inert"]});
+new MutationObserver(syncLocalBrowserBounds).observe(document.body,{subtree:true,attributes:true,attributeFilter:["open"]});
+for(const id of ["connection-guide","palette","context-menu","model-menu"]){const el=$(id);if(el)new MutationObserver(syncLocalBrowserBounds).observe(el,{attributes:true,attributeFilter:["class"]});}
+window.addEventListener("resize",syncLocalBrowserBounds);
+document.addEventListener("keydown",event=>{
+    if(!localBrowserActive||!(event.ctrlKey||event.metaKey))return;
+    if(event.key.toLowerCase()==="l"){event.preventDefault();event.stopImmediatePropagation();$("local-browser-address").focus();$("local-browser-address").select();}
+    if(event.key.toLowerCase()==="w"){event.preventDefault();event.stopImmediatePropagation();closeLocalBrowser();}
+},true);
+document.addEventListener("click",event=>{
+    const link=event.target.closest("a[href]");if(!link)return;
+    try{const url=new URL(link.href);if(["http:","https:"].includes(url.protocol)&&["localhost","127.0.0.1"].includes(url.hostname)){event.preventDefault();event.stopImmediatePropagation();openLocalBrowser(url.href);}}catch{/* not a URL */}
+},true);
+/* ---------- Reprise d’une conversation Codex · Bêta ---------- */
+const conversationImportButton = document.createElement("button");
+conversationImportButton.type = "button";
+conversationImportButton.id = "conversation-import";
+conversationImportButton.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3H5a2 2 0 0 0-2 2v12l4-4h5M17 3v10m-4-4 4 4 4-4M13 18h8"/></svg><span>Importer Codex</span><span class="composer-beta">Bêta</span>';
+conversationImportButton.setAttribute("aria-label", "Importer une conversation Codex, bêta");
+conversationImportButton.title = "Continuer une conversation Codex avec une IA FranceStudent";
+$("composer-options").appendChild(conversationImportButton);
+
+const conversationImportDialog = document.createElement("dialog");
+conversationImportDialog.id = "conversation-import-dialog";
+conversationImportDialog.className = "conversation-import-dialog";
+conversationImportDialog.setAttribute("aria-labelledby", "conversation-import-title");
+conversationImportDialog.innerHTML = `<h2 id="conversation-import-title">Continuer une conversation Codex <small>Bêta</small></h2>
+<p>Ouvre le même projet dans FranceStudent, importe le contexte de ta conversation puis choisis l’IA avec laquelle continuer. Aucun fichier du projet n’est importé ou modifié.</p>
+<p id="conversation-import-project" class="settings-help"></p><button type="button" id="conversation-import-open-project">Ouvrir le dossier du projet</button>
+<label>Lien de partage Codex<input id="conversation-import-url" type="url" placeholder="https://chatgpt.com/s/cx_…" autocomplete="off"></label>
+<p class="settings-help">Un lien privé peut être inaccessible. Tu peux aussi utiliser /export dans Codex, sélectionner un export Markdown, JSON ou JSONL, ou coller le texte.</p>
+<div class="studio-actions"><button type="button" id="conversation-import-file">Choisir un export…</button><span id="conversation-import-source" class="settings-help"></span></div>
+<label>Ou coller la conversation / l’export<textarea id="conversation-import-text" rows="5" placeholder="Colle ici le texte ou le JSON de la conversation…"></textarea></label>
+<div class="studio-actions"><button type="button" id="conversation-import-preview">Analyser la conversation</button></div>
+<p id="conversation-import-status" role="status"></p><ul id="conversation-import-warnings" class="settings-help"></ul>
+<details id="conversation-import-result" class="hidden"><summary>Aperçu du début et de la fin de la conversation</summary><pre id="conversation-import-excerpt"></pre></details>
+<div class="conversation-import-choices"><label>IA pour continuer<select id="conversation-import-model"></select></label><label>Mode<select id="conversation-import-mode"><option value="agent">Agent sur le projet ouvert</option><option value="chat">Discussion</option></select></label></div>
+<p class="settings-help">Préparer la reprise crée une nouvelle conversation et joint le contexte au brouillon. Tu peux modifier ta demande avant de l’envoyer. Les images et pièces jointes d’origine ne sont pas transférées automatiquement.</p>
+<div class="studio-actions"><button type="button" id="conversation-import-close">Annuler</button><button type="button" id="conversation-import-apply" class="primary" disabled>Préparer la reprise</button></div>`;
+document.body.appendChild(conversationImportDialog);
+let conversationImportPreview = null;
+let conversationImportSequence = 0;
+let conversationImportWorking = false;
+
+function conversationImportControls(working) {
+    conversationImportWorking = working;
+    for (const id of ["url", "text", "file", "preview", "model", "mode", "open-project"]) $("conversation-import-" + id).disabled = working;
+    $("conversation-import-apply").disabled = working || !conversationImportPreview || !$("conversation-import-model").value;
+}
+function invalidateConversationImport() {
+    conversationImportPreview = null;
+    $("conversation-import-result").classList.add("hidden");
+    $("conversation-import-warnings").replaceChildren();
+    $("conversation-import-status").textContent = "";
+    conversationImportControls(false);
+}
+function renderConversationImportPreview(result) {
+    conversationImportPreview = result;
+    $("conversation-import-source").textContent = result.source;
+    $("conversation-import-status").textContent = `${result.messageCount} message(s) · ${result.chars.toLocaleString("fr-FR")} caractères. Vérifie l’aperçu avant de préparer la reprise.`;
+    const warnings = $("conversation-import-warnings"); warnings.replaceChildren();
+    for (const warning of result.warnings) { const item = document.createElement("li"); item.textContent = warning; warnings.appendChild(item); }
+    $("conversation-import-excerpt").textContent = result.excerpt.map(message => `${message.role === "user" ? "Vous" : message.role === "assistant" ? "Codex" : "Contexte"}\n${message.text}`).join("\n\n──────────\n\n");
+    $("conversation-import-result").classList.remove("hidden");
+    $("conversation-import-result").open = true;
+}
+async function analyzeConversationImport(action, payload) {
+    if (conversationImportWorking) return;
+    const sequence = ++conversationImportSequence;
+    invalidateConversationImport(); conversationImportControls(true);
+    $("conversation-import-status").textContent = "Lecture de la conversation…";
+    try {
+        const result = await api.importConversation(action, payload);
+        if (sequence !== conversationImportSequence) return;
+        if (result.canceled) { $("conversation-import-status").textContent = "Sélection annulée."; return; }
+        if (action === "file") { $("conversation-import-url").value = ""; $("conversation-import-text").value = ""; }
+        renderConversationImportPreview(result);
+    } catch (error) {
+        if (sequence === conversationImportSequence) $("conversation-import-status").textContent = error.message;
+    } finally { if (sequence === conversationImportSequence) conversationImportControls(false); }
+}
+
+conversationImportButton.onclick = async () => {
+    if (ui.status.busy) { studioFeedback("Attends la fin de la tâche avant d’importer une conversation."); return; }
+    $("conversation-import-project").textContent = `Projet ouvert : ${ui.workspace || "aucun — ouvre le dossier correspondant pour poursuivre le code"}`;
+    $("conversation-import-mode").value = ui.status.mode === "chat" ? "chat" : "agent";
+    conversationImportDialog.showModal();
+    const sequence = ++conversationImportSequence;
+    conversationImportControls(true);
+    try {
+        const data = await api.models();
+        if (sequence !== conversationImportSequence) return;
+        const select = $("conversation-import-model"); select.replaceChildren();
+        for (const model of data.agents || []) { const option = document.createElement("option"); option.value = model.id; option.textContent = model.name; select.appendChild(option); }
+        select.value = String(ui.currentModelId ?? data.current);
+        if (!select.value && select.options.length) select.selectedIndex = 0;
+    } catch (error) { $("conversation-import-status").textContent = error.message; }
+    finally { if (sequence === conversationImportSequence) conversationImportControls(false); }
+};
+$("conversation-import-url").addEventListener("input", invalidateConversationImport);
+$("conversation-import-text").addEventListener("input", invalidateConversationImport);
+$("conversation-import-file").onclick = () => analyzeConversationImport("file");
+$("conversation-import-preview").onclick = () => {
+    const url = $("conversation-import-url").value.trim(), content = $("conversation-import-text").value.trim();
+    if (!url && !content) { $("conversation-import-status").textContent = "Colle un lien ou une conversation, ou choisis un export."; return; }
+    analyzeConversationImport("preview", url ? { url } : { content });
+};
+$("conversation-import-open-project").onclick = async () => {
+    try { const workspace = await api.openProject(); if (workspace) $("conversation-import-project").textContent = `Projet ouvert : ${workspace}`; }
+    catch (error) { $("conversation-import-status").textContent = error.message; }
+};
+$("conversation-import-close").onclick = () => conversationImportDialog.close();
+conversationImportDialog.addEventListener("close", () => { conversationImportSequence++; conversationImportControls(false); });
+$("conversation-import-apply").onclick = async () => {
+    if (!conversationImportPreview || conversationImportWorking) return;
+    conversationImportControls(true);
+    try {
+        const result = await api.importConversation("apply", { token: conversationImportPreview.token,
+            modelId: Number($("conversation-import-model").value), mode: $("conversation-import-mode").value });
+        pendingAttachments.push(result.attachment);
+        input.value = input.value.trim() ? input.value + "\n\n" + result.prompt : result.prompt;
+        renderAttachments(); saveStudioDraft(); autosizeInput(); setAgentTab("conversation");
+        conversationImportPreview = null;
+        conversationImportDialog.close();
+        input.focus();
+        studioFeedback("Conversation Codex importée. Modifie ta demande si nécessaire, puis clique sur Envoyer pour continuer.");
+    } catch (error) { $("conversation-import-status").textContent = error.message; }
+    finally { conversationImportControls(false); }
+};
+/* ---------- Mode Éco ---------- */
+const ecoModeButton = document.createElement("button");
+ecoModeButton.id = "eco-mode-toggle";
+ecoModeButton.type = "button";
+ecoModeButton.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4c-6-1-13 1-13 7a6 6 0 0 0 6 6c6 0 8-7 7-13ZM4 21 15 10"/></svg><span class="eco-mode-label">Mode Éco</span><span class="eco-mode-indicator" aria-hidden="true"></span>';
+ecoModeButton.setAttribute("aria-pressed", "false");
+$("conversation-import").after(ecoModeButton);
+
+const ecoModeDialog = document.createElement("dialog");
+ecoModeDialog.id = "eco-mode-dialog";
+ecoModeDialog.className = "history-delete-dialog";
+ecoModeDialog.setAttribute("aria-labelledby", "eco-mode-title");
+ecoModeDialog.innerHTML = `<h2 id="eco-mode-title">Activer le mode Éco ?</h2>
+<p>Ce mode vise à réduire la consommation de quota, avec des capacités limitées :</p>
+<ul><li>Agent limité à 4 tours par demande : les tâches longues peuvent rester incomplètes.</li>
+<li>Contexte projet ajouté automatiquement limité à 20 000 caractères. L’IA peut manquer certains éléments et doit lire les fichiers nécessaires.</li>
+<li>Pas de sous-agents ni de nouvelle tentative automatique en cas de réponse d’outil invalide.</li>
+<li>Recherche web intégrée désactivée et réponses demandées plus concises.</li></ul>
+<p>Le modèle sélectionné reste le même. Ce mode ne garantit pas un quota fixe : l’historique existant, les fichiers, leurs pages et les relances réseau peuvent toujours coûter cher. Aucune pièce jointe n’est supprimée.</p>
+<p>Le choix est mémorisé pour les prochaines demandes. Tu peux le désactiver à tout moment hors exécution.</p>
+<p id="eco-mode-error" role="status"></p>
+<div class="studio-actions"><button type="button" id="eco-mode-cancel">Annuler</button><button type="button" id="eco-mode-enable">Activer avec ces limites</button></div>`;
+document.body.appendChild(ecoModeDialog);
+async function setEcoModeEnabled(enabled) {
+    ecoModeButton.disabled = true;
+    try { await api.setEcoMode(enabled); applyStatus(await api.status()); }
+    finally { ecoModeButton.disabled = Boolean(ui.status.busy); }
+}
+ecoModeButton.onclick = async () => {
+    if (ui.status.busy) return;
+    if (ui.status.ecoMode) {
+        try { await setEcoModeEnabled(false); }
+        catch (error) { studioFeedback(error.message); }
+        return;
+    }
+    $("eco-mode-error").textContent = "";
+    ecoModeDialog.showModal();
+    $("eco-mode-cancel").focus();
+};
+$("eco-mode-cancel").onclick = () => ecoModeDialog.close();
+$("eco-mode-enable").onclick = async () => {
+    $("eco-mode-enable").disabled = true;
+    try { await setEcoModeEnabled(true); ecoModeDialog.close(); }
+    catch (error) { $("eco-mode-error").textContent = error.message; }
+    finally { $("eco-mode-enable").disabled = false; }
+};
+/* ---------- Serveurs locaux proposés dans les réponses ---------- */
+async function attachServerControls(message, text) {
+    if (message.dataset.serverChecked || !/https?:\/\/(?:localhost|127\.0\.0\.1)/i.test(text || "")) return;
+    message.dataset.serverChecked = "1";
+    const workspace = ui.workspace || ui.status.workspace || null;
+    try {
+        const hint = await api.serverHint(text);
+        if (!hint || !message.isConnected) return;
+        const card = document.createElement("section");
+        card.className = "message-server-controls";
+        card.dataset.serverKey = hint.key;
+        card.serverWorkspace = workspace;
+        const title = document.createElement("b"); title.textContent = "Serveur web local";
+        const command = document.createElement("code"); command.textContent = `${hint.command} · dossier : ${hint.cwd}`;
+        const address = document.createElement("span"); address.textContent = hint.url;
+        const status = document.createElement("p"); status.className = "message-server-status"; status.setAttribute("role", "status");
+        status.textContent = "Lance cette commande dans le projet ouvert avec Démarrer.";
+        const actions = document.createElement("div"); actions.className = "studio-actions";
+        const start = document.createElement("button"); start.type = "button"; start.textContent = "Démarrer";
+        const stop = document.createElement("button"); stop.type = "button"; stop.textContent = "Arrêter"; stop.disabled = true;
+        const open = document.createElement("button"); open.type = "button"; open.textContent = "Ouvrir le site";
+        const details = document.createElement("details"), summary = document.createElement("summary"), output = document.createElement("pre");
+        summary.textContent = "Sortie du serveur"; details.append(summary, output); details.hidden = true;
+        card.updateServerRun = run => {
+            // An initial IPC snapshot may arrive after a newer stop event.
+            if (card.serverRun?.id === run.id && card.serverRun.status !== "running" && run.status === "running") return;
+            card.serverRun = run;
+            const running = run.status === "running";
+            start.disabled = running; stop.disabled = !running;
+            status.textContent = running ? "Processus en cours. Ouvre le site quand le serveur est prêt." : run.status === "stopped" ? "Serveur arrêté." : `Processus terminé${run.exitCode != null ? ` (code ${run.exitCode})` : ""}. Consulte la sortie si le site est inaccessible.`;
+            output.textContent = String(run.output || "").slice(-8000); details.hidden = !output.textContent;
+            if (run.status === "failed") details.open = true;
+        };
+        start.onclick = async () => {
+            start.disabled = true; status.textContent = "Démarrage…";
+            try { card.updateServerRun(await api.projectStudio("serverStart", { text, workspace })); }
+            catch (error) { status.textContent = error.message; start.disabled = false; }
+        };
+        stop.onclick = async () => {
+            stop.disabled = true;
+            try { await api.projectStudio("stop", { id: card.serverRun.id }); }
+            catch (error) { status.textContent = error.message; stop.disabled = false; }
+        };
+        open.onclick = () => openLocalBrowser(hint.url);
+        actions.append(start, stop, open); card.append(title, command, address, status, actions, details); message.appendChild(card);
+        const runs = await api.projectStudio("runs");
+        const run = [...runs].reverse().find(item => item.server?.key === hint.key && item.workspace === workspace);
+        if (run && card.isConnected) card.updateServerRun(run);
+    } catch { /* Ordinary messages remain readable when task controls are unavailable. */ }
+}
+
+api.onEvent((channel, run) => {
+    if (channel !== "projectTask" || !run.server) return;
+    for (const card of document.querySelectorAll(".message-server-controls")) {
+        if (card.dataset.serverKey === run.server.key && card.serverWorkspace === run.workspace) card.updateServerRun(run);
+    }
+});
+/* ---------- Quota du compte et compteurs de cette session ---------- */
+function usagePercent(value) {
+    return value != null && Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : null;
+}
+function usageTone(value) { return value >= 90 ? "critical" : value >= 75 ? "warning" : "normal"; }
+function usageDate(value) {
+    const date = value ? new Date(value) : null;
+    return date && Number.isFinite(date.getTime()) ? date.toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Non communiquée";
+}
+function usageNumber(value) { return Math.max(0, Number(value) || 0).toLocaleString("fr-FR"); }
+function usageProgress(value, label, className = "usage-progress") {
+    const bounded = Math.min(100, value ?? 0);
+    return `<span class="${className} ${usageTone(value)}${value == null ? " unknown" : ""}" role="progressbar" aria-label="${escapeHtml(label)}" aria-valuemin="0" aria-valuemax="100" ${value == null ? 'aria-valuetext="Indisponible"' : `aria-valuenow="${bounded}"`} style="--usage:${bounded}%"><span></span></span>`;
+}
+function renderUsageMeter() {
+    const el = $("st-usage"), quota = ui.quota, percent = usagePercent(quota?.percent);
+    const label = percent == null ? "Usage" : `${quota.uncertain ? "≈ " : ""}${percent} %`;
+    el.classList.remove("warn", "crit");
+    el.innerHTML = usageProgress(percent, "Quota de chat utilisé", "usage-mini-meter") + `<span class="usage-meter-label">${label}</span>`;
+    el.title = percent == null ? "Voir la consommation et les compteurs de session" : `${quota.uncertain ? "Environ " : ""}${percent} % du quota de chat utilisé · Cliquer pour les détails`;
+    el.setAttribute("aria-label", el.title);
+}
+
+function renderUsageDashboard() {
+    if ($("agent").dataset.tab !== "usage") return;
+    const box = $("usage-dashboard"), quota = ui.quota, usage = ui.status.usage || {};
+    const signature = JSON.stringify([quota, usage, ui.quotaLoading, ui.quotaError, ui.quotaUpdatedAt, ui.status.booted, ui.status.ecoMode]);
+    if (box.usageSignature === signature) return;
+    box.usageSignature = signature;
+    const percent = usagePercent(quota?.percent), reported = Number(usage.reported) > 0;
+    const total = reported ? Number(usage.inputTokens || 0) + Number(usage.outputTokens || 0) : null;
+    const estimate = Math.round(Number(usage.chars || 0) / 3.5);
+    const metric = (name, value, detail) => `<div class="usage-metric"><span>${name}</span><strong>${value}</strong><small>${detail}</small></div>`;
+    $("usage-refresh").disabled = Boolean(ui.quotaLoading) || !ui.status.booted;
+    box.innerHTML = `<div class="usage-quota-card ${usageTone(percent)}">
+        <div class="usage-quota-top"><span>Quota de chat</span><span class="usage-badge">${ui.quotaLoading ? "Actualisation…" : quota?.uncertain ? "Estimation serveur" : percent == null ? "Indisponible" : "Compte FranceStudent"}</span></div>
+        <div class="usage-quota-main"><div class="usage-ring${percent == null ? " unknown" : ""}" style="--usage:${Math.min(100, percent ?? 0)}%" role="img" aria-label="${percent == null ? "Quota inconnu" : percent + " % utilisés"}"><strong>${percent == null ? "—" : (quota?.uncertain ? "≈ " : "") + percent + "<small>%</small>"}</strong></div><div><b>${percent == null ? "Quota indisponible" : usageNumber(Math.max(0, 100 - percent)) + " % disponibles"}</b><p>${percent == null ? "Les compteurs de session restent accessibles." : "de votre budget de chat"}</p>${quota?.powerUp ? '<span class="usage-badge">Power-up actif</span>' : ""}</div></div>
+        <div class="usage-reset"><span>Réinitialisation</span><b>${escapeHtml(usageDate(quota?.resetAt))}</b></div></div>
+        ${ui.quotaError ? `<p class="usage-notice" role="status">${escapeHtml(ui.quotaError)}</p>` : !ui.status.booted ? '<p class="usage-notice">Connecte-toi pour consulter le quota du compte.</p>' : ""}
+        <div class="usage-section-title"><h3>Cette session</h3><span>${ui.status.ecoMode ? "Mode Éco activé" : "Depuis l’ouverture"}</span></div>
+        <div class="usage-metrics">${metric("Requêtes IA", usageNumber(usage.requests), "Relances comprises")}${metric(reported ? "Tokens comptabilisés" : "Tokens estimés", reported ? usageNumber(total) : estimate ? "≈ " + usageNumber(estimate) : "—", reported ? "Données reçues du service" : "Estimation du texte envoyé")}${metric("Entrée", reported ? usageNumber(usage.inputTokens) : "—", "Tokens envoyés au modèle")}${metric("Sortie", reported ? usageNumber(usage.outputTokens) : "—", "Tokens générés")}</div>
+        ${reported ? `<p class="usage-cache">${usageNumber(usage.cachedTokens)} tokens en cache, déjà inclus dans l’entrée. Les compteurs couvrent les réponses qui transmettent un relevé.</p>` : '<p class="usage-cache">Sans relevé de tokens du service, l’estimation ne couvre pas les images, les réponses ni tout l’historique serveur.</p>'}
+        <p class="usage-updated">${ui.quotaUpdatedAt ? "Quota actualisé le " + escapeHtml(usageDate(ui.quotaUpdatedAt)) : "Le quota ne peut pas être déduit du nombre de tokens de cette session."}</p>`;
+    if(percent>=100)mountQuotaRecovery(box,quota?.resetAt);
+}
+$("usage-refresh").onclick = () => refreshQuota();
+/* ---------- Annulation d’une action sans interrompre l’agent ---------- */
+const actionControlPanel = document.createElement("section");
+actionControlPanel.id = "action-controls";
+actionControlPanel.className = "action-controls hidden";
+actionControlPanel.setAttribute("aria-label", "Actions en accès complet");
+document.querySelector(".agent-context-bar")?.after(actionControlPanel);
+if (!actionControlPanel.isConnected) $("agent-activity").before(actionControlPanel);
+api.onEvent((channel, action) => {
+    if (channel === "status") {
+        for (const button of actionControlPanel.querySelectorAll("button[data-undo]")) { button.disabled = Boolean(action.busy); button.title = action.busy ? "Disponible après la tâche pour éviter les modifications concurrentes." : "Restaurer cette modification suivie"; }
+        return;
+    }
+    if (channel !== "actionControl") return;
+    let row = [...actionControlPanel.children].find(item => item.dataset.actionId === action.id);
+    if (action.state === "running" && !row) {
+        row = document.createElement("div"); row.className = "action-control-row"; row.dataset.actionId = action.id;
+        row.dataset.actionName = action.name;
+        const label = document.createElement("span"); label.textContent = toolLabel(action.name); label.title = action.description;
+        const cancel = document.createElement("button"); cancel.type = "button"; cancel.textContent = "Annuler l’action";
+        cancel.title = "Écarter le résultat et arrêter l’opération si possible, sans arrêter l’agent. Les effets déjà produits ne sont pas automatiquement annulés.";
+        cancel.onclick = async () => { cancel.disabled = true; try { await api.cancelAction(action.id); } catch (error) { studioFeedback(error.message); cancel.disabled = false; } };
+        row.append(label, cancel); actionControlPanel.appendChild(row);
+    }
+    if (row && action.state === "canceling") { row.querySelector("button").disabled = true; row.querySelector("button").textContent = "Annulation…"; }
+    if (row && ["done", "failed", "canceled"].includes(action.state)) {
+        if (action.undo) {
+            const button = row.querySelector("button"); button.dataset.undo = "1"; button.disabled = Boolean(ui.status.busy); button.textContent = "Annuler la modification";
+            button.title = "Disponible après la tâche pour éviter les modifications concurrentes. Les commandes shell et publications distantes ne sont pas restaurées.";
+            button.onclick = async () => { button.disabled = true; try { if (ui.workspace !== action.undo.workspace) throw new Error("Reviens au projet de cette modification."); await api.undoEntry(action.undo.index, action.undo.at); row.remove(); actionControlPanel.classList.toggle("hidden", !actionControlPanel.children.length); } catch (error) { studioFeedback(error.message); button.disabled = false; } };
+        } else row.remove();
+        if (action.state === "canceled") studioFeedback("Action annulée. L’agent continue ; les effets déjà produits restent à vérifier.");
+    }
+    actionControlPanel.classList.toggle("hidden", !actionControlPanel.children.length);
+});
+/* ---------- Connecteur natif GitHub ---------- */
+const githubConnectorDialog = document.createElement("dialog");
+githubConnectorDialog.id = "github-connector-dialog";
+githubConnectorDialog.className = "conversation-import-dialog github-connector-dialog";
+githubConnectorDialog.setAttribute("aria-labelledby", "github-connector-title");
+githubConnectorDialog.innerHTML = `<div class="workspace-section-head"><h2 id="github-connector-title">GitHub <small>Bêta</small></h2><button type="button" id="github-connector-close" aria-label="Fermer le connecteur GitHub">×</button></div>
+<p id="github-connector-account" class="settings-help"></p><p id="github-connector-repo"></p>
+<div class="studio-actions github-connector-nav"><button type="button" data-github-view="releases">Releases</button><button type="button" data-github-view="pull_requests">Pull requests</button><button type="button" data-github-view="issues">Issues</button><button type="button" data-github-view="repositories">Mes dépôts</button><button type="button" id="github-connector-readme">Modifier le README avec l’IA</button></div>
+<p id="github-connector-status" role="status"></p><div id="github-connector-list"></div>
+<details id="github-connector-create"><summary>Préparer une release</summary><p class="settings-help">Un brouillon sera créé. Ajoute ses fichiers et vérifie ses notes avant de publier.</p><label>Tag<input id="github-release-tag" placeholder="v1.0.0"></label><label>Commit ou branche cible<input id="github-release-target" placeholder="SHA du commit ou main"></label><label>Titre<input id="github-release-title" placeholder="Version 1.0.0"></label><label>Notes<textarea id="github-release-body" rows="4"></textarea></label><button type="button" id="github-release-create">Créer le brouillon</button></details>
+<p class="settings-help">Le dépôt vient du remote origin du projet ouvert. Les droits dépendent du token connecté. L’agent dispose de l’outil natif github ; les modifications demandent une confirmation en mode Demander, mais pas en Full accès. Une publication ou un push ne peut pas être annulé comme une lecture locale.</p>`;
+document.body.appendChild(githubConnectorDialog);
+let githubConnectorView = "releases", githubConnectorLoading = false;
+async function githubConnectorWork(operation) {
+    if (githubConnectorLoading) return;
+    githubConnectorLoading = true;
+    const buttons = [...githubConnectorDialog.querySelectorAll("button:not(#github-connector-close)")];
+    buttons.forEach(button => { button.disabled = true; });
+    $("github-connector-status").textContent = "Chargement…";
+    try { await operation(); }
+    catch (error) { $("github-connector-status").textContent = error.message; }
+    finally { githubConnectorLoading = false; buttons.forEach(button => { if (button.isConnected) button.disabled = false; }); }
+}
+async function loadGithubConnector() {
+    const result = await api.githubConnector({ action: githubConnectorView });
+    const list = $("github-connector-list"); list.replaceChildren();
+    for (const item of result.items || result.repositories || []) {
+        const card = document.createElement("article"); card.className = "github-connector-card";
+        const title = document.createElement("b"); title.textContent = item.title || item.name;
+        const status = document.createElement("span"); status.textContent = item.draft ? "Brouillon" : item.state || (item.private === true ? "Privé" : item.private === false ? "Public" : "Publié");
+        const actions = document.createElement("div"); actions.className = "studio-actions";
+        const open = document.createElement("button"); open.textContent = "Voir sur GitHub"; open.onclick = () => api.openExternal(item.url, true).catch(error => { $("github-connector-status").textContent = error.message; });
+        actions.append(open);
+        if (item.draft && githubConnectorView === "releases") {
+            const upload = document.createElement("button"); upload.textContent = "Ajouter un fichier"; upload.onclick = () => githubConnectorWork(async () => { await api.githubUploadAsset(item.id); await loadGithubConnector(); });
+            const publish = document.createElement("button"); publish.textContent = "Publier la release"; publish.onclick = () => githubConnectorWork(async () => { await api.githubConnector({ action: "publish_release", id: item.id }); await loadGithubConnector(); });
+            actions.append(upload, publish);
+        }
+        if (githubConnectorView === "repositories") {
+            const link = document.createElement("button"); link.textContent = "Lier au projet"; link.onclick = () => githubConnectorWork(async () => { await api.githubSetRemote(item.name); $("github-connector-repo").textContent = item.name; $("github-connector-status").textContent = "Remote origin mis à jour."; }); actions.append(link);
+        }
+        card.append(title, status);
+        if (item.body) { const details = document.createElement("details"), summary = document.createElement("summary"), body = document.createElement("pre"); summary.textContent = "Notes"; body.textContent = item.body; details.append(summary, body); card.append(details); }
+        for (const asset of item.assets || []) { const line = document.createElement("small"); line.textContent = `${asset.name} · ${formatBytes(asset.size)}`; card.append(line); }
+        card.append(actions); list.append(card);
+    }
+    $("github-connector-status").textContent = list.children.length ? `${list.children.length} élément(s)` : "Aucun élément.";
+    for (const button of githubConnectorDialog.querySelectorAll("[data-github-view]")) button.setAttribute("aria-pressed", String(button.dataset.githubView === githubConnectorView));
+}
+$("gh-connector-open").onclick = () => {
+    githubConnectorDialog.showModal();
+    githubConnectorWork(async () => {
+        const account = await api.githubStatus();
+        $("github-connector-account").textContent = account.connected ? `Compte connecté : ${account.login || "GitHub"}` : "Connecte ton compte avec le champ sécurisé du panneau Git.";
+        $("github-connector-repo").textContent = account.remote || "Aucun dépôt lié au projet.";
+        if (!account.connected) { $("github-connector-list").replaceChildren(); $("github-connector-status").textContent = "Connexion GitHub nécessaire."; return; }
+        try { const repo = await api.githubConnector({ action: "overview" }); $("github-connector-repo").textContent = `${repo.repository} · ${repo.branch}${repo.private ? " · Privé" : " · Public"}`; $("github-release-target").value = repo.branch; } catch { githubConnectorView = "repositories"; }
+        await loadGithubConnector();
+    });
+};
+$("github-connector-close").onclick = () => githubConnectorDialog.close();
+for (const button of githubConnectorDialog.querySelectorAll("[data-github-view]")) button.onclick = () => githubConnectorWork(async () => { githubConnectorView = button.dataset.githubView; await loadGithubConnector(); });
+$("github-release-create").onclick = () => githubConnectorWork(async () => {
+    await api.githubConnector({ action: "create_release", tag: $("github-release-tag").value.trim(), target: $("github-release-target").value.trim(), title: $("github-release-title").value.trim(), body: $("github-release-body").value });
+    githubConnectorView = "releases"; await loadGithubConnector();
+});
+$("github-connector-readme").onclick = () => { githubConnectorDialog.close(); setAgentTab("conversation"); input.value = "Examine le projet et son README, puis mets à jour le README pour expliquer simplement son utilisation. Utilise les outils de fichiers locaux ; prépare un commit et un push uniquement si je te le demande."; autosizeInput(); saveStudioDraft(); input.focus(); };
+/* Organize settings without moving the controls or losing search results. */
+const settingsNavigation = centerNode("nav", "settings-navigation");
+settingsNavigation.setAttribute("aria-label", "Catégories des paramètres");
+let settingsCategory = "all";
+const settingsGroups = [
+    ["all", "Tout"], ["general", "Général"], ["agent", "IA et contexte"],
+    ["access", "Autorisations"], ["advanced", "Connexions et outils"]
+];
+const settingsGroupByTitle = {
+    "settings-model-title": "general", "studio-editor-settings-title": "general",
+    "settings-context-title": "agent", "settings-web-title": "agent",
+    "settings-access-title": "access", "settings-tools-title": "advanced",
+    "settings-marketplace-title": "advanced", "settings-help-title": "general"
+};
+captureSettings.dataset.settingsGroup = "access";
+updateSettings.dataset.settingsGroup = "general";
+function filterSettingsCards() {
+    const normalize = value => value.toLocaleLowerCase("fr").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const query = normalize($("settings-search").value).trim();
+    let visible = 0;
+    for (const card of $("settings-view").querySelectorAll(".settings-card")) {
+        const group = card.dataset.settingsGroup || settingsGroupByTitle[card.getAttribute("aria-labelledby")] || "general";
+        const matches = query ? normalize(card.textContent).includes(query) : settingsCategory === "all" || settingsCategory === group;
+        card.classList.toggle("hidden", !matches);
+        if (matches) visible++;
+    }
+    for (const button of settingsNavigation.children) {
+        button.setAttribute("aria-pressed", String(!query && button.dataset.category === settingsCategory));
+        button.disabled = !!query;
+        button.title = query ? "Efface la recherche pour filtrer par catégorie" : "";
+    }
+    $("settings-search-empty").classList.toggle("hidden", visible > 0);
+}
+for (const [id, label] of settingsGroups) {
+    const button = centerNode("button", "", label);
+    button.type = "button"; button.dataset.category = id;
+    button.onclick = () => { settingsCategory = id; filterSettingsCards(); };
+    settingsNavigation.append(button);
+}
+$("settings-search").closest(".settings-search-wrap").after(settingsNavigation);
+$("settings-search").oninput = filterSettingsCards;
+filterSettingsCards();
+// Expose icon-only navigation names to keyboard and assistive technology.
+for (const button of document.querySelectorAll("#activity-bar button, .agent-actions button, .sidebar-actions button")) {
+    if (!button.hasAttribute("aria-label") && button.title) button.setAttribute("aria-label", button.title);
+}
+/* Explicit progress and cancellation for community instruction downloads. */
+function renderMarketplaceSkillActions(card){
+    const item=card.marketplaceItem;
+    card.querySelector(".center-card-actions")?.remove();
+    const actions=centerNode("div","center-card-actions");
+    const key=readStudioStorage("frst.marketplace-installed",{})[item.githubUrl];
+    const installed=centerData?.skills.find(skill=>skill.key===key);
+    actions.append(centerButton("Voir le dépôt",()=>api.openExternal(item.githubUrl)),installed?uninstallSkillButton(installed):centerButton("Lire et installer",()=>downloadSkillPreview(item),true));
+    card.append(actions);
+}
+async function uninstallCenterSkill(skill) {
+    if (!skill || !await confirmStudioAction(`Désinstaller « ${skill.name} » ? Il ne sera plus disponible pour l’IA. Son dossier sera conservé dans .trash pour pouvoir le récupérer.`,{title:"Désinstaller ce skill",confirmLabel:"Désinstaller",danger:true})) return;
+    await changeExtension("remove", {key:skill.key}, `« ${skill.name} » désinstallé. Son dossier reste récupérable dans .trash.`);
+}
+const extensionDownloads = new Map();
+const extensionDownloadList = centerNode("section", "extension-downloads hidden");
+extensionDownloadList.setAttribute("aria-label", "Téléchargements des skills");
+$("marketplace-status").after(extensionDownloadList);
+function showSkillDownload(job) {
+    const card = job.card;
+    card.replaceChildren();
+    const heading = centerNode("div");
+    heading.append(centerNode("b", "", job.item.name));
+    const button = centerNode("button", "", job.state === "loading" ? "Annuler" : job.state === "failed" || job.state === "canceled" ? "Réessayer" : "Fermer");
+    button.type = "button";
+    button.onclick = async () => {
+        if (job.state === "loading") {
+            button.disabled = true;
+            try { await api.marketplace("cancel", {requestId:job.id}); }
+            catch (error) { button.disabled = false; card.append(centerNode("p", "", error.message)); }
+        } else if (job.state === "failed" || job.state === "canceled") { card.remove(); extensionDownloads.delete(job.id); downloadSkillPreview(job.item); }
+        else { card.remove(); extensionDownloads.delete(job.id); extensionDownloadList.classList.toggle("hidden", !extensionDownloadList.children.length); }
+    };
+    heading.append(button); card.append(heading);
+    if (job.state === "loading") {
+        const progress = document.createElement("progress"); progress.setAttribute("aria-label", "Téléchargement du SKILL.md");
+        if (job.total) { progress.max = job.total; progress.value = Math.min(job.received, job.total); }
+        card.append(progress);
+    }
+    const bytes = count => `${(count / 1024).toLocaleString("fr-FR", {maximumFractionDigits:1})} Ko`;
+    card.append(centerNode("p", "", job.message || `${bytes(job.received)} reçus${job.total ? ` sur ${bytes(job.total)}` : " · taille totale inconnue"}`));
+}
+async function downloadSkillPreview(item) {
+    const job = {id:crypto.randomUUID(), item, received:0, total:null, state:"loading", card:centerNode("article", "download-card")};
+    extensionDownloads.set(job.id, job); extensionDownloadList.classList.remove("hidden"); extensionDownloadList.append(job.card); showSkillDownload(job);
+    // Keep only recent completed entries; in-flight downloads are always visible.
+    for (const [id, old] of extensionDownloads) if (extensionDownloads.size > 8 && old.state !== "loading") { old.card.remove(); extensionDownloads.delete(id); }
+    try {
+        const preview = await api.marketplace("preview", {githubUrl:item.githubUrl, curatedId:item.curatedId, requestId:job.id});
+        job.state = "ready"; job.message = "Téléchargé · lis les instructions puis choisis Installer. Tu pourras ensuite l’activer dans Mes skills.";
+        showSkillDownload(job); openSkillEditor({kind:"remote", item:{...item, ...preview}});
+        if(preview.resourceCount)$("skill-editor-message").textContent=`Ressources incluses : ${preview.resourceNames.join(", ")}`;
+    } catch (error) {
+        job.state = error.message.includes("annulé") ? "canceled" : "failed"; job.message = error.message; showSkillDownload(job);
+    }
+}
+api.onEvent((channel, data) => {
+    if (channel !== "marketplaceDownload") return;
+    const job = extensionDownloads.get(data.requestId);
+    if (!job || job.state !== "loading") return;
+    job.received = data.received; job.total = data.total; showSkillDownload(job);
+});
+/* The official EffectCraft editor, embedded next to its specialized agent chat. */
+const motionNav=document.createElement("button");
+motionNav.type="button";motionNav.className="activity";motionNav.dataset.view="motion";motionNav.id="btn-motion";
+motionNav.title="Motion design · EffectCraft (Bêta)";motionNav.setAttribute("aria-label","Motion design · EffectCraft, Bêta");
+motionNav.innerHTML='<svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>';
+$("activity-bar").insertBefore(motionNav,document.querySelector("#activity-bar .spacer"));
+const motionView=document.createElement("section");motionView.id="motion-view";motionView.className="motion-page";motionView.setAttribute("aria-label","EffectCraft et agent motion design");
+motionView.innerHTML=`<header class="motion-header"><div class="motion-brand"><span class="motion-brand-icon"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 17 8-13 8 13H4Zm4-1 4-7 4 7"/></svg></span><div class="motion-brand-copy"><div class="motion-brand-title"><h1>EffectCraft</h1><span class="motion-pill">Bêta</span></div><p>Ton studio d’animation</p></div></div><div class="motion-actions"><button type="button" id="motion-local-save" title="Enregistrer dans le stockage local d’EffectCraft">Enregistrer</button><button type="button" id="motion-close">Retour au code</button></div></header>
+<div class="motion-commandbar"><div class="motion-transport" role="group" aria-label="Contrôles de composition"><button type="button" id="motion-undo" title="Annuler la dernière modification"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5 4 10l5 5M4 10h10a6 6 0 0 1 0 12"/></svg>Annuler</button><span class="motion-control-divider" aria-hidden="true"></span><button type="button" id="motion-play" title="Lire l’animation dans l’aperçu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z"/></svg>Lecture</button><button type="button" id="motion-stop" title="Arrêter la lecture de l’animation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12v12H6Z"/></svg>Arrêter</button></div><div class="motion-status-group"><span class="motion-status-dot" aria-hidden="true"></span><span id="motion-engine-status" role="status">EffectCraft attend ton ouverture.</span><button type="button" id="motion-engine-reload" title="Recharger EffectCraft" aria-label="Recharger EffectCraft"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M5 8a8 8 0 0 1 13-3l2 3M4 16l2 3a8 8 0 0 0 13-3"/></svg></button></div></div>
+<div class="motion-stage" aria-label="Chargement d’EffectCraft"><div><h2>Chargement d’EffectCraft…</h2><p>Le véritable éditeur se prépare. Le chat motion design reste à droite.</p><button type="button" id="motion-retry">Réessayer</button></div></div>
+<div id="motion-engine" class="motion-engine" hidden><div id="motion-engine-frame" class="motion-engine-frame"></div></div>
+<div id="motion-consent" class="motion-consent" role="alertdialog" aria-modal="true" aria-labelledby="motion-consent-title" tabindex="-1"><div class="motion-consent-card"><span class="motion-pill">Bêta</span><h2 id="motion-consent-title">Ton espace motion design</h2><p>EffectCraft à gauche, ton agent spécialisé à droite. Le chat peut modifier les compositions, les calques, les keyframes et les effets. Cette intégration reste expérimentale : conserve une copie des projets importants.</p><div class="motion-consent-actions"><button type="button" id="motion-consent-back">Retour au code</button><button type="button" id="motion-consent-ok" class="primary">J’ai compris, continuer</button></div></div></div>`;
+$("app").append(motionView);
+const motionEngine={frame:null,loading:false,accepted:false};
+function isMotionOpen(){return $("app").classList.contains("view-motion");}
+function setMotionEngineStatus(text){$("motion-engine-status").textContent=text;$("motion-engine-status").title=text;}
+async function openMotionDesign(){
+    if(!await selectMotionChat("motion"))return;
+    setAgentFocus(false);
+    setActivity(null);$("app").classList.add("view-motion");motionNav.classList.add("active");
+    $("motion-consent").classList.toggle("hidden-consent",motionEngine.accepted);
+    if(motionEngine.accepted)loadMotionEngine();else $("motion-consent-ok").focus({preventScroll:true});
+    syncMotionChat();
+}
+async function closeMotionDesign(){
+    if(!isMotionOpen() || !await selectMotionChat("code"))return;
+    setAgentFocus(false);
+    $("app").classList.remove("view-motion");motionNav.classList.remove("active");
+    setActivity($("app").classList.contains("no-sidebar")?null:ui.sideView);syncMotionChat();
+}
+motionNav.onclick=()=>isMotionOpen()?closeMotionDesign():openMotionDesign();
+$("motion-close").onclick=closeMotionDesign;$("motion-consent-back").onclick=closeMotionDesign;
+$("motion-consent-ok").onclick=()=>{motionEngine.accepted=true;$("motion-consent").classList.add("hidden-consent");loadMotionEngine();input.focus({preventScroll:true});};
+for(const button of document.querySelectorAll("#activity-bar .activity"))if(button!==motionNav)button.addEventListener("click",event=>{
+    if(isMotionOpen() && ui.status.busy){event.preventDefault();event.stopImmediatePropagation();studioFeedback("Attends la fin de la tâche ou utilise Stop avant de changer de chat.");return;}
+    closeMotionDesign();
+},true);
+function showMotionEngineFallback(message){$("motion-engine").hidden=true;motionView.querySelector(".motion-stage").hidden=false;motionView.querySelector(".motion-stage h2").textContent="EffectCraft indisponible";motionView.querySelector(".motion-stage p").textContent=message;setMotionEngineStatus(message);}
+async function loadMotionEngine(force=false){
+    if(motionEngine.loading || motionEngine.frame && !force)return;
+    if(force && ui.status.busy){studioFeedback("Arrête d’abord la tâche pour recharger EffectCraft.");return;}
+    motionEngine.loading=true;
+    try{
+        if(motionEngine.frame){motionEngine.frame.remove();motionEngine.frame=null;}
+        const info=await api.effectCraft("start"),url=new URL(info.url);
+        if(url.protocol!=="http:" || url.hostname!=="127.0.0.1")throw new Error("Adresse EffectCraft inattendue.");
+        url.search="?nosw&frameworkers=0&webgl";
+        const frame=document.createElement("iframe");frame.className="motion-engine-iframe";frame.title="EffectCraft · Motion design";
+        frame.setAttribute("sandbox","allow-scripts allow-same-origin allow-downloads");frame.setAttribute("allow","fullscreen");frame.referrerPolicy="no-referrer";
+        frame.addEventListener("load",async()=>{
+            for(let attempt=0;attempt<60 && motionEngine.frame===frame;attempt++){
+                try{await api.effectCraftControl({method:"host.info",params:{}});await api.effectCraftControl({method:"ui.set",params:{theme:"Dark"}});await applyMotionInterface(motionEngine.advanced,true);setMotionEngineStatus("Prêt · décris ton animation dans le chat");return;}
+                catch(error){if(attempt===59){setMotionEngineStatus(error.message);return;}await new Promise(resolve=>setTimeout(resolve,200));}
+            }
+        });
+        frame.src=url.toString();$("motion-engine-frame").replaceChildren(frame);motionEngine.frame=frame;
+        $("motion-engine").hidden=false;motionView.querySelector(".motion-stage").hidden=true;setMotionEngineStatus(`EffectCraft ${info.version} · chargement…`);
+    }catch(error){showMotionEngineFallback(error.message);}finally{motionEngine.loading=false;}
+}
+$("motion-engine-reload").onclick=()=>loadMotionEngine(true);$("motion-retry").onclick=()=>loadMotionEngine(true);
+async function motionControl(request){
+    if(ui.status.busy){studioFeedback("L’agent travaille sur la composition ; attends ou utilise Stop.");return;}
+    try{await api.effectCraftControl(request);setMotionEngineStatus("EffectCraft · action effectuée");}catch(error){studioFeedback(error.message);}
+}
+$("motion-play").onclick=()=>motionControl({method:"ui.playback",params:{action:"play"}});
+$("motion-stop").onclick=()=>motionControl({method:"ui.playback",params:{action:"stop"}});
+$("motion-undo").onclick=()=>motionControl({method:"engine.execute",params:{command:"edit.undo",params:{}}});
+$("motion-local-save").onclick=()=>motionControl({method:"host.save",params:{path:"FranceStudent.ecproj"}});
+const motionChat={placeholder:null,badge:null};
+function syncMotionChat(){
+    updateAgentProjectLabel();
+    const bar=document.querySelector("#agent .agent-context-bar");if(!bar)return;
+    if(!motionChat.badge){const badge=document.createElement("span");badge.id="agent-motion-badge";badge.className="agent-motion-badge";badge.textContent="Motion design";bar.insertBefore(badge,$("agent-access"));motionChat.badge=badge;}
+    const open=isMotionOpen();motionChat.badge.hidden=!open;
+    if(motionChat.open!==open){motionChat.open=open;renderAgentActivity(null);if(studioTab==="activity")refreshStudioActivity();}
+    if(open){if(motionChat.placeholder===null)motionChat.placeholder=input.placeholder;input.placeholder="Décris ton animation… l’agent agit dans EffectCraft.";}
+    else if(motionChat.placeholder!==null){input.placeholder=motionChat.placeholder;motionChat.placeholder=null;}
+}
+new MutationObserver(syncMotionChat).observe($("app"),{attributes:true,attributeFilter:["class"]});syncMotionChat();
+/* EffectCraft owns the editor. Reuse the agent UI with independent conversations. */
+const motionChats = new Map();
+let motionChatMode = "code", motionChatSwitch = false;
+let motionChatWorkspace=ui.workspace;
+const codeStarter = {title:$("agent-starter").querySelector("h2").textContent,description:$("agent-starter").querySelector("p").textContent,buttons:[...document.querySelectorAll("[data-starter]")].map(button=>({prompt:button.dataset.starter,title:button.querySelector("b").textContent,detail:button.querySelector("small").textContent}))};
+function renderMotionStarter(){
+    const motion=motionChatMode==="motion",starter=$("agent-starter");
+    starter.querySelector("h2").textContent=motion?"Créons ton animation":codeStarter.title;
+    starter.querySelector("p").textContent=motion?"Décris ton idée. L’agent agit directement dans EffectCraft.":codeStarter.description;
+    const choices=motion?[
+        {title:"Créer une animation",detail:"Composition, textes et mouvements",prompt:"Crée une animation de titre dans EffectCraft. Inspecte le projet, découvre les commandes nécessaires et réalise la composition avec des keyframes."},
+        {title:"Améliorer la composition",detail:"Rythme, lisibilité et effets",prompt:"Inspecte la composition active dans EffectCraft, analyse son rythme et sa lisibilité, puis améliore-la avec les outils du moteur."},
+        {title:"Préparer un export",detail:"Format, durée et rendu",prompt:"Inspecte la composition active et les formats d’export disponibles dans EffectCraft. Prépare un export adapté et vérifie le résultat sans annoncer de réussite avant sa fin."}
+    ]:codeStarter.buttons;
+    [...document.querySelectorAll("[data-starter]")].forEach((button,index)=>{const item=choices[index];if(!item)return;button.dataset.starter=item.prompt;button.querySelector("b").textContent=item.title;button.querySelector("small").textContent=item.detail;});
+}
+api.onEvent((channel,status)=>{
+    if(channel==="signedOut" || channel==="status" && motionChatWorkspace!==(status.workspace || null)){
+        if(channel==="status")motionChatWorkspace=status.workspace || null;
+        motionChats.clear();motionChatMode="code";
+        $("app").classList.remove("view-motion");motionNav.classList.remove("active");
+        input.value=readStudioStorage(studioDraftKey(motionChatWorkspace,"code"),"");
+        renderMotionStarter();syncMotionChat();
+    }
+});
+async function selectMotionChat(mode) {
+    if(motionChatSwitch) return false;
+    if(mode===motionChatMode)return true;
+    motionChatSwitch=true;
+    try {
+        await api.motionConversation(mode);
+        const nodes=document.createDocumentFragment(), scroll=transcript.scrollTop;
+        while(transcript.firstChild)nodes.append(transcript.firstChild);
+        motionChats.set(motionChatMode,{nodes,draft:input.value,attachments:pendingAttachments,toolGroup,scroll,entries:studioEntries.slice(),history:ui.history,historyIndex:ui.historyIndex});
+        const next=motionChats.get(mode);
+        transcript.replaceChildren(next?.nodes || document.createDocumentFragment());
+        input.value=next?.draft ?? readStudioStorage(studioDraftKey(studioWorkspace,mode),"");pendingAttachments=next?.attachments || [];toolGroup=next?.toolGroup || null;
+        transcript.scrollTop=next?.scroll || 0;
+        studioEntries.splice(0,studioEntries.length,...(next?.entries || []));ui.history=next?.history || [];ui.historyIndex=next?.historyIndex || 0;
+        motionChatMode=mode;renderAttachments();autosizeInput();saveStudioDraft();
+        document.querySelector(".agent-title > span").textContent=mode==="motion"?"Motion design":"Agent";
+        $("agent-starter").classList.toggle("hidden",!!transcript.children.length);
+        renderMotionStarter();
+        return true;
+    } catch(error){studioFeedback(error.message);return false;}
+    finally {motionChatSwitch=false;}
+}
+/* ---------- Budget de chat épuisé : message lisible (HTTP 429) ---------- */
+
+const BUDGET_TIME_ZONE = "Europe/Paris";
+
+/** Détecte une erreur « Chat budget exhausted » et en extrait l'heure de reprise (UTC). */
+function parseBudgetNotice(text) {
+    const raw = String(text ?? "");
+    if (!/budget\s+(?:de\s+chat\s+)?(?:exhausted|épuisé)|insufficient_quota|quota.{0,25}(?:exhausted|épuisé|atteint|exceeded)/i.test(raw)) return null;
+    const match = /Reset at\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?Z/i.exec(raw);
+    const resetAt = match ? new Date(`${match[1]}Z`) : null;
+    return { resetAt: resetAt && !Number.isNaN(resetAt.getTime()) ? resetAt : null };
+}
+
+function budgetDayKey(date) {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: BUDGET_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
+
+function budgetRemainingLabel(ms) {
+    const minutes = Math.ceil(ms / 60000);
+    if (minutes <= 1) return "dans moins d'une minute";
+    if (minutes < 60) return `dans ${minutes} min`;
+    return `dans ${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")}`;
+}
+
+/** Textes affichés (heure de Paris). `now` est injectable pour les tests. */
+function formatBudgetNotice(notice, now = new Date()) {
+    const title = "Budget de chat épuisé";
+    const at = notice && notice.resetAt;
+    if (!at) {
+        return { title, detail: "Le quota de conversation est atteint. Tu pourras reprendre dès qu'il sera renouvelé.", when: "", remaining: "" };
+    }
+    // Le renouvellement tombe à hh:59:59.999 : on affiche la minute pleine suivante.
+    const shown = new Date(Math.ceil(at.getTime() / 60000) * 60000);
+    const clock = new Intl.DateTimeFormat("fr-FR", { timeZone: BUDGET_TIME_ZONE, hour: "2-digit", minute: "2-digit" }).format(shown);
+    const ms = at.getTime() - now.getTime();
+    if (ms <= 0) {
+        return { title, detail: "Le budget a dû être renouvelé : tu peux réessayer maintenant.", when: clock, remaining: "" };
+    }
+    const days = Math.round((Date.parse(`${budgetDayKey(shown)}T00:00:00Z`) - Date.parse(`${budgetDayKey(now)}T00:00:00Z`)) / 86400000);
+    let day;
+    if (days <= 0) day = "aujourd'hui";
+    else if (days === 1) day = "demain";
+    else day = `le ${new Intl.DateTimeFormat("fr-FR", { timeZone: BUDGET_TIME_ZONE, weekday: "long", day: "numeric", month: "long" }).format(shown)}`;
+    return {
+        title,
+        detail: `Les échanges avec l'agent reprendront ${day} à ${clock} (heure de Paris).`,
+        when: `${day} · ${clock}`,
+        remaining: budgetRemainingLabel(ms)
+    };
+}
+
+/** Carte intégrée au transcript, à la place du JSON brut. */
+function renderBudgetEntry(notice, rawText) {
+    const f = formatBudgetNotice(notice);
+    const chips = [
+        f.when ? `<span class="budget-chip"><b>Reprise</b> ${escapeHtml(f.when)}</span>` : "",
+        typeof mountQuotaRecovery!=="function" && f.remaining ? `<span class="budget-chip"><b>Dans</b> ${escapeHtml(f.remaining.replace(/^dans\s+/, ""))}</span>` : ""
+    ].join("");
+    const icon = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+    const el = addEntry("budget-notice",
+        `<div class="budget-icon" aria-hidden="true">${icon}</div>` +
+        `<div class="budget-body"><div class="budget-title">${escapeHtml(f.title)}</div>` +
+        `<div class="budget-detail">${escapeHtml(f.detail)}</div>` +
+        (chips ? `<div class="budget-chips">${chips}</div>` : "") +
+        `<details class="budget-tech"><summary>Détails techniques</summary><pre>${escapeHtml(String(rawText ?? ""))}</pre></details></div>`);
+    el.setAttribute("role", "status");
+    if(typeof mountQuotaRecovery==="function")mountQuotaRecovery(el.querySelector(".budget-body"),notice.resetAt);
+    return el;
+}
+/* A beginner workspace inside EffectCraft, with the full editor one click away. */
+motionEngine.advanced=readStudioStorage("frst.motion.advanced",false)===true;
+motionEngine.changingInterface=false;
+const motionModes=centerNode("div","motion-mode-switch");motionModes.setAttribute("role","group");motionModes.setAttribute("aria-label","Niveau de l’interface EffectCraft");
+motionModes.innerHTML='<button type="button" id="motion-simple" aria-pressed="true">Simple</button><button type="button" id="motion-advanced" aria-pressed="false">Avancé</button>';
+document.querySelector(".motion-header").insertBefore(motionModes,document.querySelector(".motion-actions"));
+const tutorialButton=centerNode("button","","Tutos");tutorialButton.type="button";tutorialButton.id="motion-tutorial-open";tutorialButton.title="Apprendre les bases du motion design";
+document.querySelector(".motion-actions").prepend(tutorialButton);
+const intro=centerNode("ol","motion-intro-steps");
+for(const text of ["Décris ton idée dans le chat.","Regarde l’agent créer ton animation.","Teste la lecture, puis enregistre ton projet."])intro.append(centerNode("li","",text));
+document.querySelector(".motion-consent-actions").before(intro);
+async function applyMotionInterface(advanced,initial=false){
+    if(motionEngine.changingInterface)return false;
+    if(!initial && ui.status.busy){studioFeedback("Attends la fin de l’action de l’agent avant de changer l’interface.");return false;}
+    motionEngine.changingInterface=true;$("motion-simple").disabled=true;$("motion-advanced").disabled=true;
+    try{
+        await api.effectCraftControl({method:"ui.set",params:{workspace:advanced?"Default":"FranceStudent",menuBar:advanced,viewer:{zoom:null},timeline:{graphEditor:false,showModes:advanced}}});
+        for(const column of ["label","num","comment","switches","modes","parent","in","out","duration","stretch"]){
+            await api.effectCraftControl({method:"engine.execute",params:{command:"timeline.column",params:{column,visible:advanced}}});
+        }
+        motionEngine.advanced=advanced;writeStudioStorage("frst.motion.advanced",advanced);
+        $("motion-simple").setAttribute("aria-pressed",String(!advanced));$("motion-advanced").setAttribute("aria-pressed",String(advanced));
+        motionView.dataset.interface=advanced?"advanced":"simple";
+        return true;
+    }catch(error){if(initial)throw error;studioFeedback(error.message);return false;}
+    finally{motionEngine.changingInterface=false;$("motion-simple").disabled=false;$("motion-advanced").disabled=false;}
+}
+$("motion-simple").onclick=()=>applyMotionInterface(false);$("motion-advanced").onclick=()=>applyMotionInterface(true);
+const motionTutorials=[
+    {title:"Ton premier titre",steps:["Choisis le texte à afficher et son ambiance.","Décris-le à l’agent : il crée la composition et l’animation.","Appuie sur Lecture pour voir le résultat."],prompt:"Crée dans EffectCraft un titre « Mon premier projet » qui apparaît en douceur sur un fond sombre. Utilise une composition de 5 secondes au format 16:9. Réalise les modifications et vérifie le rendu."},
+    {title:"Donner du mouvement",steps:["Sélectionne un texte ou une forme dans l’animation.","Décris le mouvement simplement : apparaître, glisser, tourner…", "L’agent règle les points de passage de l’animation (keyframes). Tu peux ensuite demander un mouvement plus lent ou plus rapide."],prompt:"Anime l’élément sélectionné dans EffectCraft : fais-le apparaître progressivement puis glisser légèrement vers la droite. Inspecte d’abord la sélection et vérifie le résultat."},
+    {title:"Enregistrer et exporter",steps:["Enregistrer conserve ton projet modifiable dans le stockage local d’EffectCraft.","Exporter produit un fichier à partager. Demande à l’agent de vérifier les formats disponibles avant le rendu.","Garde aussi une copie du projet .ecproj et de tes médias avec les fonctions de fichier du mode Avancé."],prompt:"Inspecte mon animation EffectCraft. Vérifie les formats d’export réellement disponibles, prépare un export adapté et explique où retrouver le résultat. Ne déclare pas un export terminé tant qu’il n’a pas réussi."}
+];
+const motionTutorialPanel=centerNode("section","motion-tutorial hidden");motionTutorialPanel.id="motion-tutorial";motionTutorialPanel.setAttribute("aria-label","Petits tutoriels motion design");motionView.append(motionTutorialPanel);
+let motionTutorialIndex=0;
+function showMotionTutorial(index=motionTutorialIndex){
+    motionTutorialIndex=Math.max(0,Math.min(motionTutorials.length-1,index));
+    const tutorial=motionTutorials[motionTutorialIndex];motionTutorialPanel.replaceChildren();
+    const header=centerNode("div","motion-tutorial-head");header.append(centerNode("span","",`LES BASES · ${motionTutorialIndex+1}/${motionTutorials.length}`));
+    const close=centerNode("button","","Fermer");close.type="button";close.onclick=()=>{motionTutorialPanel.classList.add("hidden");tutorialButton.focus();};header.append(close);motionTutorialPanel.append(header,centerNode("h2","",tutorial.title));
+    const list=centerNode("ol");for(const step of tutorial.steps)list.append(centerNode("li","",step));motionTutorialPanel.append(list);
+    const actions=centerNode("div","motion-tutorial-actions");
+    const prepare=centerNode("button","primary","Préparer la demande");prepare.type="button";prepare.onclick=()=>{
+        input.value=input.value.trim()?`${input.value}\n\n${tutorial.prompt}`:tutorial.prompt;
+        input.dispatchEvent(new Event("input",{bubbles:true}));autosizeInput();saveStudioDraft();
+        motionTutorialPanel.classList.add("hidden");input.focus();studioFeedback("La demande est préparée. Tu peux la modifier puis cliquer sur Envoyer.");
+    };
+    const next=centerNode("button","",motionTutorialIndex===motionTutorials.length-1?"Revoir le début":"Suivant");next.type="button";next.onclick=()=>showMotionTutorial((motionTutorialIndex+1)%motionTutorials.length);
+    actions.append(prepare,next);motionTutorialPanel.append(actions,centerNode("p","motion-tutorial-note","Les tutos sont gratuits à consulter. Une demande envoyée à l’agent utilise ton quota habituel."));
+    motionTutorialPanel.classList.remove("hidden");close.focus();
+}
+tutorialButton.onclick=()=>showMotionTutorial();
+motionView.addEventListener("keydown",event=>{if(event.key==="Escape" && !motionTutorialPanel.classList.contains("hidden")){event.preventDefault();event.stopPropagation();motionTutorialPanel.classList.add("hidden");tutorialButton.focus();}});
+/* Curated motion workflows; ordinary marketplace searches remain explicit. */
+let motionCollection="effectcraft";
+function libraryInstallKey(item,scope){return `${item.application==="effectcraft" && scope==="projet"?"motion":scope}:${item.id}`;}
+const motionMarket=centerNode("section","motion-marketplace");motionMarket.id="motion-marketplace";
+const motionMarketHead=centerNode("div","motion-marketplace-head");
+motionMarketHead.innerHTML='<div><span class="ext-tag">Sélection motion design</span><h2>Les bons outils pour tes animations.</h2><p>EffectCraft pour l’éditeur intégré. Remotion pour les projets vidéo en React.</p></div><label>Installer pour<select id="motion-skill-scope" aria-label="Portée des skills motion"><option value="utilisateur">Tous mes projets</option><option value="projet">Ce projet seulement</option></select></label>';
+const motionMarketFilters=centerNode("div","motion-marketplace-filters");motionMarketFilters.setAttribute("role","group");motionMarketFilters.setAttribute("aria-label","Moteur de motion design");
+for(const [key,label] of [["effectcraft","EffectCraft · intégré"],["code","Remotion · chat code"]]){const button=centerButton(label,()=>{motionCollection=key;renderMotionMarketplace();});button.dataset.motionCollection=key;motionMarketFilters.append(button);}
+const motionMarketNote=centerNode("p","settings-help");motionMarketNote.id="motion-marketplace-note";
+const motionMarketList=centerNode("div","center-grid");motionMarketList.id="motion-marketplace-list";
+motionMarket.append(motionMarketHead,motionMarketFilters,motionMarketNote,motionMarketList);
+document.querySelector('[data-center-panel="motion"]').append(motionMarket);
+$("library-category").append(centerNode("option","","Motion design"));
+$("motion-skill-scope").onchange=renderMotionMarketplace;
+function renderMotionMarketplace(){
+    if(!centerData)return;
+    const scope=$("motion-skill-scope").value;
+    $("motion-skill-scope").querySelector('[value="projet"]').disabled=motionCollection!=="effectcraft" && !centerData.workspace;
+    $("motion-skill-scope").querySelector('[value="projet"]').textContent=motionCollection==="effectcraft"?"Projet EffectCraft":"Ce projet code";
+    for(const button of motionMarketFilters.children)button.setAttribute("aria-pressed",String(button.dataset.motionCollection===motionCollection));
+    motionMarketNote.replaceChildren(document.createTextNode(motionCollection==="effectcraft"?"8 skills FranceStudent prêts à installer, sans téléchargement ni clé API. L’agent les utilise dans le chat Motion design ; les consulter ne consomme pas de quota.":"Sélection des 5 skills les plus installés de la collection officielle remotion-dev/skills sur Skills.sh, vérifiée le 23 octobre 2026. Ils nécessitent un projet Remotion dans le chat code ; ils ne pilotent pas EffectCraft. "));
+    if(motionCollection==="code")motionMarketNote.append(centerButton("Voir la source du classement",()=>api.openExternal("https://www.skills.sh/remotion-dev/skills")));
+    motionMarketList.replaceChildren();
+    const entries=motionCollection==="effectcraft"?centerData.library.filter(item=>item.application==="effectcraft"):(centerData.motionCommunity || []);
+    for(const item of entries){
+        const card=centerNode("article","center-card");card.dataset.motionSkillId=item.id;
+        card.append(centerNode("span","ext-tag",motionCollection==="effectcraft"?"EffectCraft · natif":`Remotion · ≈ ${Math.round(item.installs/1000)} k installations`),centerNode("h3","",item.title),centerNode("p","",item.description));
+        const actions=centerNode("div","center-card-actions");
+        const installed=centerData.skills.find(skill=>skill.key===libraryInstallKey(item,scope));
+        if(motionCollection==="effectcraft"){
+            actions.append(centerButton("Voir les instructions",()=>{openSkillEditor({kind:"library",item});$("skill-editor-scope").value=scope;}));
+            actions.append(installed?uninstallSkillButton(installed):centerButton("Installer",()=>changeExtension("install",{id:item.id,scope},`${item.title} installé pour le chat Motion design.`),true));
+        }else{
+            actions.append(centerButton("Voir le dépôt",()=>api.openExternal(item.githubUrl)));
+            actions.append(installed?uninstallSkillButton(installed):centerButton("Lire et installer",async()=>{await downloadSkillPreview({...item,curatedId:item.id});$("skill-editor-scope").value=scope;},true));
+        }
+        card.append(actions);motionMarketList.append(card);
+    }
+}
+const motionSkillsButton=centerButton("Skills",async()=>{
+    await closeMotionDesign();if(isMotionOpen())return;
+    showSideView("extensions");setCenterTab("motion");motionCollection="effectcraft";await loadExtensionCenter();motionMarket.scrollIntoView({block:"start"});
+});motionSkillsButton.id="motion-skills";motionSkillsButton.title="Choisir des skills pour ton animation";document.querySelector(".motion-actions").prepend(motionSkillsButton);
+/* Visible history is independent of the model's compacted context. */
+let replayGeneration=0;
+api.onEvent((channel,data)=>{
+    if(channel==="clear"){replayGeneration++;ui.replayingConversation=false;return;}
+    if(channel!=="conversationReplay")return;
+    const generation=++replayGeneration,entries=data.entries || [];let cursor=0;
+    ui.replayingConversation=true;
+    function draw(){
+        if(generation!==replayGeneration)return;
+        const end=Math.min(cursor+50,entries.length);
+        while(cursor<end)renderEntry({...entries[cursor++],replayed:true});
+        studioFeedback(`Historique : ${cursor}/${entries.length} éléments chargés.`);
+        if(cursor<entries.length)requestAnimationFrame(draw);
+        else{ui.replayingConversation=false;scrollDown();}
+    }
+    draw();
+});
+function parseContextLimitNotice(text){
+    const value=String(text || "");
+    if(!/maximum.{0,20}(?:context|token)|context[_ ]length[_ ]exceeded|conversation.{0,50}token.{0,20}limit/i.test(value))return null;
+    const match=/(?:maximum|max)\s+(?:context\s+)?tokens?\s+limit\s*(?:of|is|:|=)?\s*([\d,_ ]+)/i.exec(value);
+    const limit=match?Number(match[1].replace(/[, _]/g,"")):null;
+    return {limit:Number.isFinite(limit)?limit:null};
+}
+function renderContextLimitEntry(info,raw){
+    const entry=addEntry("error context-limit-notice","");
+    const icon=centerNode("span","api-notice-icon");icon.innerHTML=apiNoticeIcon("attachment");entry.append(icon);
+    entry.append(centerNode("strong","","Limite de contexte atteinte"),centerNode("p","",info.limit?`Le serveur limite cette conversation à ${info.limit.toLocaleString("fr-FR")} tokens.`:"La conversation dépasse la capacité acceptée par le serveur."),centerNode("p","","La reprise automatique n’a pas abouti. L’historique reste conservé ; tu peux réessayer après une compaction ou préciser la partie du travail à reprendre."));
+    const details=centerNode("details");details.append(centerNode("summary","","Détail technique"),centerNode("pre","",raw));entry.append(details);return entry;
+}
+/* API failures use readable cards; raw responses stay in collapsed details. */
+function parseApiErrorNotice(raw){
+    const text=String(raw || ""),match=/(?:HTTP|status(?:Code)?["']?\s*[:=])\s*["']?(\d{3})\b/i.exec(text);
+    const status=match?Number(match[1]):null;
+    if(/\bCHAT_LOCKED\b|flagged by the AI provider|"chat_flagged"\s*:\s*true/i.test(text))return {title:"Conversation verrouillée",detail:"Le fournisseur d’IA a signalé puis verrouillé cette conversation selon ses règles de sécurité ou de modération. L’API ne précise pas le motif exact. Ce fil ne peut plus être utilisé : ouvre une nouvelle conversation avec le bouton + pour poursuivre.",kind:"locked",status};
+    if(!status && !/erreur (?:du flux|API)|\bAPI\b|fetch failed|failed to fetch|network|ECONN|ENOTFOUND|ETIMEDOUT|timeout|timed out|Unsupported tool ignored by the backend|invalid[_ ]api[_ ]key|^\s*\{[\s\S]*"(?:error|message|errorCode)"\s*:/i.test(text))return null;
+    let title="La requête n’a pas abouti",detail="Le service a renvoyé une erreur. Ton historique et les modifications déjà effectuées sont conservés.",kind="service";
+    if(status===401 || /invalid[_ ]api[_ ]key/i.test(text)){title="Connexion à renouveler";detail="Ta session ou ta clé d’accès n’est plus acceptée. Vérifie la connexion dans les paramètres avant de réessayer.";kind="auth";}
+    else if(status===403){title="Accès refusé";detail="Ton compte n’a pas accès à cette ressource ou à ce modèle. Vérifie les autorisations ou choisis un autre modèle.";kind="auth";}
+    else if(status===429){title="Trop de requêtes à la fois";detail="Le service limite temporairement les demandes. Patiente avant de réessayer ; ce message ne signifie pas forcément que ton quota est épuisé.";kind="wait";}
+    else if(status===413 || /image.{0,50}(?:dimension|too large)|file.{0,30}too large/i.test(text)){title="Pièce jointe trop volumineuse";detail="Le service refuse la taille du contenu envoyé. Réduis les pièces jointes ou utilise une capture plus ciblée.";kind="attachment";}
+    else if(status===404){title="Ressource introuvable";detail="La conversation, le modèle ou la ressource demandée n’est plus disponible. Vérifie la ressource avant de réessayer.";}
+    else if(status===408 || status===504 || /timeout|timed out|ETIMEDOUT/i.test(text)){title="Le service met trop de temps";detail="Le délai de réponse est dépassé. Vérifie la connexion puis réessaie quand le service répond à nouveau.";kind="wait";}
+    else if(status>=500){title="Service momentanément indisponible";detail="Le serveur rencontre un problème. Ton travail local est conservé ; réessaie dans quelques instants.";}
+    else if(/fetch failed|failed to fetch|network|ECONN|ENOTFOUND/i.test(text)){title="Connexion au service interrompue";detail="Impossible de joindre le service. Vérifie ta connexion Internet, puis réessaie.";kind="network";}
+    else if(status===400 || status===422){title="Demande refusée par le service";detail="Le service n’accepte pas le contenu ou les options de cette demande. Vérifie le modèle et les pièces jointes.";}
+    return {title,detail,kind,status};
+}
+function apiNoticeIcon(kind){
+    if(kind==="locked")return apiNoticeIcon("auth");
+    if(kind==="trash")return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></svg>';
+    if(kind==="spark")return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></svg>';
+    if(kind==="chat")return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 3V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></svg>';
+    if(kind==="tools")return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><path d="M17.5 14v7M14 17.5h7"/></svg>';
+    const paths={auth:'<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 5v2"/>',wait:'<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',network:'<path d="m3 3 18 18M2 8a17 17 0 0 1 4-2m4-1a17 17 0 0 1 12 3M5 12a12 12 0 0 1 5-2m4 0a12 12 0 0 1 5 2M8 16a6 6 0 0 1 8 0"/><circle cx="12" cy="20" r="1"/>',attachment:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="m4 16 5-5 4 4 3-3 4 4"/>',service:'<rect x="4" y="3" width="16" height="7" rx="2"/><rect x="4" y="14" width="16" height="7" rx="2"/><path d="M8 6h1m-1 11h1m7-2v3m0 2h.01"/>'};
+    return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[kind] || paths.service}</svg>`;
+}
+function renderApiErrorEntry(info,raw){
+    const entry=addEntry("api-error-notice","");entry.setAttribute("role","status");
+    if(info.kind==="locked"){entry.classList.add("chat-locked-notice");entry.setAttribute("role","alert");}
+    const icon=centerNode("span","api-notice-icon");icon.innerHTML=apiNoticeIcon(info.kind);
+    const body=centerNode("div","api-notice-body");body.append(centerNode("strong","",info.title),centerNode("p","",info.detail));
+    const actions=centerNode("div","api-notice-actions");
+    if(info.kind==="locked"){
+        const understood=centerNode("button","","J’ai bien compris");understood.type="button";
+        understood.onclick=()=>{entry.dataset.acknowledged="true";understood.textContent="Compris";understood.disabled=true;};actions.append(understood);
+    }else{
+    const settings=centerNode("button","",info.kind==="auth"?"Vérifier ma connexion":"Voir l’usage");settings.type="button";
+    settings.onclick=()=>{if(info.kind==="auth")showSideView("settings");else setAgentTab("usage");};actions.append(settings);
+    }
+    body.append(actions);
+    const details=centerNode("details","api-notice-tech");details.append(centerNode("summary","",info.status?`Détails techniques · HTTP ${info.status}`:"Détails techniques"),centerNode("pre","",String(raw || "")));body.append(details);entry.append(icon,body);scrollDown();return entry;
+}
+
+const quotaRecoveryState=new WeakMap();
+const quotaCheckedDeadlines=new Set();
+function quotaCountdown(resetAt,now=Date.now()){
+    const end=new Date(resetAt).getTime();
+    if(!resetAt || !Number.isFinite(end))return "Heure de réinitialisation non communiquée";
+    const minutes=Math.max(0,Math.ceil((end-now)/60000));
+    if(!minutes)return "Échéance atteinte · vérification du quota nécessaire";
+    return `Réinitialisation dans ${Math.floor(minutes/60)} h ${String(minutes%60).padStart(2,"0")} min`;
+}
+function mountQuotaRecovery(parent,resetAt){
+    const box=centerNode("div","quota-recovery");
+    const timer=centerNode("strong","quota-countdown");
+    const note=centerNode("p","quota-recovery-note","Le quota est revérifié toutes les 15 minutes. Si le staff t’a accordé un reset, vérifie-le ici.");
+    const button=centerNode("button","quota-reset-check","J’ai reçu un reset");button.type="button";
+    const feedback=centerNode("p","quota-reset-feedback");feedback.setAttribute("role","status");
+    const originalBudget=parent.closest(".budget-notice");
+    quotaRecoveryState.set(box,{resetAt,checkedAt:ui.quotaUpdatedAt || null,budgetTitle:originalBudget?.querySelector(".budget-title")?.textContent,budgetDetail:originalBudget?.querySelector(".budget-detail")?.textContent});
+    button.onclick=async()=>{
+        if(ui.quotaLoading){feedback.textContent="Vérification du quota déjà en cours…";return;}
+        button.disabled=true;button.textContent="Vérification…";
+        await refreshQuota();
+        const recovered=ui.quota?.percent!=null && Number(ui.quota.percent)<100;
+        const target=box.isConnected?feedback:document.querySelector("#usage-dashboard .quota-reset-feedback");
+        if(target)target.textContent=ui.quotaError?"Vérification indisponible. Réessaie dans quelques instants.":recovered?"Quota disponible. Tu peux envoyer une nouvelle demande.":"Le reset n’est pas encore confirmé par l’API.";
+        button.disabled=false;button.textContent="J’ai reçu un reset";
+    };
+    box.append(timer,note,button,feedback);parent.append(box);updateQuotaRecoveryBox(box);if(box.closest("#transcript"))scrollDown();return box;
+}
+function updateQuotaRecoveryBox(box){
+    const state=quotaRecoveryState.get(box);if(!state)return;
+    const resetAt=ui.quota?.resetAt || state.resetAt;
+    const checked=ui.quotaUpdatedAt && ui.quotaUpdatedAt!==state.checkedAt;
+    if(checked){state.checkedAt=ui.quotaUpdatedAt;state.available=ui.quota?.percent!=null && Number(ui.quota.percent)<100 && !ui.quotaError;}
+    if(ui.quotaError || !ui.status.booted)state.available=false;
+    box.querySelector(".quota-countdown").textContent=state.available?"Quota disponible · tu peux reprendre":quotaCountdown(resetAt);
+    box.classList.toggle("quota-recovered",!!state.available);
+    const budget=box.closest(".budget-notice");
+    if(budget){budget.querySelector(".budget-title").textContent=state.available?"Quota de chat disponible":state.budgetTitle;budget.querySelector(".budget-detail").textContent=state.available?"Le renouvellement est confirmé par l’API. Tu peux envoyer une nouvelle demande.":state.budgetDetail;if(state.available)budget.querySelector(".budget-chips")?.remove();}
+    const end=new Date(resetAt).getTime();
+    if(!state.available && resetAt && Number.isFinite(end) && end<=Date.now() && !quotaCheckedDeadlines.has(end) && ui.status.booted && !ui.quotaLoading){
+        quotaCheckedDeadlines.add(end);if(quotaCheckedDeadlines.size>50)quotaCheckedDeadlines.delete(quotaCheckedDeadlines.values().next().value);void refreshQuota();
+    }
+}
+function updateQuotaRecoveryCards(){for(const box of document.querySelectorAll(".quota-recovery"))updateQuotaRecoveryBox(box);}
+setInterval(updateQuotaRecoveryCards,30000);
+/* One welcome card after each installed update; no network request is needed. */
+let releaseHighlightsData=null,releaseHighlightsShown=false;
+const releaseDialog=document.createElement("dialog");releaseDialog.id="release-highlights";releaseDialog.className="release-highlights";releaseDialog.setAttribute("aria-labelledby","release-highlights-title");document.body.append(releaseDialog);
+function openReleaseHighlights(data){
+    if(releaseDialog.open)return;
+    releaseHighlightsShown=true;releaseDialog.replaceChildren();
+    const top=centerNode("div","release-notes-top");top.append(centerNode("span","release-notes-badge",`NOUVEAUTÉS · ${data.version}`));
+    const close=centerNode("button","release-notes-close","×");close.type="button";close.setAttribute("aria-label","Fermer les nouveautés");close.onclick=()=>releaseDialog.close();top.append(close);
+    const heading=centerNode("h2","",data.headline);heading.id="release-highlights-title";
+    releaseDialog.append(top,centerNode("p","release-notes-brand","FranceStudent IDE"),heading,centerNode("p","release-notes-intro","Voici ce qui change dans cette version. Ton travail reste à sa place."));
+    const list=centerNode("div","release-notes-list");
+    for(const item of data.items){const row=centerNode("div","release-notes-item"),icon=centerNode("span","release-notes-icon");icon.innerHTML=apiNoticeIcon(item.icon==="clock"?"wait":item.icon);const body=centerNode("div");body.append(centerNode("strong","",item.title),centerNode("p","",item.text));row.append(icon,body);list.append(row);}
+    const footer=centerNode("div","release-notes-footer"),more=centerNode("button","","Notes complètes");more.type="button";more.onclick=()=>api.openExternal(data.url).catch(error=>studioFeedback(error.message));
+    const done=centerNode("button","primary","C’est parti !");done.type="button";done.onclick=()=>releaseDialog.close();footer.append(more,done);releaseDialog.append(list,footer);
+    releaseDialog.showModal();done.focus();
+}
+releaseDialog.addEventListener("close",()=>{if(releaseHighlightsData)api.releaseHighlights("seen",releaseHighlightsData.version).catch(error=>studioFeedback(error.message));});
+function maybeShowReleaseHighlights(){
+    if(!releaseHighlightsData?.shouldShow || releaseHighlightsShown || !$("startup-loading").hidden || !$("connection-guide").classList.contains("hidden") || document.querySelector("dialog[open]"))return;
+    openReleaseHighlights(releaseHighlightsData);
+}
+new MutationObserver(maybeShowReleaseHighlights).observe($("startup-loading"),{attributes:true,attributeFilter:["hidden"]});
+new MutationObserver(maybeShowReleaseHighlights).observe($("connection-guide"),{attributes:true,attributeFilter:["class"]});
+api.releaseHighlights().then(data=>{releaseHighlightsData=data;maybeShowReleaseHighlights();}).catch(()=>{});
+const releaseNotesButton=centerNode("button","","Nouveautés de cette version");releaseNotesButton.type="button";releaseNotesButton.id="release-highlights-open";releaseNotesButton.onclick=async()=>{try{releaseHighlightsData=await api.releaseHighlights();openReleaseHighlights(releaseHighlightsData);}catch(error){studioFeedback(error.message);}};
+document.querySelector("#studio-update-check").parentElement.append(releaseNotesButton);
+/* Shared identity for secondary flows. Keep existing controls and their handlers. */
+function studioSurfaceHeader(dialog,{title,subtitle,icon="spark",badge,close}){
+    dialog.classList.add("fs-dialog");
+    const header=centerNode("header","fs-dialog-header"),mark=centerNode("span","fs-dialog-icon");mark.innerHTML=icon==="eco"?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4c-6-1-13 1-13 7a6 6 0 0 0 6 6c6 0 8-7 7-13ZM4 21 15 10"/></svg>':apiNoticeIcon(icon);
+    const copy=centerNode("div","fs-dialog-heading"),line=centerNode("div","fs-dialog-title-row");
+    const old=dialog.querySelector("h2");
+    const heading=old || centerNode("h2");heading.textContent=title;
+    if(!heading.id)heading.id=dialog.id+"-heading";
+    dialog.setAttribute("aria-labelledby",heading.id);
+    line.append(heading);if(badge)line.append(centerNode("span","fs-surface-badge",badge));copy.append(line,centerNode("p","",subtitle));
+    const dismiss=close || centerNode("button","","×");dismiss.type="button";dismiss.classList.add("fs-dialog-close");dismiss.setAttribute("aria-label",`Fermer : ${title}`);dismiss.onclick=()=>dialog.close();
+    header.append(mark,copy,dismiss);dialog.prepend(header);return header;
+}
+function studioSurfaceSection(title,description,nodes){
+    const section=centerNode("section","fs-dialog-section");
+    const heading=centerNode("h3","",title);section.append(heading);
+    if(description)section.append(centerNode("p","fs-section-description",description));
+    for(const node of nodes)if(node)section.append(node);return section;
+}
+function decorateEcoDialog(){
+    const dialog=ecoModeDialog;
+    studioSurfaceHeader(dialog,{title:"Activer le mode Éco",subtitle:"Moins de quota, des tâches plus courtes.",icon:"eco",badge:"Optionnel"});
+    const items=[...dialog.querySelectorAll("li")];
+    const list=centerNode("div","fs-eco-grid");
+    for(const [index,item] of items.entries()){
+        const card=centerNode("article","fs-feature-card"),number=centerNode("span","fs-feature-number",String(index+1).padStart(2,"0"));
+        card.append(number,centerNode("strong","",["Des demandes plus courtes","Un contexte allégé","Moins de relances","Des réponses ciblées"][index]),centerNode("p","",item.textContent));list.append(card);
+    }
+    dialog.querySelector("ul").replaceWith(list);
+    const paragraphs=[...dialog.querySelectorAll(":scope > p")];
+    if(paragraphs[1])paragraphs[1].classList.add("fs-dialog-note");
+    const footer=dialog.querySelector(".studio-actions");footer.classList.add("fs-dialog-footer");
+    $("eco-mode-enable").classList.add("primary");
+}
+function decorateImportDialog(){
+    const dialog=conversationImportDialog;
+    studioSurfaceHeader(dialog,{title:"Continuer avec ton IA",subtitle:"Importe les échanges Codex, puis reprends dans FranceStudent IDE.",icon:"chat",badge:"Bêta"});
+    const url=$("conversation-import-url").closest("label"),text=$("conversation-import-text").closest("label");
+    const file=$("conversation-import-file").parentElement,analyze=$("conversation-import-preview").parentElement;
+    const urlHelp=url.nextElementSibling;
+    const section=studioSurfaceSection("1. Ajoute ta conversation","Colle un lien de partage, choisis un export ou colle directement le texte.",[url,urlHelp,file,text,analyze]);
+    dialog.insertBefore(section,$("conversation-import-status"));
+    const choices=dialog.querySelector(".conversation-import-choices");
+    const settings=studioSurfaceSection("2. Choisis comment continuer","La reprise prépare un brouillon. Tu décides quand l’envoyer.",[choices]);dialog.insertBefore(settings,dialog.querySelector(":scope > .studio-actions:last-child"));
+    dialog.querySelector(":scope > .studio-actions:last-child").classList.add("fs-dialog-footer");
+    $("conversation-import-project").classList.add("fs-project-summary");
+    $("conversation-import-apply").title="Préparer un brouillon sans lancer de requête IA";
+}
+function decorateGithubDialog(){
+    const dialog=githubConnectorDialog,oldHead=dialog.querySelector(".workspace-section-head");
+    studioSurfaceHeader(dialog,{title:"Ton espace GitHub",subtitle:"Dépôts, échanges et versions, au même endroit.",icon:"tools",badge:"Bêta",close:$("github-connector-close")});oldHead.remove();
+    const account=studioSurfaceSection("Projet connecté","",[$("github-connector-account"),$("github-connector-repo")]);dialog.querySelector(".fs-dialog-header").after(account);
+    const nav=dialog.querySelector(".github-connector-nav");nav.setAttribute("role","group");nav.setAttribute("aria-label","Contenu GitHub");
+    const readme=$("github-connector-readme");readme.classList.add("fs-readme-action");nav.after(readme);
+    $("github-connector-create").classList.add("fs-dialog-section");$("github-release-create").classList.add("primary");
+    const note=dialog.querySelector(":scope > p:last-child");if(note)note.classList.add("fs-dialog-note");
+}
+decorateEcoDialog();decorateImportDialog();decorateGithubDialog();
+for(const [id,subtitle,icon] of [["skill-editor","Les instructions que ton agent pourra utiliser.","tools"],["mcp-editor","Relie un outil externe à ton espace de travail.","tools"]]){
+    const dialog=$(id),oldHead=dialog.querySelector(".center-dialog-head");
+    studioSurfaceHeader(dialog,{title:dialog.querySelector("h2").textContent,subtitle,icon,close:oldHead.querySelector("button")});oldHead.remove();
+}
+
+// Real modal confirmations replace browser-native alerts and restore focus on close.
+let studioConfirmationQueue=Promise.resolve();
+function confirmStudioAction(message,{title="Confirmer cette action",confirmLabel="Confirmer",danger=true}={}){
+    const next=studioConfirmationQueue.then(()=>new Promise(resolve=>{
+        const previous=document.activeElement,dialog=document.createElement("dialog");dialog.id="studio-confirm-dialog";dialog.className="fs-dialog fs-confirm-dialog";
+        dialog.setAttribute("aria-labelledby","studio-confirm-title");
+        const heading=centerNode("h2","",title);heading.id="studio-confirm-title";dialog.append(heading);
+        studioSurfaceHeader(dialog,{title,subtitle:danger?"Vérifie l’action avant de continuer.":"Ton choix s’applique à cette action.",icon:danger?"trash":"spark"});
+        const body=centerNode("p","fs-confirm-message",message);body.id="studio-confirm-message";dialog.setAttribute("aria-describedby",body.id);
+        const footer=centerNode("div","fs-dialog-footer"),cancel=centerNode("button","","Annuler"),accept=centerNode("button",danger?"danger":"primary",confirmLabel);
+        cancel.type=accept.type="button";accept.dataset.confirm="accept";cancel.dataset.confirm="cancel";
+        let accepted=false;cancel.onclick=()=>dialog.close();accept.onclick=()=>{accepted=true;dialog.close();};footer.append(cancel,accept);dialog.append(body,footer);document.body.append(dialog);
+        dialog.addEventListener("close",()=>{dialog.remove();resolve(accepted);requestAnimationFrame(()=>{if(previous?.isConnected)previous.focus();});},{once:true});dialog.showModal();cancel.focus();
+    }));
+    studioConfirmationQueue=next.catch(()=>false);return next;
+}
+﻿/* macOS is experimental; show this notice on every launch, never on Windows. */
+if(api.platform==="darwin"){
+    const macBetaNotice=document.createElement("dialog");
+    macBetaNotice.id="mac-beta-notice";
+    macBetaNotice.className="fs-dialog";
+    document.body.append(macBetaNotice);
+    studioSurfaceHeader(macBetaNotice,{title:"Bienvenue sur Mac",subtitle:"Cette version de FranceStudent IDE est en bêta.",badge:"BÊTA"});
+    const body=centerNode("div","fs-dialog-section");
+    body.append(centerNode("p","","Certaines fonctionnalités peuvent encore présenter des bugs sur macOS. Pense à enregistrer régulièrement ton travail et à nous signaler les problèmes rencontrés."));
+    const footer=centerNode("div","release-notes-footer"),done=centerNode("button","primary","Continuer");
+    done.type="button";done.onclick=()=>macBetaNotice.close();
+    footer.append(done);macBetaNotice.append(body,footer);
+    macBetaNotice.showModal();done.focus();
+}
 /* ---------- Démarrage ---------- */
 
 (async () => {
@@ -5802,10 +8369,16 @@ async function inlineEditStart() {
     renderTree();
     input.focus();
     try {
-        await api.bootstrap();
+        const result = await api.bootstrap();
+        if (result.origin) connectionOrigin = result.origin;
+        if (!result.ok) {
+            openConnectionGuide(1);
+            if (!result.needsLogin) guideError(result.reason);
+        }
     } catch (err) {
-        renderEntry({ type: "error", text: err.message });
+        openConnectionGuide(1);
+        guideError(err);
     }
     refreshQuota();
-    setInterval(refreshQuota, 120000);
+    setInterval(refreshQuota, 15 * 60 * 1000);
 })();

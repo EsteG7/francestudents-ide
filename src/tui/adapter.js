@@ -144,7 +144,7 @@ function createTuiBackend(store, {
          * session (sauf avec force), toute autre réponse refuse.
          */
         async confirm(question, { force = false } = {}) {
-            if (!force && state.autoApprove) return true;
+            if (state.fullAccess || (!force && state.autoApprove)) return true;
 
             const raw = await openPrompt("confirm", question, { force: Boolean(force) });
             const answer = String(raw ?? "").trim().toLowerCase();

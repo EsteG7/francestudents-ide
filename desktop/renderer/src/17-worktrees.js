@@ -256,12 +256,12 @@ async function wtToggleDiff(name) {
 }
 
 async function wtRemove(name) {
-    if (!window.confirm(`Supprimer le worktree ${name} ?\nLa branche frst/${name} est conservée.`)) return;
+    if (!await confirmStudioAction(`Supprimer le worktree ${name} ?\nLa branche frst/${name} est conservée.`)) return;
     try {
         await api.worktreeRemove(name, false);
     } catch (error) {
         const reason = gitErrorText(error);
-        if (!window.confirm(`Suppression refusée : ${reason}\n\nForcer la suppression ? Les modifications non validées du worktree seront perdues.`)) {
+        if (!await confirmStudioAction(`Suppression refusée : ${reason}\n\nForcer la suppression ? Les modifications non validées du worktree seront perdues.`)) {
             wtMessage(reason, "error");
             return;
         }

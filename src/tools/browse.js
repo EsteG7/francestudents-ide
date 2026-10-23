@@ -16,6 +16,7 @@ const path = require("node:path");
 
 const { ui } = require("../ui-bridge");
 const { requireString, optionalInt } = require("./core/args");
+const {resolveInWorkspace,assertRealInside}=require("./security");
 
 const SCREENSHOT_DIR = path.join(".frst", "screenshots");
 const DEFAULT_MAX_CHARS = 10000;
@@ -28,6 +29,7 @@ const IDLE_TIMEOUT_MS = 5000;
 const MAX_WAIT_MS = 30000;
 const MAX_CONSOLE = 20;
 const CHANNELS = ["chrome", "msedge", "chromium"];
+const activeBrowsers=new Set();
 
 function clamp(value, min, max, fallback) {
     if (value === undefined) return fallback;
@@ -109,7 +111,9 @@ async function browse(args, deps = {}) {
     const waitMs = clamp(args.wait_ms, 0, MAX_WAIT_MS, 0);
     const maxChars = clamp(args.max_chars, MIN_CHARS, MAX_CHARS_LIMIT, DEFAULT_MAX_CHARS);
 
-    const confirm = deps.confirm ?? (question => ui.confirm(question));
+    const permission=require("../settings").load().browserCapturePermission||"ask";
+    if(permission==="deny"&&!deps.confirm)return {denied:true,changed:false,message:"Les captures web sont désactivées dans les paramètres."};
+    const confirm = deps.confirm ?? (permission==="allow"?async()=>true:question=>ui.confirm(question));
     const ok = await confirm(
         `Ouvrir ${url.href} dans un navigateur en arrière-plan et enregistrer une capture d'écran ?`
     );
@@ -125,7 +129,14 @@ async function browse(args, deps = {}) {
 
     const launch = deps.launch ?? (() => launchBrowser(require("playwright-core").chromium));
     const browser = await launch();
+    activeBrowsers.add(browser);
     const consoleMessages = [];
+    const networkErrors = [];
+    let networkErrorsTruncated = false;
+    const noteNetwork = entry => {
+        if (networkErrors.length < MAX_CONSOLE) networkErrors.push(entry);
+        else networkErrorsTruncated = true;
+    };
 
     const note = text => {
         if (consoleMessages.length < MAX_CONSOLE) consoleMessages.push(String(text).slice(0, 500));
@@ -137,9 +148,22 @@ async function browse(args, deps = {}) {
 
         page.on("console", message => {
             const type = message.type();
-            if (type === "error" || type === "warning") note(`[${type}] ${message.text()}`);
+            if (type === "error" || type === "warning") {
+                const location = message.location?.();
+                const source = location?.url ? ` (${location.url}:${(location.lineNumber ?? 0) + 1})` : "";
+                note(`[${type}] ${message.text()}${source}`);
+            }
         });
         page.on("pageerror", error => note(`[exception] ${firstLine(error.message)}`));
+        page.on("response", response => {
+            if (response.status() < 400) return;
+            const request = response.request();
+            noteNetwork({ url: response.url(), status: response.status(), method: request.method(), resource_type: request.resourceType() });
+        });
+        page.on("requestfailed", request => noteNetwork({
+            url: request.url(), method: request.method(), resource_type: request.resourceType(),
+            error: request.failure()?.errorText || "Requête interrompue"
+        }));
 
         let response;
         try {
@@ -151,9 +175,10 @@ async function browse(args, deps = {}) {
         await page.waitForLoadState("networkidle", { timeout: IDLE_TIMEOUT_MS }).catch(() => {});
         if (waitMs) await page.waitForTimeout(waitMs);
 
-        const relative = path.join(SCREENSHOT_DIR, screenshotName(url));
-        const absolute = path.join(workspace, relative);
+        const relative = path.join(SCREENSHOT_DIR, screenshotName(url).replace(/\.png$/,`-${require("node:crypto").randomUUID().slice(0,8)}.png`));
+        const {target:absolute}=await resolveInWorkspace(workspace,relative);
         await fs.mkdir(path.dirname(absolute), { recursive: true });
+        await assertRealInside(workspace,absolute);
         await page.screenshot({ path: absolute, fullPage });
 
         const title = await page.title();
@@ -174,6 +199,8 @@ async function browse(args, deps = {}) {
             content,
             truncated,
             console: consoleMessages,
+            network_errors: networkErrors,
+            network_errors_truncated: networkErrorsTruncated,
             changed: false,
             files_changed: [shot],
             message: `Capture enregistrée : ${shot}` +
@@ -182,6 +209,7 @@ async function browse(args, deps = {}) {
                 "."
         };
     } finally {
+        activeBrowsers.delete(browser);
         await browser.close().catch(() => {});
     }
 }
@@ -203,6 +231,7 @@ function describe(a) {
 }
 
 module.exports = {
+    stopAll:()=>Promise.allSettled([...activeBrowsers].map(browser=>browser.close())),
     name: "browse",
     run: args => browse(args),
     check,

@@ -2,11 +2,16 @@
 
 /* ---------- Pièces jointes (fichiers / images) ---------- */
 
-const MAX_ATTACHMENTS = 10;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const MAX_TEXT_BYTES = 1024 * 1024;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const ATTACHMENT_QUOTA_WARNING_COUNT = 5;
 let pendingAttachments = [];
+const attachmentQuotaWarning = document.createElement("p");
+attachmentQuotaWarning.id = "attachment-quota-warning";
+attachmentQuotaWarning.className = "attachment-quota-warning hidden";
+attachmentQuotaWarning.setAttribute("role", "status");
+attachmentQuotaWarning.setAttribute("aria-live", "polite");
+$("attachments").after(attachmentQuotaWarning);
 
 /* Extensions binaires connues -> type MIME (utilisé si le navigateur n'en fournit pas). */
 const BINARY_TYPES = {
@@ -48,15 +53,6 @@ function fileExtension(name) {
     return match ? match[1].toLowerCase() : "";
 }
 
-/** true pour les PDF, documents Office, archives, médias… (à ne pas lire comme du texte). */
-function isBinaryFile(file, name) {
-    if (Object.prototype.hasOwnProperty.call(BINARY_TYPES, fileExtension(name))) return true;
-    const type = String(file.type || "").toLowerCase();
-    if (!type || type.startsWith("text/")) return false;
-    if (/(json|xml|javascript|ecmascript|x-sh|x-python|yaml|toml|sql|csv)/.test(type)) return false;
-    return /^(application|audio|video|font|image)\//.test(type);
-}
-
 /** Fichier quelconque -> pièce jointe { kind: "file" } en data URL base64 avec un type MIME. */
 async function prepareFile(file, name) {
     if (file.size > MAX_FILE_BYTES) {
@@ -92,6 +88,11 @@ function readAsDataUrl(file) {
 
 function renderAttachments() {
     const box = $("attachments");
+    const manyFiles = pendingAttachments.length >= ATTACHMENT_QUOTA_WARNING_COUNT;
+    attachmentQuotaWarning.classList.toggle("hidden", !manyFiles);
+    attachmentQuotaWarning.textContent = manyFiles
+        ? `⚠ ${pendingAttachments.length} fichiers joints : leur analyse risque de consommer énormément de quota, notamment si les documents contiennent beaucoup de pages ou nécessitent plusieurs envois. Retire les fichiers inutiles avant d’envoyer.`
+        : "";
     box.replaceChildren();
     box.classList.toggle("hidden", pendingAttachments.length === 0);
     pendingAttachments.forEach((item, index) => {
@@ -114,6 +115,7 @@ function renderAttachments() {
         label.className = "attachment-name";
         label.textContent = item.name;
         chip.appendChild(label);
+        if(item.readabilityWarning){const warning=document.createElement("span");warning.className="attachment-readability-warning";warning.textContent="⚠ Lisibilité réduite";warning.title=item.readabilityWarning;chip.append(warning);chip.title+=" · "+item.readabilityWarning;}
         const remove = document.createElement("button");
         remove.type = "button";
         remove.className = "attachment-remove";
@@ -143,9 +145,8 @@ function formatBytes(n) {
  * format peu pris en charge sont décodées, redimensionnées (2048 px max) puis
  * réencodées (PNG si possible, sinon JPEG) au lieu d'être refusées.
  */
-async function prepareImage(file) {
+async function prepareImage(file,details={}) {
     const direct = DIRECT_IMAGE_TYPES.has(file.type);
-    if (direct && file.size <= MAX_IMAGE_BYTES) return readAsDataUrl(file);
 
     let bitmap;
     try {
@@ -153,6 +154,11 @@ async function prepareImage(file) {
     } catch {
         throw new Error(`format d'image illisible (${file.type || "inconnu"}) : utiliser PNG, JPEG, WebP ou GIF`);
     }
+    const projectedScale=Math.min(1,MAX_IMAGE_SIDE/Math.max(bitmap.width,bitmap.height));
+    details.originalWidth=bitmap.width;details.originalHeight=bitmap.height;
+    details.sentWidth=Math.max(1,Math.round(bitmap.width*projectedScale));details.sentHeight=Math.max(1,Math.round(bitmap.height*projectedScale));
+    if(projectedScale<.75||file.size>MAX_IMAGE_BYTES){details.readabilityWarning=`${bitmap.width} × ${bitmap.height} → ${details.sentWidth} × ${details.sentHeight} pixels. La réduction ou compression peut rendre les petits textes et détails difficiles à lire.`;}
+    if(direct&&file.size<=MAX_IMAGE_BYTES&&bitmap.width<=MAX_IMAGE_SIDE&&bitmap.height<=MAX_IMAGE_SIDE){bitmap.close?.();return readAsDataUrl(file);}
     const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
@@ -185,18 +191,18 @@ async function prepareImage(file) {
 
 async function addAttachments(fileList) {
     for (const file of Array.from(fileList || [])) {
-        if (pendingAttachments.length >= MAX_ATTACHMENTS) {
-            renderEntry({ type: "error", text: `Maximum ${MAX_ATTACHMENTS} pièces jointes par message.` });
-            break;
-        }
         const name = file.name || (file.type.startsWith("image/") ? "image-collée.png" : "fichier");
         // Même fichier ajouté deux fois (double glisser-déposer, re-sélection) : ignoré.
         if (pendingAttachments.some((a) => a.name === name && a.size === file.size)) continue;
         try {
             if (file.size === 0) throw new Error("fichier vide");
-            if (file.type.startsWith("image/")) {
+            // Keep SVG source as well as its raster preview. Decode document
+            // encodings in the backend instead of losing bytes with File.text().
+            if (file.type.startsWith("image/") && !["image/svg+xml", "image/gif", "image/tiff"].includes(file.type) && !["svg", "gif", "tif", "tiff"].includes(fileExtension(name))) {
                 try {
-                    pendingAttachments.push({ name, kind: "image", size: file.size, data: await prepareImage(file) });
+                    const details={};
+                    const data=await prepareImage(file,details);
+                    pendingAttachments.push({ name, kind: "image", size: file.size, data, ...details });
                     continue;
                 } catch (err) {
                     // Image non décodable (HEIC, PSD…) : envoyée telle quelle comme fichier.
@@ -205,14 +211,8 @@ async function addAttachments(fileList) {
                 pendingAttachments.push(await prepareFile(file, name));
                 continue;
             }
-            if (!isBinaryFile(file, name) && file.size <= MAX_TEXT_BYTES) {
-                const data = await file.text();
-                if (!data.includes("\u0000")) {
-                    pendingAttachments.push({ name, kind: "text", size: file.size, data });
-                    continue;
-                }
-            }
-            // PDF, Office, archives, autres binaires : envoyés tels quels (Files v2).
+            // Documents are converted locally when sending, via the same path
+            // for file selection, paste, drag and drop, and queued requests.
             pendingAttachments.push(await prepareFile(file, name));
         } catch (err) {
             renderEntry({ type: "error", text: `${name} : ${err.message || err}` });
@@ -221,17 +221,42 @@ async function addAttachments(fileList) {
     renderAttachments();
 }
 
+const imageReadabilityDialog=document.createElement("dialog");
+imageReadabilityDialog.id="image-readability-dialog";imageReadabilityDialog.className="center-dialog image-readability-dialog";
+imageReadabilityDialog.setAttribute("aria-labelledby","image-readability-title");
+imageReadabilityDialog.innerHTML=`<h2 id="image-readability-title">Cette image risque d’être difficile à lire</h2><p class="settings-help">Pour respecter les limites du modèle, les images ci-dessous seront réduites ou compressées. Les petits textes et détails peuvent devenir illisibles.</p><ul id="image-readability-list"></ul><p class="settings-help">Pour une meilleure lecture, recadre la zone utile ou envoie plusieurs captures plus courtes. L’original reste intact.</p><form method="dialog" class="center-dialog-actions"><button value="cancel" autofocus>Revenir aux images</button><button value="send" class="primary">Envoyer quand même</button></form>`;
+document.body.append(imageReadabilityDialog);
+let imageReadabilityPending=false;
+async function confirmImageReadability(attachments){
+    const risky=attachments.filter(item=>item.readabilityWarning);
+    if(!risky.length)return true;
+    if(imageReadabilityPending)return false;
+    imageReadabilityPending=true;
+    const list=$("image-readability-list");list.replaceChildren();
+    for(const item of risky){const row=document.createElement("li"),name=document.createElement("b"),detail=document.createElement("small");name.textContent=item.name;detail.textContent=item.readabilityWarning;row.append(name,detail);list.append(row);}
+    imageReadabilityDialog.returnValue="cancel";
+    return new Promise(resolve=>{
+        imageReadabilityDialog.addEventListener("close",()=>{imageReadabilityPending=false;resolve(imageReadabilityDialog.returnValue==="send");},{once:true});
+        imageReadabilityDialog.showModal();
+    });
+}
+
 async function send(text) {
+    if(ui.replayingConversation){studioFeedback("L’historique de la conversation est encore en cours de chargement.");return;}
+    if(typeof motionChatSwitch!=="undefined" && motionChatSwitch){studioFeedback("Le changement de chat est en cours.");return;}
     const value = text ?? input.value;
     const withFiles = text === undefined && pendingAttachments.length > 0;
     if (!value.trim() && !withFiles) return;
-    const attachments = withFiles ? pendingAttachments : [];
+    if (!ui.status.booted && !value.trim().startsWith("/")) { openConnectionGuide(1); return; }
+    const attachments = withFiles ? [...pendingAttachments] : [];
+    if(withFiles&&!await confirmImageReadability(attachments))return;
     if (text === undefined) {
         if (value.trim()) {
             ui.history.push(value);
             ui.historyIndex = ui.history.length;
         }
         input.value = "";
+        saveStudioDraft();
         if (withFiles) {
             pendingAttachments = [];
             renderAttachments();
@@ -239,8 +264,21 @@ async function send(text) {
     }
     hideSlash();
     try {
-        await api.submit(value, attachments);
+        if (inlineEditingId) {
+            await api.taskQueue("edit", { id: inlineEditingId, prompt: value.trim()||"Analyse les pièces jointes.", attachments });
+            inlineEditingId = null;
+            studioFeedback("Prompt en attente mis à jour.");
+            return;
+        }
+        const result = await api.submit(value, attachments);
+        if (result?.error) throw new Error(result.error);
+        if (result?.queued) studioFeedback("Prompt ajouté à la suite.");
     } catch (err) {
+        if (text === undefined && !input.value) {
+            input.value = value;
+            if (withFiles) { pendingAttachments = attachments; renderAttachments(); }
+            saveStudioDraft(); autosizeInput();
+        }
         renderEntry({ type: "error", text: err.message });
     }
 }
@@ -318,6 +356,7 @@ input.addEventListener("keydown", (ev) => {
     }
     if (ev.key === "Escape") {
         ev.preventDefault();
+        if (inlineEditingId) { inlineEditingId = null; input.value = ""; pendingAttachments=[];renderAttachments();saveStudioDraft(); studioFeedback("Modification annulée."); return; }
         if (menuOpen) hideSlash();
         else if (ui.status.busy) api.interrupt().catch(() => {});
         else input.value = "";
@@ -348,23 +387,63 @@ input.addEventListener("paste", (ev) => {
     ev.preventDefault();
     addAttachments(files);
 });
-$("composer").addEventListener("dragover", (ev) => {
-    if (!ev.dataTransfer || !Array.from(ev.dataTransfer.types || []).includes("Files")) return;
+const attachmentDropZone = $("agent");
+const attachmentDropHint = document.createElement("div");
+attachmentDropHint.className = "attachment-drop-hint hidden";
+attachmentDropHint.setAttribute("role", "status");
+attachmentDropHint.textContent = "Déposez vos fichiers pour les joindre";
+attachmentDropZone.appendChild(attachmentDropHint);
+
+function isFileDrag(ev) {
+    return Array.from(ev.dataTransfer?.types || []).includes("Files") || Boolean(ev.dataTransfer?.files?.length);
+}
+function showAttachmentDrop(active) {
+    attachmentDropZone.classList.toggle("drag-over", active);
+    $("composer").classList.toggle("drag-over", active);
+    attachmentDropHint.classList.toggle("hidden", !active);
+}
+attachmentDropZone.addEventListener("dragenter", (ev) => {
+    if (!isFileDrag(ev)) return;
     ev.preventDefault();
-    $("composer").classList.add("drag-over");
+    showAttachmentDrop(true);
 });
-$("composer").addEventListener("dragleave", (ev) => {
-    // Ignorer les passages d'un enfant à l'autre du composer (sinon la surbrillance clignote).
-    if (ev.relatedTarget && $("composer").contains(ev.relatedTarget)) return;
-    $("composer").classList.remove("drag-over");
-});
-$("composer").addEventListener("drop", (ev) => {
-    $("composer").classList.remove("drag-over");
-    const files = ev.dataTransfer?.files;
-    if (!files || !files.length) return;
+attachmentDropZone.addEventListener("dragover", (ev) => {
+    if (!isFileDrag(ev)) return;
     ev.preventDefault();
-    addAttachments(files);
+    ev.dataTransfer.dropEffect = "copy";
+    showAttachmentDrop(true);
 });
+attachmentDropZone.addEventListener("dragleave", (ev) => {
+    if (ev.relatedTarget && attachmentDropZone.contains(ev.relatedTarget)) return;
+    showAttachmentDrop(false);
+});
+attachmentDropZone.addEventListener("drop", async (ev) => {
+    showAttachmentDrop(false);
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    const files = Array.from(ev.dataTransfer.files || []);
+    if (!files.length) return;
+    await addAttachments(files);
+    input.focus();
+});
+// Prevent Chromium from navigating to a file dropped outside the conversation.
+document.addEventListener("dragover", (ev) => {
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    if (!attachmentDropZone.contains(ev.target)) {
+        ev.dataTransfer.dropEffect = "none";
+        showAttachmentDrop(false);
+    }
+});
+document.addEventListener("drop", (ev) => {
+    if (isFileDrag(ev)) ev.preventDefault();
+    showAttachmentDrop(false);
+});
+document.addEventListener("dragleave", (ev) => {
+    if (!ev.relatedTarget) showAttachmentDrop(false);
+});
+document.addEventListener("dragend", () => showAttachmentDrop(false));
+window.addEventListener("blur", () => showAttachmentDrop(false));
 
 /* ---------- Contexte choisi par l'utilisateur : @fichier épinglé ---------- */
 

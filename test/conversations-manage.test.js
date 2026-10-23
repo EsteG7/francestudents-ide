@@ -9,6 +9,7 @@ const path = require("node:path");
 // Historique isolé dans un dossier temporaire : ne touche jamais au vrai history.json.
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "frst-conv-manage-"));
 process.env.FS_STATE_DIR = dataDir;
+fs.writeFileSync(path.join(dataDir,"history.json"),JSON.stringify([{id:"legacy-manual",title:"Mon titre avant la mise à jour",mode:"agent"}]));
 
 const conversations = require("../src/project/conversations");
 const projects = require("../src/project/projects");
@@ -52,4 +53,17 @@ test("remove retire la conversation et renvoie false si elle n'existe pas", asyn
 
     assert.equal(await conversations.remove("conv-b"), false);
     assert.ok(!readSaved().some((e) => e.id === "conv-b"));
+});
+
+test("AI titles are stored once and never overwrite a manual title",async()=>{
+    await conversations.rename("legacy-manual","Proposition de l’IA","ai");
+    assert.equal((await conversations.find("legacy-manual")).title,"Mon titre avant la mise à jour");
+    await conversations.touch({id:"ai-title",firstMessage:"Fait une animation du site Apple.com pour la sortie de l’iPhone DUO",model:"m"});
+    await conversations.rename("ai-title","Lancement animé de l’iPhone DUO","ai");
+    assert.equal((await conversations.find("ai-title")).title,"Lancement animé de l’iPhone DUO");
+    await conversations.rename("ai-title","Autre proposition","ai");
+    assert.equal((await conversations.find("ai-title")).title,"Lancement animé de l’iPhone DUO");
+    await conversations.rename("ai-title","Mon titre personnel");
+    await conversations.rename("ai-title","Titre automatique","ai");
+    assert.equal(readSaved().find(entry=>entry.id==="ai-title").title,"Mon titre personnel");
 });

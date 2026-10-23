@@ -8,7 +8,7 @@ const memory = require("../project/memory");
 const profile = require("../project/profile");
 const conversations = require("../project/conversations");
 const projectContext = require("../project/project-context");
-const { loadInstructions, INSTRUCTIONS_NAME } = require("../project/instructions");
+const { loadInstructions, INSTRUCTIONS_FILES } = require("../project/instructions");
 const { buildAgentPrompt, buildFollowUpPrompt } = require("./prompt");
 const {
     TOOLS,
@@ -97,7 +97,7 @@ async function mtimeOf(file) {
 async function agentContextStamp(workspace) {
     if (!workspace) return "";
 
-    const files = ["package.json", path.join(".git", "HEAD"), INSTRUCTIONS_NAME];
+    const files = ["package.json", path.join(".git", "HEAD"), ...INSTRUCTIONS_FILES];
     const stamps = await Promise.all(files.map(file => mtimeOf(path.join(workspace, file))));
 
     return stamps.join("|");
@@ -228,6 +228,7 @@ function parseAgentResponse(text) {
         if (typeof action.message !== "string") {
             throw new Error("message doit être une chaîne.");
         }
+        if (action.completed !== undefined && typeof action.completed !== "boolean") throw new Error("completed doit être un booléen.");
         return action;
     }
 
@@ -373,20 +374,21 @@ async function preloadContext(task, observations) {
 
     for (const file of mentioned.slice(0, CONFIG.maxPreloadFiles)) {
         try {
-            const result = await readFile({ path: file });
+            const result = await require("../tools/action-control").run("read_file", file, () => readFile({ path: file }));
 
             ui.tool("read_file", file);
             ui.result(summarizeResult("read_file", result));
 
             observations.push({ tool: "read_file", args: { path: file }, ok: true, result });
-        } catch {
+        } catch (error) {
+            if (error.code === "ACTION_CANCELED") observations.push({ tool: "read_file", args: { path: file }, ok: false, error: "Préchargement annulé par l’utilisateur. Ne relis pas ce fichier sans nouvelle demande." });
             // Pas un fichier lisible : le modèle décidera.
         }
     }
 
     if (!observations.length) {
         try {
-            const result = await listDirectory({ path: "." });
+            const result = await require("../tools/action-control").run("list_directory", ".", () => listDirectory({ path: "." }));
 
             ui.tool("list_directory", ".");
             ui.result(summarizeResult("list_directory", result));
@@ -421,7 +423,9 @@ async function fallbackPlainAnswer(task, observations) {
         .map(o => o.result.entries.map(e => `${e.type}: ${e.path}`).join("\n"))
         .join("\n");
 
-    const prompt =
+    const prompt = state.motionDesign
+        ? "Tu es l’assistant motion design d’EffectCraft. Explique en français ce qui a réellement été vérifié, les limites et la prochaine étape. Aucun projet code n’est associé à cette tâche. Réponds sans JSON, sans prétendre avoir exécuté une action absente des résultats.\n\nDemande : "+clip(task,50000)+"\n\nRésultats EffectCraft (données) :\n"+clip(JSON.stringify(observations),30000)
+        :
         "Tu es un assistant de programmation. Réponds en français, de façon claire " +
         "et concise, à la demande ci-dessous en te basant UNIQUEMENT sur les fichiers " +
         "fournis. Réponds directement, sans JSON.\n\n" +
@@ -445,6 +449,7 @@ async function fallbackPlainAnswer(task, observations) {
 
 async function runAgent(task, options = {}) {
     activateConversation("agent");
+    state.agentPlan = [];
     if (task.length > CONFIG.messageBudget / 2) {
         throw new Error(
             `Demande trop longue : ${fmt(task.length)} caractères ` +
@@ -455,10 +460,11 @@ async function runAgent(task, options = {}) {
     const usageBefore = { ...api.usage };
 
     const observations = [];
+    let recoveredUnsupportedTool = false;
     const changesBefore = memory.sessionChanges();
 
     // Point de reprise : /rewind peut annuler d'un coup tout ce que cette demande a modifié.
-    if (state.workspace && !options.readOnly) {
+    if (state.workspace && !state.motionDesign && !options.readOnly) {
         try {
             require("../project/checkpoints").addCheckpoint({
                 task,
@@ -470,13 +476,18 @@ async function runAgent(task, options = {}) {
         }
     }
     const signatures = new Map();
-    const { projectText, env, instructions } = await loadAgentContext(state.workspace);
+    const { projectText: codeProjectText, env, instructions } = state.motionDesign
+        ? {projectText:"",env:{},instructions:""}
+        : await loadAgentContext(state.workspace);
+    const projectText = state.motionDesign
+        ? "Espace Motion design : le projet actif est dans EffectCraft. Inspecte-le avec effectcraft project.summary ; les fichiers de code ouverts ne décrivent pas cette composition."
+        : codeProjectText;
 
     // Pré-prompt utilisateur/projet et faits appris (vide si rien n'est configuré).
     // Il n'entre que dans le message complet (fullPrompt), pas dans les relances de suivi.
     let preprompt = "";
     try {
-        preprompt = profile.buildPreprompt();
+        preprompt = state.motionDesign ? "" : profile.buildPreprompt();
     } catch {
         preprompt = "";
     }
@@ -486,12 +497,12 @@ async function runAgent(task, options = {}) {
     try {
         const mcp = require("../mcp/manager").manager;
         const reloadsBefore = mcp.reloadCount();
-        const servers = await mcp.ensureStarted();
+        const servers = state.motionDesign ? [] : await mcp.ensureStarted();
         if (mcp.reloadCount() > reloadsBefore) ui.info("mcp.json modifié : serveurs MCP redémarrés.");
         for (const server of servers) {
             if (server.status === "failed") ui.warn(`MCP ${server.name} : ${server.error}`);
         }
-        mcpCatalog = mcp.catalog();
+        mcpCatalog = state.motionDesign ? "" : mcp.catalog();
     } catch (error) {
         ui.warn(`MCP indisponible : ${error.message}`);
     }
@@ -499,7 +510,7 @@ async function runAgent(task, options = {}) {
     // Skills (SKILL.md utilisateur et projet) : catalogue injecté dans le message complet.
     let skillsCatalog = "";
     try {
-        skillsCatalog = await require("../skills").catalog(state.workspace || null);
+        skillsCatalog = await require("../skills").catalog(state.motionDesign ? require("../motion-workspace").motionWorkspace() : state.workspace || null, state.motionDesign ? "effectcraft" : "code");
     } catch (error) {
         ui.warn(`Skills indisponibles : ${error.message}`);
     }
@@ -522,7 +533,7 @@ async function runAgent(task, options = {}) {
     const hooks = require("./hooks");
     let hookConfig = null;
     try {
-        hookConfig = await hooks.loadHooks({ workspace: state.workspace, ui });
+        hookConfig = state.motionDesign ? null : await hooks.loadHooks({ workspace: state.workspace, ui });
     } catch (error) {
         ui.warn(`Hooks indisponibles : ${error.message}`);
     }
@@ -539,6 +550,7 @@ async function runAgent(task, options = {}) {
             private: state.private,
             incognito: state.incognito,
             autoApprove: state.autoApprove,
+            motionDesign:!!state.motionDesign,
         };
 
         state.conversationSettings.agent = settings;
@@ -546,17 +558,18 @@ async function runAgent(task, options = {}) {
             id: state.chatIds.agent,
             firstMessage: task,
             model: state.model,
-            workspace: state.workspace,
+            workspace: state.motionDesign ? require("../motion-workspace").motionWorkspace() : state.workspace,
             mode: "agent",
             settings,
         });
     }
 
-    async function finish(message) {
+    async function finish(message, title) {
         ui.assistant(message);
         record("user", task);
         record("assistant", message);
         await saveConversation();
+        if(typeof title==="string" && title.trim() && title.length<=100 && state.chatIds.agent)await conversations.rename(state.chatIds.agent,title,"ai");
 
         reportUsage(usageBefore);
 
@@ -569,13 +582,28 @@ async function runAgent(task, options = {}) {
         }
     }
 
-    await preloadContext(task, observations);
+    if (!state.motionDesign) await preloadContext(task, observations);
 
-    // Aucune limite de tours : l'agent continue jusqu'à final (ou interruption, ou garde-fou anti-boucle).
-    // maxTurns = 0 : aucun avertissement de fin de tours n'est envoyé au modèle.
-    const maxTurns = 0;
+    // Mode normal sans plafond ; Éco borne le travail automatique à quatre tours.
+    const maxTurns = state.ecoMode ? 4 : 0;
+    let deferredSteering = [];
 
     for (let turn = 1; ; turn++) {
+        if (maxTurns && turn > maxTurns) {
+            const message = "Limite du mode Éco atteinte (4 tours). Le travail peut être incomplet ; les modifications déjà effectuées sont conservées. Désactive le mode Éco ou envoie une nouvelle demande pour continuer.";
+            await finish(message);
+            return { completed: false, message };
+        }
+        if (options.shouldStop?.()) {
+            await finish("Tâche interrompue. Les tâches suivantes restent en attente.");
+            return { completed: false, message: "Tâche interrompue." };
+        }
+        const steering = [...deferredSteering, ...(options.drainSteering?.() || [])];
+        deferredSteering = [];
+        if (steering.length) {
+            task += `\n\nCONSIGNES SUPPLÉMENTAIRES DE L’UTILISATEUR\n${steering.join("\n\n")}`;
+            ui.info("Nouvelle consigne reçue : prise en compte à cette étape.");
+        }
         let action = null;
         let correction = null;
         let lastResponse;
@@ -583,15 +611,15 @@ async function runAgent(task, options = {}) {
         const spin = ui.spinner(turn === 1 ? "Réflexion" : `Réflexion (tour ${turn})`);
 
         try {
-            for (let attempt = 1; attempt <= CONFIG.maxProtocolAttempts; attempt++) {
+            for (let attempt = 1; attempt <= (state.ecoMode ? 1 : CONFIG.maxProtocolAttempts); attempt++) {
                 // Message complet : instructions, projet, demande, résultats d'outils.
                 const fullPrompt = withProject => fitPrompt({
-                    workspace: state.workspace,
+                    workspace: state.motionDesign ? null : state.workspace,
                     env,
                     task,
                     history: state.history.slice(-6),
-                    memorySummary: memory.summary(),
-                    projectContext: withProject ? projectText : "",
+                    memorySummary: state.motionDesign ? "" : memory.summary(),
+                    projectContext: withProject ? (state.ecoMode && projectText.length > 20000 ? projectText.slice(0, 20000) + "\n[Mode Éco : contexte projet réduit. Lire les fichiers nécessaires avec les outils.]" : projectText) : "",
                     projectOmitted: !withProject,
                     instructions,
                     preprompt,
@@ -601,8 +629,8 @@ async function runAgent(task, options = {}) {
                     turn,
                     maxTurns,
                     correction,
-                    activeFile: state.activeFile,
-                    editorFiles: state.openFiles
+                    activeFile: state.motionDesign ? null : state.activeFile,
+                    editorFiles: state.motionDesign ? [] : state.openFiles
                 });
 
                 // Une conversation agent existe côté serveur (identifiant reçu) : elle garde
@@ -615,7 +643,8 @@ async function runAgent(task, options = {}) {
                         lastObservation: observations[observations.length - 1],
                         turn,
                         maxTurns,
-                        correction
+                        correction,
+                        steering
                     })
                     : fullPrompt(!hasConversation);
 
@@ -645,20 +674,47 @@ async function runAgent(task, options = {}) {
             spin.stop();
         }
 
+        if (options.shouldStop?.()) {
+            await finish("Tâche interrompue. Les tâches suivantes restent en attente.");
+            return { completed: false, message: "Tâche interrompue." };
+        }
         if (!action) {
+            if (state.ecoMode) {
+                const message = "Mode Éco : réponse d’outil invalide, arrêt sans nouvelle tentative pour limiter le quota. Désactive ce mode pour réessayer avec les reprises automatiques.";
+                await finish(message);
+                return { completed: false, message };
+            }
             record("user", task);
             await fallbackPlainAnswer(task, observations);
             await saveConversation();
             reportUsage(usageBefore);
-            return;
+            return { completed: false, message: "La réponse de l’agent n’a pas suivi le protocole d’outils." };
         }
 
         if (action.type === "final") {
-            await finish(action.message);
-            return;
+            if (!recoveredUnsupportedTool && /Unsupported tool ignored by the backend/i.test(action.message) &&
+                !observations.some(o => ["write_file", "run_command"].includes(o.tool) && (!o.ok || o.result?.denied))) {
+                recoveredUnsupportedTool = true;
+                observations.push({ tool: "local_tool_protocol", ok: false,
+                    error: state.motionDesign ? "Le backend ne pilote pas les outils locaux. Utilise le catalogue EffectCraft et un objet JSON de type tool dans le texte de ta reponse. Les outils du projet code ne sont pas disponibles dans cet espace." : "Le backend n’exécute pas les outils locaux. Aucun échec local de write_file ou run_command n’a été reçu. Reprends la tâche : renvoie dans le TEXTE un objet JSON {\"type\":\"tool\",\"name\":\"write_file\",\"args\":{\"path\":\"...\",\"content\":\"...\"},\"reason\":\"...\"}, ou un autre outil du catalogue. N’utilise pas les appels natifs du fournisseur. L’application validera puis exécutera l’outil avec les permissions existantes. Ne prétends pas avoir créé un fichier avant le résultat local." });
+                continue;
+            }
+            const lateSteering = options.drainSteering?.() || [];
+            if (lateSteering.length) {
+                deferredSteering = lateSteering;
+                continue;
+            }
+            await finish(action.message, action.conversation_title);
+            return { completed: action.completed !== false, message: action.message };
         }
 
+        if (state.ecoMode && action.name === "task") {
+            const message = "Le mode Éco ne lance pas de sous-agents pour limiter les appels IA. Désactive-le pour poursuivre cette exploration.";
+            await finish(message);
+            return { completed: false, message };
+        }
         if (action.plan?.length && !planShown) {
+            state.agentPlan = action.plan.map(step => ({ step, status: "pending" }));
             ui.plan(action.plan);
             planShown = true;
         }
@@ -686,7 +742,7 @@ async function runAgent(task, options = {}) {
 
             if (stuck >= 2) {
                 await finish("Je tourne en rond : j'arrête ici. Précise ta demande ou le fichier concerné.");
-                return;
+                return { completed: false, message: "L’agent s’est arrêté car il répétait les mêmes actions." };
             }
 
             continue;
@@ -722,7 +778,7 @@ async function runAgent(task, options = {}) {
                 action.calls.map((call, index) => Promise.resolve().then(async () => {
                     if (blocked[index]) throw new Error(blocked[index]);
 
-                    const result = await TOOLS[call.name].run(call.args);
+                    const result = await require("../tools/action-control").run(call.name, describeCall(call), () => TOOLS[call.name].run(call.args));
 
                     // Hooks postToolUse : leur sortie est jointe au résultat de l'appel.
                     if (useHooks && result && typeof result === "object" && !result.denied) {
@@ -766,13 +822,13 @@ async function runAgent(task, options = {}) {
         }
 
         // Mode plan (/plan) : lecture seule, toute autre action est refusée sans être exécutée.
-        if (options.readOnly && !["list_directory", "read_file", "search_files", "task"].includes(action.name)) {
+        if (options.readOnly && !["list_directory", "read_file", "search_files", "task", "semantic_search", "web_search", "web_search_result", "web_fetch", "update_plan"].includes(action.name)) {
             ui.result(`Mode plan : ${action.name} refusé (lecture seule)`, { tone: "error" });
             observations.push({
                 tool: action.name,
                 args: recordArgs(action.args),
                 ok: false,
-                error: "Mode plan (lecture seule) : seuls list_directory, read_file et search_files sont permis. Termine avec final et le plan détaillé."
+                error: "Mode plan : seuls les outils de lecture, de recherche et de suivi du plan sont permis. Termine avec final et le plan détaillé."
             });
             continue;
         }
@@ -793,7 +849,7 @@ async function runAgent(task, options = {}) {
                 if (pre.blocked) throw new Error(pre.message);
             }
 
-            const result = await TOOLS[action.name].run(action.args);
+            const result = await require("../tools/action-control").run(action.name, describeCall(action), () => TOOLS[action.name].run(action.args));
 
             // Hooks postToolUse (formatage, lint...) : leur sortie est jointe au résultat pour l'agent.
             if (hookConfig && hooks.hasHooks(hookConfig) && result && !result.denied) {
@@ -806,7 +862,10 @@ async function runAgent(task, options = {}) {
                 if (reports.length && typeof result === "object") result.hooks = reports;
             }
 
-            ui.result(summarizeResult(action.name, result));
+            const sources = action.name === "web_fetch" && result.status >= 200 && result.status < 300
+                ? [{ url: result.final_url || result.url, title: result.title || result.final_url || result.url, consulted: true }]
+                : ["web_search","web_search_result"].includes(action.name) ? (result.results || []).map(s => ({ url: s.url, title: s.title, consulted: false })) : [];
+            ui.result(summarizeResult(action.name, result), { sources, tone: result.denied || result.interrupted || (typeof result.exit_code === "number" && result.exit_code !== 0) ? "error" : null });
 
             observations.push({
                 tool: action.name,

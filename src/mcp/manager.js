@@ -66,9 +66,18 @@ function parseConfig(raw) {
 /** Texte lisible d'un résultat tools/call (content: [{ type: "text", text }, ...]). */
 function formatToolResult(result) {
     const parts = [];
+    const images = [];
 
     for (const item of Array.isArray(result?.content) ? result.content : []) {
         if (item?.type === "text") parts.push(String(item.text ?? ""));
+        else if (item?.type === "image" && typeof item.data === "string") {
+            images.push({data:item.data,mimeType:item.mimeType});
+            parts.push("[image MCP disponible pour examen visuel]");
+        }
+        else if (item?.type === "resource" && typeof item.resource?.blob === "string" && /^image\//i.test(item.resource.mimeType || "")) {
+            images.push({data:item.resource.blob,mimeType:item.resource.mimeType});
+            parts.push("[image MCP disponible pour examen visuel]");
+        }
         else if (item?.type === "resource" && typeof item.resource?.text === "string") parts.push(item.resource.text);
         else if (item?.type === "resource_link") parts.push(`[ressource] ${item.uri ?? ""}`);
         else if (item?.type) parts.push(`[contenu ${item.type} non affiché]`);
@@ -82,7 +91,7 @@ function formatToolResult(result) {
     const truncated = text.length > MAX_RESULT_CHARS;
     if (truncated) text = `${text.slice(0, MAX_RESULT_CHARS)}\n...[tronqué]`;
 
-    return { text, truncated, isError: result?.isError === true };
+    return { text, truncated, isError: result?.isError === true, ...(images.length ? {images} : {}) };
 }
 
 function compactSchema(schema) {

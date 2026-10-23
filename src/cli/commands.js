@@ -2,7 +2,7 @@
 
 const { state, resetConversation, setConversation } = require("../state");
 const { c } = require("./ui");
-const { ui } = require("../ui-bridge");
+const { ui, getUiBackend } = require("../ui-bridge");
 const memory = require("../project/memory");
 const projectContext = require("../project/project-context");
 const conversations = require("../project/conversations");
@@ -680,7 +680,7 @@ ui.info(
 
     case "/new":
       resetConversation(state.mode === "agent" ? "agent" : "chat");
-      ui.info("Nouvelle conversation.");
+      ui.clear();
       break;
 
     case "/chat-id": {
@@ -716,6 +716,10 @@ ui.info(
 
       const mode = target?.mode === "agent" ? "agent" :
         state.mode === "agent" ? "agent" : "chat";
+      if(typeof getUiBackend().resumeConversation==="function"){
+        await getUiBackend().resumeConversation(id);
+        break;
+      }
       resetConversation(mode);
       setConversation(
         mode,

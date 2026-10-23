@@ -1,0 +1,82 @@
+/* The embedded editor shares the workbench chrome; its artwork remains untouched. */
+.motion-page{display:none}
+#app.view-motion #motion-view{display:flex;flex-direction:column;position:fixed;top:var(--titlebar);bottom:24px;left:48px;width:calc(100vw - 48px - var(--right) - 4px);min-width:0;box-sizing:border-box;background:var(--bg);color:var(--fg);z-index:30;overflow:hidden}
+#app.view-motion.no-agent #motion-view{width:calc(100vw - 48px)}
+#app.view-motion.focus-agent #motion-view{visibility:hidden;pointer-events:none}
+.motion-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;min-height:48px;padding:8px 14px;background:var(--bg-side);border-bottom:1px solid var(--border)}
+.motion-brand,.motion-actions,.motion-commandbar,.motion-commandbar>div{display:flex;align-items:center;gap:8px;min-width:0}
+.motion-brand>svg{width:20px;height:20px;color:var(--link)}
+.motion-brand h1{font-size:13px;font-weight:600;letter-spacing:0;margin:0;color:var(--fg-strong)}
+.motion-pill{font-size:10px;padding:2px 6px;border-radius:5px;background:var(--accent-soft);color:var(--link);border:1px solid var(--border-strong)}
+.motion-page button{font-family:var(--sans);font-size:11px;line-height:1.4;padding:5px 9px;min-height:28px;background:var(--bg-input);border:1px solid var(--border-strong);border-radius:6px;color:var(--fg);white-space:nowrap}
+.motion-page button:hover{background:var(--bg-hover);color:var(--fg-strong)}
+.motion-page button.primary{background:var(--accent);color:white;border-color:transparent}
+.motion-commandbar{flex-wrap:wrap;gap:8px;min-height:38px;padding:5px 10px;border-bottom:1px solid var(--border);background:var(--bg)}
+.motion-commandbar>div{gap:4px}
+.motion-commandbar button{background:transparent;border-color:transparent}
+#motion-engine-status{font-size:10px;color:var(--fg-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:80px}
+#motion-view>#motion-engine{display:flex;flex:1;min-height:0}
+#motion-view>#motion-engine[hidden],.motion-stage[hidden]{display:none}
+.motion-engine-frame{flex:1;min-height:0;overflow:hidden;background:var(--bg-side)}
+.motion-engine-iframe{display:block;width:100%;height:100%;border:0;background:var(--bg-side)}
+.motion-stage{flex:1;display:grid;place-items:center;padding:32px;text-align:center;background:var(--bg)}
+.motion-stage h2{font-size:18px;color:var(--fg-strong)}
+.motion-stage p{font-size:12px;line-height:1.7;color:var(--fg-dim);max-width:460px}
+.motion-consent{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;background:#090c12c9;z-index:5;overflow:auto}
+.motion-consent.hidden-consent{display:none}
+.motion-consent-card{max-width:460px;padding:26px;background:var(--bg-panel);border:1px solid var(--border-strong);border-radius:12px;box-shadow:var(--shadow)}
+.motion-consent-card h2{font-size:20px;letter-spacing:-.4px;color:var(--fg-strong);margin:14px 0}
+.motion-consent-card p{font-size:13px;line-height:1.7;color:var(--fg-dim)}
+.motion-consent-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:22px}
+.agent-motion-badge{font-size:10px;color:var(--link);padding:2px 7px;background:var(--accent-soft);border:1px solid var(--border);border-radius:5px;white-space:nowrap}
+.agent-motion-badge[hidden]{display:none}
+#app.view-motion .starter-context{display:none}
+#app.view-motion #mode-select{display:none}
+#app.view-motion .workspace-section:has(#activity-jobs),#app.view-motion .workspace-section:has(#activity-checkpoints){display:none}
+.motion-mode-switch{display:flex;gap:3px;padding:3px;background:var(--bg);border:1px solid var(--border);border-radius:7px}
+.motion-mode-switch button{border:0;background:transparent;padding:4px 10px;min-height:25px;color:var(--fg-dim)}
+.motion-mode-switch button[aria-pressed="true"]{background:var(--bg-active);color:var(--fg-strong)}
+.motion-intro-steps{padding-left:22px;color:var(--fg);font-size:12px;line-height:1.7}
+.motion-intro-steps li{padding:3px 0}
+.motion-tutorial{position:absolute;z-index:4;right:16px;top:100px;width:min(380px,calc(100% - 32px));max-height:calc(100% - 120px);overflow:auto;background:var(--bg-panel);border:1px solid var(--border-strong);border-radius:12px;padding:20px;box-shadow:var(--shadow)}
+.motion-tutorial-head,.motion-tutorial-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.motion-tutorial-head>span{font-size:10px;letter-spacing:.06em;color:var(--link)}
+.motion-tutorial h2{font-size:19px;letter-spacing:-.4px;color:var(--fg-strong);margin:18px 0}
+.motion-tutorial ol{padding-left:22px;font-size:12px;line-height:1.7;color:var(--fg-dim)}
+.motion-tutorial li{padding:6px 0}
+.motion-tutorial-actions{margin-top:18px}
+.motion-tutorial-note{font-size:10px;line-height:1.6;color:var(--fg-faint);margin-top:16px}
+#app.view-motion .entry.assistant::before{content:'Assistant motion';color:var(--link)}
+#app.view-motion #conversation-import{display:none}
+@media(max-width:1050px){.motion-header{padding:7px 10px}.motion-header button{font-size:10px}.motion-brand{gap:6px}.motion-commandbar{gap:4px}#motion-engine-status{flex-basis:100%;order:2}}
+@media(max-width:760px){#app.view-motion #motion-view{width:calc(100vw - 48px)}.motion-consent-card{padding:20px}}
+
+/* A clear studio header and a dedicated preview transport. */
+.motion-header { gap: 14px; padding: 16px 18px 12px; background: var(--bg-side); }
+.motion-brand { flex: 1 1 180px; gap: 10px; }
+.motion-brand-icon { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--border-strong); border-radius: 10px; color: var(--link); background: var(--accent-soft); }
+.motion-brand-icon svg { width: 22px; height: 22px; }
+.motion-brand-title { display: flex; align-items: center; gap: 8px; }
+.motion-brand h1 { font-size: 15px; font-weight: 650; }
+.motion-brand-copy p { margin: 3px 0 0; font-size: 11px; color: var(--fg-dim); }
+.motion-brand .motion-pill { font-size: 9px; padding: 2px 6px; }
+.motion-actions { flex-wrap: wrap; gap: 6px; }
+.motion-actions button { padding: 7px 10px; min-height: 32px; background: transparent; }
+#motion-local-save { background: var(--accent-soft); color: var(--link); border-color: var(--accent); }
+#motion-close { color: var(--fg-dim); }
+.motion-mode-switch { border-radius: 9px; padding: 4px; }
+.motion-mode-switch button { min-height: 29px; border-radius: 6px; }
+.motion-commandbar { padding: 10px 18px; gap: 12px; background: var(--bg-side); }
+.motion-commandbar .motion-transport { gap: 5px; flex: 0 0 auto; }
+.motion-commandbar button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 7px 11px; border: 1px solid var(--border-strong); background: var(--bg); border-radius: 8px; font-size: 11px; }
+.motion-commandbar button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+.motion-commandbar #motion-play { background: var(--accent); border-color: var(--accent); color: white; padding-inline: 14px; }
+.motion-commandbar #motion-play:hover { background: var(--accent-hover); }
+#motion-play svg,#motion-stop svg { fill: currentColor; stroke-width: 0; }
+.motion-control-divider { height: 20px; width: 1px; background: var(--border-strong); margin: 0 4px; }
+.motion-commandbar .motion-status-group { flex: 1 1 200px; gap: 7px; min-width: 0; }
+.motion-status-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--fg-faint); }
+#motion-engine-status { font-size: 11px; min-width: 0; }
+.motion-commandbar #motion-engine-reload { padding: 6px; min-width: 30px; min-height: 30px; border-color: transparent; background: transparent; color: var(--fg-dim); }
+.motion-page button:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; }
+.motion-page button:disabled { opacity: .5; cursor: default; }

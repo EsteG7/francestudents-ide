@@ -11,6 +11,33 @@ const api = require("../src/api/api");
 const { setUiBackend, getUiBackend } = require("../src/ui-bridge");
 const projectContext = require("../src/project/project-context");
 
+test("changer la taille des extraits invalide les résumés du cache", async () => {
+    const {root, workspace, data} = await makeDirs();
+    const {CONFIG} = require("../src/config");
+    const oldLimit = CONFIG.contextFileChars;
+    const oldPath = memory.projectPath;
+    const oldRequest = api.requestModel;
+    let calls = 0;
+    memory.projectPath = name => path.join(data, name);
+    api.requestModel = async () => {calls++; return "### a.js\nRésumé QA";};
+    setUiBackend({...getUiBackend(), spinner:() => ({stop(){}})});
+    try {
+        await fs.writeFile(path.join(workspace, "a.js"), "const a = 'abcdefghijklmnopqrstuvwxyz';");
+        CONFIG.contextFileChars = 10;
+        await projectContext.load(workspace);
+        CONFIG.contextFileChars = 20;
+        await projectContext.load(workspace);
+        assert.equal(calls, 2, "un extrait différent doit être résumé à nouveau");
+    } finally {
+        CONFIG.contextFileChars = oldLimit;
+        memory.projectPath = oldPath;
+        api.requestModel = oldRequest;
+        setUiBackend(null);
+        projectContext.clear();
+        await fs.rm(root, {recursive:true, force:true});
+    }
+});
+
 async function makeDirs() {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "frst-ctx-"));
     const workspace = path.join(root, "ws");
